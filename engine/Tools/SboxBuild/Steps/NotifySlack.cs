@@ -67,13 +67,15 @@ internal static class NotifySlack
 
 		if ( !string.IsNullOrEmpty( message ) )
 		{
-			blocks.Add( new {
+			blocks.Add( new
+			{
 				type = "section",
 				text = new { type = "mrkdwn", text = message }
 			} );
 		}
 
-		blocks.Add( new {
+		blocks.Add( new
+		{
 			type = "actions",
 			elements = BuildButtons( runUrl, commitUrl, shortSha )
 		} );
@@ -87,7 +89,8 @@ internal static class NotifySlack
 
 		if ( !string.IsNullOrEmpty( runUrl ) )
 		{
-			buttons.Add( new {
+			buttons.Add( new
+			{
 				type = "button",
 				text = new { type = "plain_text", text = "View Run", emoji = true },
 				url = runUrl,
@@ -97,7 +100,8 @@ internal static class NotifySlack
 
 		if ( !string.IsNullOrEmpty( commitUrl ) )
 		{
-			buttons.Add( new {
+			buttons.Add( new
+			{
 				type = "button",
 				text = new { type = "plain_text", text = $"Commit {shortSha}", emoji = true },
 				url = commitUrl
