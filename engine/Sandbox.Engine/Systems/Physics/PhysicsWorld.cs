@@ -453,6 +453,9 @@ public sealed partial class PhysicsWorld : IHandle
 		world.RemoveBody( physicsBody );
 		bodies.Remove( physicsBody );
 	}
+
+	// If a body handle is deleted from native, we can forget it here (empties bodies list of invalid bodies).
+	internal void ForgetBody( PhysicsBody physicsBody ) => bodies.Remove( physicsBody );
 }
 
 [Expose]
