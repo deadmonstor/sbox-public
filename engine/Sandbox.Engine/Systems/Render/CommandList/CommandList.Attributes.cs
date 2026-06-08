@@ -411,5 +411,30 @@ public enum RenderValue
 	MsaaCombo,
 }
 
+/// <summary>
+/// Stable, pipeline-level bindless texture slots. Full-screen resources produced once per frame
+/// (by AO/SSR procedural layers) and consumed by the rest of the pipeline through a fixed
+/// descriptor binding instead of a per-view render attribute. Slots are reset to index 0 at the
+/// start of each frame, so a slot whose producer is skipped reads as "none" (index 0) - they do
+/// not carry over from the previous frame. Values must match the <c>PipelineTextureSlot</c> enum
+/// in common/classes/Bindless.hlsl.
+/// </summary>
+internal enum PipelineTextureSlot
+{
+	/// <summary>
+	/// Screen-space ambient occlusion. When no AO is produced this frame the slot stays at index 0,
+	/// which consumers treat as disabled (no occlusion).
+	/// </summary>
+	AmbientOcclusion = 0,
+
+	/// <summary>
+	/// Dynamic reflections / screen-space reflections. When none is produced this frame the slot stays
+	/// at index 0, which consumers treat as disabled (no reflections).
+	/// </summary>
+	Reflections = 1,
+
+	Count
+}
+
 
 
