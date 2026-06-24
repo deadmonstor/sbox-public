@@ -173,7 +173,7 @@ public class PostProcessingComponentTest
 		var dof = go.Components.Create<DepthOfField>( false );
 		Assert.AreEqual( 30.0f, dof.BlurSize );
 		Assert.AreEqual( 200.0f, dof.FocalDistance );
-		Assert.AreEqual( 500.0f, dof.FocusRange );
+		Assert.AreEqual( 15000.0f, dof.FocusRange );
 		Assert.IsFalse( dof.FrontBlur );
 		Assert.IsTrue( dof.BackBlur );
 
@@ -639,8 +639,8 @@ public class PostProcessingComponentTest
 			Assert.IsNotNull( aoLayer, "AO registers after the depth prepass" );
 			Assert.AreEqual( 0, aoLayer.Order );
 
-			var dofLayer = FindLayer( cam, Stage.AfterTransparent, "Dof" );
-			Assert.IsNotNull( dofLayer, "DoF registers after transparents" );
+			var dofLayer = FindLayer( cam, Stage.AfterViewmodel, "Dof" );
+			Assert.IsNotNull( dofLayer, "DoF registers after viewmodel" );
 			Assert.AreEqual( 100, dofLayer.Order );
 
 			var bloomLayer = FindLayer( cam, Stage.BeforePostProcess, "Bloom" );
@@ -674,7 +674,7 @@ public class PostProcessingComponentTest
 			DepthOfField.Quality = 0;
 			scene.GameTick();
 
-			Assert.IsNull( FindLayer( cam, Stage.AfterTransparent, "Dof" ), "DoF quality 0 skips the effect entirely" );
+			Assert.IsNull( FindLayer( cam, Stage.AfterViewmodel, "Dof" ), "DoF quality 0 skips the effect entirely" );
 		}
 		finally
 		{

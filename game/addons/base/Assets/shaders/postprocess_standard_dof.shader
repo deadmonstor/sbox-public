@@ -59,8 +59,8 @@ PS
 {
     #include "common/classes/Depth.hlsl"
 
-    #define DOF_PASS_COMBINE_FRONT 0
-    #define DOF_PASS_COMBINE_BACK 1
+    #define DOF_PASS_COMBINE_BACK 0
+    #define DOF_PASS_COMBINE_FRONT 1
 
     DynamicCombo( D_DOF_TYPE, 0..1, Sys( PC ) );
 
