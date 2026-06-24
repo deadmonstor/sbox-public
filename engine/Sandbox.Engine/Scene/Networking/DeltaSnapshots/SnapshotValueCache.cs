@@ -5,8 +5,13 @@ namespace Sandbox.Network;
 
 internal class SnapshotValueCache
 {
-	private readonly Dictionary<int, byte[]> _serialized = new();
-	private readonly Dictionary<int, int> _hashCache = new();
+	private readonly Dictionary<int, CacheEntry> _cache = new();
+
+	private struct CacheEntry
+	{
+		public int Hash;
+		public byte[] Bytes;
+	}
 
 	/// <summary>
 	/// Get cached bytes from the specified value if they exist. If the value is different,
@@ -14,34 +19,25 @@ internal class SnapshotValueCache
 	/// </summary>
 	public byte[] GetCached<T>( int slot, in T value, out bool isEqual )
 	{
-		var hash = value?.GetHashCode() ?? 0;
+		var hash = value is null ? 0 : value.GetHashCode();
 
-		ref var cachedHash = ref CollectionsMarshal.GetValueRefOrAddDefault( _hashCache, slot, out bool exists );
+		ref var entry = ref CollectionsMarshal.GetValueRefOrAddDefault( _cache, slot, out bool exists );
 
-		if ( exists && cachedHash == hash )
+		if ( exists && entry.Hash == hash )
 		{
 			isEqual = true;
-			return _serialized[slot];
+			return entry.Bytes;
 		}
 
 		var bytes = GlobalContext.Current.TypeLibrary.ToBytes( value );
-		_serialized[slot] = bytes;
 
-		cachedHash = hash;
+		entry.Hash = hash;
+		entry.Bytes = bytes;
 		isEqual = false;
 
 		return bytes;
 	}
 
-	public void Remove( int slot )
-	{
-		_serialized.Remove( slot );
-		_hashCache.Remove( slot );
-	}
-
-	public void Clear()
-	{
-		_serialized.Clear();
-		_hashCache.Clear();
-	}
+	public void Remove( int slot ) => _cache.Remove( slot );
+	public void Clear() => _cache.Clear();
 }

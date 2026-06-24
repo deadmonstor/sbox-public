@@ -29,7 +29,7 @@ internal interface IDeltaSnapshot
 	/// Update the transmit state for the target <see cref="Connection">connections</see>. This method
 	/// should return true if we should transmit to ANY of these connections.
 	/// </summary>
-	bool UpdateTransmitState( Connection[] targets );
+	bool UpdateTransmitState( Connection[] targets, int[] targetSlots );
 
 	/// <summary>
 	/// Should this snapshot transmit to the target <see cref="Connection"/>?

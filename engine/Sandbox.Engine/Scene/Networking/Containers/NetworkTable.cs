@@ -35,6 +35,9 @@ internal class NetworkTable<T> : INetworkDeltaSnapshot, INetworkProperty, INetwo
 		if ( !CanWriteChanges() )
 			return;
 
+		if ( Parent is INetworkWakeable networkWakeable )
+			networkWakeable.MarkDirty();
+
 		InternalClear();
 	}
 
@@ -64,6 +67,9 @@ internal class NetworkTable<T> : INetworkDeltaSnapshot, INetworkProperty, INetwo
 		Table[slot] = value;
 
 		OnValueChanged( slot, value );
+
+		if ( Parent is INetworkWakeable networkWakeable )
+			networkWakeable.MarkDirty();
 
 		if ( !Keys.Add( slot ) )
 			return;

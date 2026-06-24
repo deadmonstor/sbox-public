@@ -1,4 +1,5 @@
 using Sandbox.Hashing;
+using System.Text;
 
 namespace Sandbox.Network;
 
@@ -19,6 +20,7 @@ internal class RemoteSnapshotState
 
 	// One of these exists per (connection, object) and holds one entry per synced slot -> don't pre-size them
 	private readonly Dictionary<int, PredictedEntry> _predictedData = new();
+
 	public ushort SnapshotId { get; set; }
 	public Guid ObjectId { get; init; }
 
@@ -79,8 +81,7 @@ internal class RemoteSnapshotState
 	/// </summary>
 	public bool IsValueHashEqual( int slot, ulong hash, ushort snapshotId )
 	{
-		if ( Data.TryGetValue( slot, out var e )
-			 && ((snapshotId == e.SnapshotId) || IsNewer( snapshotId, e.SnapshotId )) )
+		if ( Data.TryGetValue( slot, out var e ) && ((snapshotId == e.SnapshotId) || IsNewer( snapshotId, e.SnapshotId )) )
 		{
 			return e.Hash == hash;
 		}
@@ -105,7 +106,7 @@ internal class RemoteSnapshotState
 			return false;
 		}
 
-		if ( Data.TryGetValue( slot, out var e ) )
+		if ( Data.TryGetValue( slot, out var e ) == true )
 		{
 			hash = e.Hash;
 			return true;

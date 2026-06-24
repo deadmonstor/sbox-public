@@ -27,7 +27,7 @@ public abstract partial class GameObjectSystem : IDeltaSnapshot
 
 	bool IDeltaSnapshot.IsProxy => !Networking.IsHost;
 	bool IDeltaSnapshot.ShouldTransmit( Connection target ) => true;
-	bool IDeltaSnapshot.UpdateTransmitState( Connection[] targets ) => true;
+	bool IDeltaSnapshot.UpdateTransmitState( Connection[] targets, int[] targetSlots ) => true;
 	ushort IDeltaSnapshot.SnapshotVersion => 0;
 
 	/// <summary>
@@ -178,7 +178,70 @@ public abstract partial class GameObjectSystem : IDeltaSnapshot
 		RegisterSyncVarProperties();
 	}
 
-	internal readonly LocalSnapshotState LocalSnapshotState = new();
+	// TODO: For now its in here.
+	static internal class ConnectionSlotAllocator
+	{
+		private static readonly Dictionary<Guid, int> _slotsByGuid = new();
+		private static readonly List<int> _freeSlots = new();
+		private static int _nextSlot;
+
+		/// <summary>
+		/// Get this connection's slot, assigning a new one if it doesn't have one yet.
+		/// </summary>
+		public static int GetOrAssignSlot( Connection connection )
+		{
+			return GetOrAssignSlot( connection.Id );
+		}
+
+		public static int GetOrAssignSlot( Guid id )
+		{
+			if ( _slotsByGuid.TryGetValue( id, out var slot ) )
+				return slot;
+
+			if ( _freeSlots.Count > 0 )
+			{
+				var lastIndex = _freeSlots.Count - 1;
+				slot = _freeSlots[lastIndex];
+				_freeSlots.RemoveAt( lastIndex );
+			}
+			else
+			{
+				slot = _nextSlot++;
+			}
+
+			_slotsByGuid[id] = slot;
+			return slot;
+		}
+
+		/// <summary>
+		/// Release a connection's slot when they disconnect, so it can be reused.
+		/// </summary>
+		public static void ReleaseSlot( Connection connection )
+		{
+			ReleaseSlot( connection.Id );
+		}
+
+		public static void ReleaseSlot( Guid id )
+		{
+			if ( _slotsByGuid.Remove( id, out var slot ) )
+				_freeSlots.Add( slot );
+		}
+
+		public static void Reset()
+		{
+			_slotsByGuid.Clear();
+			_freeSlots.Clear();
+			_nextSlot = 0;
+		}
+
+		/// <summary>
+		/// Highest slot value currently handed out + 1 — use this to size your bitmask arrays.
+		/// </summary>
+		public static int SlotCapacity => _nextSlot;
+	}
+
+	// TODO: Hardcoded 128 for now.
+	internal readonly LocalSnapshotState LocalSnapshotState = new( 1000 );
 
 	void IDeltaSnapshot.OnSnapshotAck( Connection source, DeltaSnapshot snapshot, RemoteSnapshotState state )
 	{
@@ -198,9 +261,9 @@ public abstract partial class GameObjectSystem : IDeltaSnapshot
 		}
 
 		if ( hasFullSnapshotState )
-			LocalSnapshotState.UpdatedConnections.Add( source.Id );
+			LocalSnapshotState.MarkConnection( ConnectionSlotAllocator.GetOrAssignSlot( source ), true );
 		else
-			LocalSnapshotState.UpdatedConnections.Remove( source.Id );
+			LocalSnapshotState.MarkConnection( ConnectionSlotAllocator.GetOrAssignSlot( source ), false );
 	}
 
 	LocalSnapshotState IDeltaSnapshot.WriteSnapshotState()

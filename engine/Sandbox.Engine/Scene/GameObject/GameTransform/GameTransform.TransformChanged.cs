@@ -25,6 +25,13 @@ public partial class GameTransform
 
 		InsideChangeCallback = useTargetLocal;
 
+		Revision++;
+
+		if ( GameObject.RootNetwork.RootGameObject?._net is INetworkWakeable net )
+		{
+			net.MarkDirty();
+		}
+
 		try
 		{
 			OnTransformChanged?.Invoke();

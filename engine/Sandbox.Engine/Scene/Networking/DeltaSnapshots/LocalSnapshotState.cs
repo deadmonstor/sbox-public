@@ -1,4 +1,8 @@
 using Sandbox.Hashing;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using static Sandbox.GameObjectSystem;
+using static Sandbox.Network.DeltaSnapshotSystem;
 
 namespace Sandbox.Network;
 
@@ -19,9 +23,50 @@ internal class LocalSnapshotState
 	public readonly List<Entry> Entries = new( 128 );
 	public readonly HashSet<int> RemovedSlots = new( 128 );
 	public readonly Dictionary<int, Entry> Lookup = new( 128 );
-	public readonly HashSet<Guid> UpdatedConnections = new( 128 );
+	public int UpdatedCount { get; internal set; }
+	private readonly ulong[] _updatedConnectionsMask;
+
+	public LocalSnapshotState( int maxConnections )
+	{
+		var requiredLongs = (maxConnections + 63) >> 6;
+		_updatedConnectionsMask = new ulong[Math.Max( requiredLongs, 1 )];
+	}
+
+	public bool IsConnectionUpdated( int connectionSlot )
+	{
+		var index = connectionSlot >> 6;
+		var bit = connectionSlot & 63;
+		return (_updatedConnectionsMask[index] & (1UL << bit)) != 0;
+	}
+
+	public void MarkConnection( int connectionSlot, bool updated )
+	{
+		var index = connectionSlot >> 6;
+		var bit = connectionSlot & 63;
+		var mask = 1UL << bit;
+
+		var isBitSet = (_updatedConnectionsMask[index] & mask) != 0;
+
+		if ( updated )
+		{
+			if ( !isBitSet )
+			{
+				_updatedConnectionsMask[index] |= mask;
+				UpdatedCount++;
+			}
+		}
+		else
+		{
+			if ( isBitSet )
+			{
+				_updatedConnectionsMask[index] &= ~mask;
+				UpdatedCount--;
+			}
+		}
+	}
 
 	public ushort SnapshotId { get; set; }
+	public bool HasSnapshotId { get; set; }
 	public ushort Version { get; set; }
 	public Guid ObjectId { get; set; }
 	public int Size { get; private set; }
@@ -98,6 +143,7 @@ internal class LocalSnapshotState
 	public void Begin()
 	{
 		_isHashInvalid = false;
+		HasSnapshotId = false;
 	}
 
 	/// <summary>
@@ -106,7 +152,9 @@ internal class LocalSnapshotState
 	/// <param name="id"></param>
 	public void RemoveConnection( Guid id )
 	{
-		UpdatedConnections.Remove( id );
+		var slot = ConnectionSlotAllocator.GetOrAssignSlot( id );
+		MarkConnection( slot, false );
+		ConnectionSlotAllocator.ReleaseSlot( id );
 
 		foreach ( var entry in Entries )
 		{
@@ -119,7 +167,8 @@ internal class LocalSnapshotState
 	/// </summary>
 	public void ClearConnections()
 	{
-		UpdatedConnections.Clear();
+		Array.Clear( _updatedConnectionsMask );
+		UpdatedCount = 0;
 
 		foreach ( var entry in Entries )
 		{
@@ -135,7 +184,8 @@ internal class LocalSnapshotState
 		if ( !Lookup.TryGetValue( slot, out var entry ) )
 			return;
 
-		UpdatedConnections.Clear();
+		Array.Clear( _updatedConnectionsMask );
+		UpdatedCount = 0;
 		entry.Connections.Clear();
 		RemovedSlots.Add( slot );
 
@@ -168,6 +218,7 @@ internal class LocalSnapshotState
 			if ( entry.Hash == hash )
 				return;
 
+
 			Size -= entry.Value.Length;
 
 			entry.Hash = hash;
@@ -187,7 +238,8 @@ internal class LocalSnapshotState
 		}
 
 		entry.Connections.Clear();
-		UpdatedConnections.Clear();
+		Array.Clear( _updatedConnectionsMask );
+		UpdatedCount = 0;
 
 		Size += value.Length;
 	}
