@@ -1,20 +1,20 @@
 @namespace Sandbox.UI.Dev.Stats
 @inherits Panel
 
-<root class="statbox"> 
+<root class="statbox">
 
 	<title>Network Stats</title>
-	
+
 	@{
 		var hostConnection = Connection.Host;
-		var peerConnections = Connection.All.Where( c => c != Connection.Local && c != hostConnection ).ToArray();
-		
+		var peerConnections = Connection.All.Where(c => c != Connection.Local && c != hostConnection).ToArray();
+
 		var totalBytesIn = 0f;
 		var totalBytesOut = 0f;
 		var totalPacketsIn = 0f;
 		var totalPacketsOut = 0f;
-		
-		if ( hostConnection is not null )
+
+		if (hostConnection is not null)
 		{
 			var stats = hostConnection.Stats;
 			totalBytesIn += stats.InBytesPerSecond;
@@ -23,7 +23,7 @@
 			totalPacketsOut += stats.OutPacketsPerSecond;
 		}
 
-		foreach ( var c in peerConnections )
+		foreach (var c in peerConnections)
 		{
 			var stats = c.Stats;
 			totalBytesIn += stats.InBytesPerSecond;
@@ -33,19 +33,22 @@
 		}
 
 		var peerCount = peerConnections.Length;
-		if ( hostConnection is not null && hostConnection != Connection.Local )
+		if (hostConnection is not null && hostConnection != Connection.Local)
 			peerCount++;
 	}
 
 	<StatValue Value="@peerCount.ToString()" Title="Peers"></StatValue>
-	<StatValue Value="@((totalBytesIn / 1024f).ToString( "0.00" ))" Title="KB In Per Second"></StatValue>
-	<StatValue Value="@((totalBytesOut / 1024f).ToString( "0.00" ))" Title="KB Out Per Second"></StatValue>
-	<StatValue Value="@totalPacketsIn.ToString( "0.00" )" Title="Packets In Per Second"></StatValue>
-	<StatValue Value="@totalPacketsOut.ToString( "0.00" )" Title="Packets Out Per Second"></StatValue>
+	<StatValue Value="@Scene.All.Sum(x => x.NetworkObjectCount).ToString()" Title="Network Objects"></StatValue>
+	<StatValue Value="@Scene.All.Sum(x => x.NetworkDormantObjectCount).ToString()" Title="Dormant Objects">
+	</StatValue>
+	<StatValue Value="@((totalBytesIn / 1024f).ToString("0.00"))" Title="KB In Per Second"></StatValue>
+	<StatValue Value="@((totalBytesOut / 1024f).ToString("0.00"))" Title="KB Out Per Second"></StatValue>
+	<StatValue Value="@totalPacketsIn.ToString("0.00")" Title="Packets In Per Second"></StatValue>
+	<StatValue Value="@totalPacketsOut.ToString("0.00")" Title="Packets Out Per Second"></StatValue>
 </root>
 
 
 @code
 {
-    protected override int BuildHash() => HashCode.Combine( DateTime.UtcNow.Second );
+	protected override int BuildHash() => HashCode.Combine(DateTime.UtcNow.Second);
 }

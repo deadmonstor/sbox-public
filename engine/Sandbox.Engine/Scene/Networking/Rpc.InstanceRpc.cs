@@ -1,4 +1,6 @@
+using MonoMod.Utils;
 using Sandbox.Utility;
+using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Reflection;
 
@@ -94,10 +96,49 @@ public static partial class Rpc
 
 	static Superluminal _ph = new Superluminal( "Rpc", Color.Cyan );
 
+	static readonly ConcurrentDictionary<MethodInfo, bool> _rpcAttributeCache = new();
+	static bool IsRpcMethod( MethodInfo method )
+	{
+		return _rpcAttributeCache.GetOrAdd( method, static m => m.HasAttribute( typeof( RpcAttribute ) ) );
+	}
+
+	readonly struct TypeSignature : IEquatable<TypeSignature>
+	{
+		public readonly Type[] Types;
+		private readonly int _hash;
+
+		public TypeSignature( Type[] types )
+		{
+			Types = types;
+
+			var hash = new HashCode();
+			for ( int i = 0; i < types.Length; i++ )
+				hash.Add( types[i] );
+
+			_hash = hash.ToHashCode();
+		}
+
+		public bool Equals( TypeSignature other ) => Types.AsSpan().SequenceEqual( other.Types );
+		public override bool Equals( object obj ) => obj is TypeSignature other && Equals( other );
+		public override int GetHashCode() => _hash;
+	}
+
+	static readonly ConcurrentDictionary<(MethodInfo Method, TypeSignature Types), MethodInfo> _genericMethodCache = new();
+	static MethodInfo GetCachedGenericMethod( MethodInfo method, Type[] genericTypes )
+	{
+		var key = (method, new TypeSignature( genericTypes ));
+		return _genericMethodCache.GetOrAdd( key, static k => k.Method.MakeGenericMethod( k.Types.Types ) );
+	}
+
 	static void InvokeInstanceRpc( in SceneRpcMsg rpc, in object targetObject, in Connection source )
 	{
+		using var profilerBefore = _ph.Start( nameof(InvokeInstanceRpc) );
+
 		var typeDesc = Game.TypeLibrary.GetType( targetObject.GetType() );
 		var method = Game.TypeLibrary.GetMemberByIdent( rpc.MethodIdentity )?.MemberInfo as MethodInfo;
+
+		var rpcName = $"{typeDesc.FullName}.{method.Name}";
+		using var profiler = _ph.Start( rpcName );
 
 		if ( method is { DeclaringType.IsGenericTypeDefinition: true } )
 		{
@@ -112,14 +153,11 @@ public static partial class Rpc
 			return;
 		}
 
-		if ( !method.HasAttribute( typeof( RpcAttribute ) ) )
+		if ( !IsRpcMethod( method ) )
 		{
 			source.Kick( "Unauthorized RPC" );
 			return;
 		}
-
-		var rpcName = $"{typeDesc.FullName}.{method.Name}";
-		using var profiler = _ph.Start( rpcName );
 
 		NetworkDebugSystem.Current?.Track( rpcName, rpc, outbound: false, source );
 
@@ -130,13 +168,13 @@ public static partial class Rpc
 				if ( rpc.GenericArguments is not null )
 				{
 					var genericTypes = Game.TypeLibrary.FromIdentities( rpc.GenericArguments );
-					var genericMethod = method.MakeGenericMethod( genericTypes );
+					var genericMethod = GetCachedGenericMethod( method, genericTypes );
 
-					genericMethod.Invoke( targetObject, rpc.Arguments );
+					genericMethod.GetFastInvoker().Invoke( targetObject, rpc.Arguments );
 				}
 				else
 				{
-					method.Invoke( targetObject, rpc.Arguments );
+					method.GetFastInvoker().Invoke( targetObject, rpc.Arguments );
 				}
 			}
 			catch ( Exception e )
@@ -163,7 +201,7 @@ public static partial class Rpc
 			return;
 		}
 
-		if ( !method.HasAttribute( typeof( RpcAttribute ) ) )
+		if ( !IsRpcMethod( method ) )
 		{
 			source.Kick( "Unauthorized RPC" );
 			return;
@@ -181,13 +219,13 @@ public static partial class Rpc
 				if ( rpc.GenericArguments is not null )
 				{
 					var genericTypes = Game.TypeLibrary.FromIdentities( rpc.GenericArguments );
-					var genericMethod = method.MakeGenericMethod( genericTypes );
+					var genericMethod = GetCachedGenericMethod( method, genericTypes );
 
-					genericMethod.Invoke( targetObject, rpc.Arguments );
+					genericMethod.GetFastInvoker().Invoke( targetObject, rpc.Arguments );
 				}
 				else
 				{
-					method.Invoke( targetObject, rpc.Arguments );
+					method.GetFastInvoker().Invoke( targetObject, rpc.Arguments );
 				}
 			}
 			catch ( Exception e )
@@ -369,6 +407,9 @@ public static partial class Rpc
 	private static void SendInstanceRpc( GameObject go, Component component, in WrappedMethod m, object[] argumentList, RpcAttribute attribute )
 	{
 		if ( !go.IsValid() ) return;
+
+		if ( go.FindNetworkRoot()?._net is INetworkWakeable wakeable )
+			wakeable.MarkDirty();
 
 		var networkSystem = SceneNetworkSystem.Instance;
 		if ( networkSystem is null )

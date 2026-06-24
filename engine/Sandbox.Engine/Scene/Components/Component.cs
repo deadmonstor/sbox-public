@@ -107,6 +107,11 @@ public abstract partial class Component : IJsonConvert, IComponentLister, IValid
 			_enabled = value;
 
 			UpdateEnabledStatus();
+
+			if ( GameObject?.RootNetwork.RootGameObject?._net is INetworkWakeable net )
+			{
+				net.MarkDirty();
+			}
 		}
 	}
 

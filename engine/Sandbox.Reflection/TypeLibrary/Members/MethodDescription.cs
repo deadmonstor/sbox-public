@@ -1,4 +1,6 @@
-﻿using Sandbox.Internal;
+﻿using NLog.Targets;
+using Sandbox.Internal;
+using static MonoMod.Utils.FastReflectionHelper;
 
 namespace Sandbox;
 
@@ -21,6 +23,8 @@ public sealed class MethodDescription : MemberDescription
 	public bool IsVirtual { get; private set; }
 
 	private MethodInfo methodInfo => MemberInfo as MethodInfo;
+
+	private FastInvoker fastInvoker => methodInfo.GetFastInvoker();
 
 	/// <summary>
 	/// Gets the return type of this method.
@@ -106,7 +110,7 @@ public sealed class MethodDescription : MemberDescription
 					: throw new ArgumentException( $"No value provided for parameter '{Parameters[i].Name}' and it has no default value." );
 		}
 
-		return methodInfo.Invoke( targetObject, args );
+		return fastInvoker.Invoke( targetObject, args );
 	}
 
 	/// <summary>

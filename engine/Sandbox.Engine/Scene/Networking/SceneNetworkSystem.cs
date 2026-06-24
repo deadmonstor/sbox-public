@@ -26,6 +26,7 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 	{
 		Instance = this;
 		DeltaSnapshots = new( this );
+		GameObjectSystem.ConnectionSlotAllocator.Reset();
 
 		Library = typeLibrary;
 		NetworkSystem = system;
@@ -453,6 +454,8 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 	{
 		base.Dispose();
 
+		GameObjectSystem.ConnectionSlotAllocator.Reset();
+
 		MountedVPKs?.Dispose();
 		MountedVPKs = null;
 
@@ -778,6 +781,7 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 			connection.Input.Clear();
 		}
 
+		GameObjectSystem.ConnectionSlotAllocator.Reset();
 		DeltaSnapshots?.Reset();
 		UserCommand.Reset();
 	}
