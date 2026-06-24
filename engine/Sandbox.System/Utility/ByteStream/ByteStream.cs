@@ -105,6 +105,7 @@ public unsafe ref struct ByteStream
 	/// <summary>
 	/// Ensures buffer can accommodate write with overflow protection
 	/// </summary>
+	[MethodImpl( MethodImplOptions.AggressiveInlining )]
 	public void EnsureCanWrite( int size )
 	{
 		if ( writeData is null )
@@ -150,6 +151,7 @@ public unsafe ref struct ByteStream
 	/// <summary>
 	/// Validates read bounds with overflow protection
 	/// </summary>
+	[MethodImpl( MethodImplOptions.AggressiveInlining )]
 	public readonly void EnsureCanRead( int size )
 	{
 		if ( size < 0 )
@@ -213,6 +215,22 @@ public unsafe ref struct ByteStream
 		if ( len == 0 ) return;
 
 		Write( stream.ToSpan() );
+	}
+
+	public void Write( ReadOnlySpan<byte> data )
+	{
+		var bytesSize = data.Length;
+		if ( bytesSize == 0 ) return;
+
+		EnsureCanWrite( bytesSize );
+
+		ref byte dstRef = ref MemoryMarshal.GetArrayDataReference( writeData! );
+		ref byte dst = ref Unsafe.AddByteOffset( ref dstRef, (IntPtr)position );
+		ref byte src = ref MemoryMarshal.GetReference( data );
+		Unsafe.CopyBlockUnaligned( ref dst, ref src, (uint)bytesSize );
+
+		position += bytesSize;
+		if ( position > usedSize ) usedSize = position;
 	}
 
 	internal void Write<T>( ReadOnlySpan<T> rawData ) where T : unmanaged
@@ -325,11 +343,33 @@ public unsafe ref struct ByteStream
 	/// <summary>
 	/// Get the data as a span. Note this can't be kept around after disposing the ByteStream
 	/// </summary>
+	[MethodImpl( MethodImplOptions.AggressiveInlining )]
 	internal readonly ReadOnlySpan<byte> ToSpan()
 	{
 		return writeData is not null
 			? writeData.AsSpan( 0, usedSize )
 			: readSpan;
+	}
+
+	public void Write( byte value )
+	{
+		EnsureCanWrite( 1 );
+
+		writeData![position] = value;
+		position++;
+		if ( position > usedSize ) usedSize = position;
+	}
+
+	public void Write( int value )
+	{
+		EnsureCanWrite( 4 );
+
+		ref byte dstRef = ref MemoryMarshal.GetArrayDataReference( writeData! );
+		ref byte target = ref Unsafe.AddByteOffset( ref dstRef, position );
+		Unsafe.WriteUnaligned( ref target, value );
+
+		position += 4;
+		if ( position > usedSize ) usedSize = position;
 	}
 
 	/// <summary>
@@ -628,18 +668,10 @@ public unsafe ref struct ByteStream
 
 			EnsureCanWrite( bytes );
 
-			var handle = GCHandle.Alloc( array, GCHandleType.Pinned );
-
-			try
-			{
-				var src = (void*)handle.AddrOfPinnedObject();
-				var srcSpan = new ReadOnlySpan<byte>( src, bytes );
-				srcSpan.CopyTo( writeData!.AsSpan( position, bytes ) );
-			}
-			finally
-			{
-				handle.Free();
-			}
+			ref byte dstRef = ref MemoryMarshal.GetArrayDataReference( writeData! );
+			ref byte dst = ref Unsafe.AddByteOffset( ref dstRef, (IntPtr)position );
+			ref byte src = ref MemoryMarshal.GetArrayDataReference( array );
+			Unsafe.CopyBlockUnaligned( ref dst, ref src, (uint)bytes );
 
 			position += bytes;
 			if ( position > usedSize ) usedSize = position;
@@ -674,25 +706,19 @@ public unsafe ref struct ByteStream
 			if ( newPos > usedSize || newPos < 0 )
 				throw new IndexOutOfRangeException( $"Read exceeds buffer (pos:{position}, size:{bytes}, buffer:{BufferSize})" );
 
-			var handle = GCHandle.Alloc( array, GCHandleType.Pinned );
+			ref byte dst = ref MemoryMarshal.GetArrayDataReference( array );
 
-			try
+			if ( writeData is not null )
 			{
-				var dst = (void*)handle.AddrOfPinnedObject();
-
-				var dstSpan = new Span<byte>( dst, bytes );
-				if ( writeData is not null )
-				{
-					writeData.AsSpan( position, bytes ).CopyTo( dstSpan );
-				}
-				else
-				{
-					readSpan.Slice( position, bytes ).CopyTo( dstSpan );
-				}
+				ref byte srcRef = ref MemoryMarshal.GetArrayDataReference( writeData );
+				ref byte src = ref Unsafe.AddByteOffset( ref srcRef, (IntPtr)position );
+				Unsafe.CopyBlockUnaligned( ref dst, ref src, (uint)bytes );
 			}
-			finally
+			else
 			{
-				handle.Free();
+				ref byte srcRef = ref MemoryMarshal.GetReference( readSpan );
+				ref byte src = ref Unsafe.AddByteOffset( ref srcRef, (IntPtr)position );
+				Unsafe.CopyBlockUnaligned( ref dst, ref src, (uint)bytes );
 			}
 
 			position = newPos;

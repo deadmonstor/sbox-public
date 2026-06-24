@@ -35,15 +35,17 @@ public abstract partial class Connection
 
 		if ( src.Length > MinimumCompressionByteCount )
 		{
-			var compressed = LZ4.CompressBlock( src );
+			var maxLength = LZ4.GetCompressBound( src.Length );
+			using var compressed = new PooledSpan<byte>( maxLength );
+			var compressedLen = LZ4.CompressBlock( src, compressed.Span );
 
-			if ( compressed.Length < src.Length )
+			if ( compressedLen < src.Length )
 			{
-				var outputSize = 1 + sizeof( int ) + compressed.Length;
+				var outputSize = 1 + sizeof( int ) + compressedLen;
 				var output = GC.AllocateUninitializedArray<byte>( outputSize );
 				output[0] = FlagCompressed;
 				BinaryPrimitives.WriteInt32LittleEndian( output.AsSpan( 1 ), src.Length );
-				compressed.CopyTo( output.AsSpan( 1 + sizeof( int ) ) );
+				compressed.Span.Slice( 0, compressedLen ).CopyTo( output.AsSpan( 1 + sizeof( int ) ) );
 				return output;
 			}
 		}

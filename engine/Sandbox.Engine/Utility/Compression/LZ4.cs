@@ -22,6 +22,11 @@ public static class LZ4
 	}
 
 	/// <summary>
+	/// Returns the maximum size an LZ4 block could be when compressed.
+	/// </summary>
+	public static int GetCompressBound( int size ) => NativeEngine.LZ4Glue.CompressBound( size );
+
+	/// <summary>
 	/// Encode data as an LZ4 block.
 	/// </summary>
 	/// <param name="data">Input buffer</param>
@@ -35,22 +40,39 @@ public static class LZ4
 		int maxLength = NativeEngine.LZ4Glue.CompressBound( data.Length );
 		using var compressed = new PooledSpan<byte>( maxLength );
 
+		int resultLength = CompressBlock( data, compressed.Span, compressionLevel );
+
+		return compressed.Span.Slice( 0, resultLength ).ToArray();
+	}
+
+	/// <summary>
+	/// Encode data as an LZ4 block into a destination span.
+	/// </summary>
+	/// <param name="data">Input buffer</param>
+	/// <param name="destination">Destination buffer</param>
+	/// <param name="compressionLevel">Compression level to use</param>
+	/// <returns>Number of bytes written to destination</returns>
+	public static int CompressBlock( ReadOnlySpan<byte> data, Span<byte> destination, CompressionLevel compressionLevel = CompressionLevel.Fastest )
+	{
+		if ( data.IsEmpty )
+			return 0;
+
 		int resultLength;
 		unsafe
 		{
 			fixed ( byte* srcPtr = data )
-			fixed ( byte* dstPtr = compressed.Span )
+			fixed ( byte* dstPtr = destination )
 			{
 				int level = CompressionLevelToLZ4Level( compressionLevel );
 				if ( level <= 1 )
 				{
 					// Use fast compression
-					resultLength = NativeEngine.LZ4Glue.Compress( (nint)srcPtr, (nint)dstPtr, data.Length, maxLength );
+					resultLength = NativeEngine.LZ4Glue.Compress( (nint)srcPtr, (nint)dstPtr, data.Length, destination.Length );
 				}
 				else
 				{
 					// Use HC (high compression) mode
-					resultLength = NativeEngine.LZ4Glue.CompressHC( (nint)srcPtr, (nint)dstPtr, data.Length, maxLength, level );
+					resultLength = NativeEngine.LZ4Glue.CompressHC( (nint)srcPtr, (nint)dstPtr, data.Length, destination.Length, level );
 				}
 			}
 		}
@@ -58,7 +80,7 @@ public static class LZ4
 		if ( resultLength <= 0 )
 			throw new InvalidDataException( "LZ4 encode failed." );
 
-		return compressed.Span.Slice( 0, resultLength ).ToArray();
+		return resultLength;
 	}
 
 

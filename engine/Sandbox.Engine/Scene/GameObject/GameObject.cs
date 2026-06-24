@@ -89,6 +89,11 @@ public partial class GameObject : IJsonConvert, IComponentLister, BytePack.ISeri
 			_enabled = value;
 
 			UpdateEnabledStatus();
+
+			if ( RootNetwork.RootGameObject?._net is INetworkWakeable net )
+			{
+				net.MarkDirty();
+			}
 		}
 	}
 
@@ -311,6 +316,11 @@ public partial class GameObject : IJsonConvert, IComponentLister, BytePack.ISeri
 	{
 		// Clear any local interpolation when our parent changes. This will also call TransformChanged.
 		Transform.ClearLocalInterpolation();
+
+		if ( RootNetwork.RootGameObject?._net is INetworkWakeable net )
+		{
+			net.MarkDirty();
+		}
 
 		//
 		// Tags could have changed

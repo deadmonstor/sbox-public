@@ -21,7 +21,7 @@ internal sealed partial class NetworkObject
 	void CreateDataTable()
 	{
 		dataTable?.Dispose();
-		dataTable = new();
+		dataTable = new( this );
 
 		RegisterPropertiesRecursive( GameObject );
 	}
@@ -58,6 +58,9 @@ internal sealed partial class NetworkObject
 	{
 		var type = instance.GetType();
 
+		Func<Connection, bool> ownerControlCondition = HasControl;
+		Func<Connection, bool> hostControlCondition = c => c.IsHost;
+
 		// Register all our Sync properties with the data table.
 		foreach ( var propertyAndAttribute in ReflectionQueryCache.SyncProperties( type ) )
 		{
@@ -72,7 +75,7 @@ internal sealed partial class NetworkObject
 				var entry = new NetworkTable.Entry
 				{
 					TargetType = propertyAndAttribute.Property.PropertyType,
-					ControlCondition = c => isHostSync ? c.IsHost : HasControl( c ),
+					ControlCondition = isHostSync ? hostControlCondition : ownerControlCondition,
 					GetValue = () => propertyAndAttribute.Property.GetValue( instance ),
 					SetValue = ( v ) => propertyAndAttribute.Property?.SetValue( instance, v ),
 					NeedsQuery = isQuery,
