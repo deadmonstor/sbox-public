@@ -1,4 +1,5 @@
 using System;
+using System.Text.Json.Nodes;
 using Sandbox.Internal;
 using Sandbox.Network;
 using SceneTests;
@@ -670,8 +671,61 @@ public class NetworkTest
 		scene.Destroy();
 	}
 
+	[TestMethod]
+	public void FromHostPropertyNotOverwrittenByRefresh()
+	{
+		var scene = new Scene();
+		using var scope = scene.Push();
+
+		using var clientAndHost = new ClientAndHost( TypeLibrary );
+
+		clientAndHost.BecomeHost();
+
+		var go = new GameObject();
+		go.Parent = scene;
+
+		var comp = go.Components.Create<FromHostPropertyComponent>();
+		go.NetworkSpawn( clientAndHost.Client );
+
+		Assert.AreEqual( 1, comp.FromHostInt );
+
+		comp.FromHostInt = 6;
+		Assert.AreEqual( 6, comp.FromHostInt );
+
+		var refreshMsg = go._net.GetRefreshMessage();
+		var rootJson = JsonNode.Parse( refreshMsg.JsonData ).AsObject();
+
+		if ( rootJson[GameObject.JsonKeys.Components] is JsonArray components )
+		{
+			foreach ( var node in components )
+			{
+				if ( node is not JsonObject componentJson )
+					continue;
+
+				if ( componentJson.TryGetPropertyValue( Component.JsonKeys.Id, out var idNode )
+					&& idNode.GetValue<Guid>() == comp.Id )
+				{
+					componentJson[nameof( FromHostPropertyComponent.FromHostInt )] = 1;
+					break;
+				}
+			}
+		}
+
+		refreshMsg.JsonData = rootJson.ToJsonString();
+
+		go._net.OnRefreshMessage( clientAndHost.Client, refreshMsg );
+
+		Assert.AreEqual( 6, comp.FromHostInt, "FromHost property should not be overwritten by network refresh on the host" );
+	}
+
 	private class NetworkTestComponent : Component
 	{
 		[Sync] public int SyncInt { get; set; }
+	}
+
+	private class FromHostPropertyComponent : Component
+	{
+		[Property, Sync( SyncFlags.FromHost )]
+		public int FromHostInt { get; set; } = 1;
 	}
 }
