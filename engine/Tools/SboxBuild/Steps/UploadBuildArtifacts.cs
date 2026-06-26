@@ -35,11 +35,16 @@ internal class UploadBuildArtifacts
 		"templates/**"
 	};
 
-	// What to strip,  debug symbols, uncompiled files, etc.
+	// What to strip - debug symbols, uncompiled source assets, etc.
+	// Mirrors the FileExclusion entries in steamworks/depot.game.content.vdf
+	// (Steam's '*' crosses path separators, so those map to '**' globs here).
 	private static readonly string[] ExcludeGlobs =
 	{
+		// Debug symbols (not in the depot, but pointless to ship)
 		"**/*.pdb",
 		"**/*.dbg",
+
+		// Uncompiled source assets
 		"**/*.psd",
 		"**/*.exr",
 		"**/*.tif",
@@ -52,12 +57,111 @@ internal class UploadBuildArtifacts
 		"**/*.lxo",
 		"**/*.vmdl",
 		"**/*.vmat",
+
+		// Code objects / project files / intermediates
 		"**/obj/**",
 		"**/*.sln",
 		"**/*.csproj",
 		"**/*.codegen",
 		"**/.intermediate/**",
-		"**/*.code-workspace"
+		"**/.vs/**",
+		"**/*.code-workspace",
+		"**/unittest/**",
+		"addons/*/Properties/**",
+
+		"**/materials/**/*.txt",
+
+		// core/ uncompiled bits not covered by the blanket globs above
+		"core/**/*.meta",
+		"core/debug/**/*.tga",
+		"core/dev/**/*.tga",
+		"core/materials/**/*.png",
+		"core/textures/**/*.png",
+
+		// core/sounds - allow core/sounds/editor/*.wav, strip the rest of the raws
+		"core/sounds/**/*.sound",
+		"core/sounds/ambience/**/*.wav",
+		"core/sounds/footsteps/**/*.wav",
+		"core/sounds/impacts/**/*.wav",
+		"core/sounds/physics/**/*.wav",
+		"core/sounds/water/**/*.wav",
+
+		// Shader source - explicitly not allowed to ship
+		"core/shaders/ambient_cube.fxc",
+		"core/shaders/baked_lighting_constants.fxc",
+		"core/shaders/bump_strength.fxc",
+		"core/shaders/encoded_normals.fxc",
+		"core/shaders/ffd.fxc",
+		"core/shaders/instancing.fxc",
+		"core/shaders/irradiance_probe_lighting.fxc",
+		"core/shaders/irradiance_volume.fxc",
+		"core/shaders/light_probe_volume.fxc",
+		"core/shaders/math_general.fxc",
+		"core/shaders/mathlib_base.fxc",
+		"core/shaders/morph.fxc",
+		"core/shaders/octohedral_encoding.fxc",
+		"core/shaders/parallax_occlusion.fxc",
+		"core/shaders/pcss.fxc",
+		"core/shaders/post_process_common.fxc",
+		"core/shaders/quad_overdraw_ps.fxc",
+		"core/shaders/sheet_sampling.fxc",
+		"core/shaders/sky.fxc",
+		"core/shaders/ssbump.fxc",
+		"core/shaders/transform_buffer.fxc",
+		"core/shaders/volumetric_fog.fxc",
+		"core/shaders/vs_decompress.fxc",
+
+		"core/shaders/complex.shader",
+		"core/shaders/copytexture.shader",
+		"core/shaders/cs_compress_dxt5.shader",
+		"core/shaders/cs_volumetric_fog.shader",
+		"core/shaders/debug_show_texture.shader",
+		"core/shaders/debug_wireframe_2d.shader",
+		"core/shaders/debugoverlay_wireframe.shader",
+		"core/shaders/depth_only.shader",
+		"core/shaders/downsample_depth.shader",
+		"core/shaders/error.shader",
+		"core/shaders/eyeball.shader",
+		"core/shaders/generic.shader",
+		"core/shaders/morph_composite.shader",
+		"core/shaders/simple.shader",
+		"core/shaders/skin.shader",
+		"core/shaders/sky.shader",
+		"core/shaders/static_overlay.shader",
+		"core/shaders/tonemap_query.shader",
+		"core/shaders/tools_2d_generic.shader",
+		"core/shaders/tools_generic.shader",
+		"core/shaders/tools_light_probe.shader",
+		"core/shaders/tools_selection_outline.shader",
+		"core/shaders/tools_selection_overlay.shader",
+		"core/shaders/tools_selection_stencil_copy.shader",
+		"core/shaders/tools_shading_complexity.shader",
+		"core/shaders/tools_solid.shader",
+		"core/shaders/tools_sprite.shader",
+		"core/shaders/tools_textured_unlit.shader",
+		"core/shaders/tools_visualize_collision_mesh.shader",
+		"core/shaders/tools_visualize_tangent_frame.shader",
+		"core/shaders/tools_wireframe.shader",
+		"core/shaders/ui.shader",
+		"core/shaders/unlit.shader",
+		"core/shaders/visualize_quad_overdraw.shader",
+
+		// addons raw assets
+		"addons/**/*.tga",
+		"addons/citizen/Assets/models/**/*_color.png",
+		"addons/citizen/Assets/models/**/*_normal.png",
+		"addons/citizen/Assets/models/**/*_bentnormal.png",
+		"addons/citizen/Assets/models/**/*_depth.png",
+		"addons/citizen/Assets/models/**/*_translucency.png",
+		"addons/citizen/Assets/models/**/*_alpha.png",
+		"addons/citizen/Assets/models/**/*_opacity.png",
+		"addons/citizen/Assets/models/**/*_specular.png",
+		"addons/citizen/Assets/models/**/*_direction.png",
+		"addons/citizen/Assets/models/**/*_rough.png",
+		"addons/citizen/Assets/models/**/*_roughness.png",
+		"addons/citizen/Assets/models/**/*_ao.png",
+		"addons/citizen/Assets/models/**/*_ambient.png",
+		"addons/citizen/Assets/models/**/*_metal.png"
 	};
 
 	internal ExitCode Run()
