@@ -13,6 +13,11 @@ public static partial class Rpc
 	{
 		NetworkDebugSystem.Current?.Record( NetworkDebugSystem.MessageType.Rpc, rpc );
 
+		if ( !RateLimitCheck( source, rpc.MethodIdentity ) )
+		{
+			return;
+		}
+
 		if ( rpc.Guid == Guid.Empty )
 		{
 			Log.Warning( $"OnObjectMessage: Failed to call RPC with identity '{rpc.MethodIdentity}' for unknown GameObject" );
@@ -63,6 +68,11 @@ public static partial class Rpc
 	internal static void IncomingInstanceRpcMsg( SceneRpcMsg message, Connection source )
 	{
 		NetworkDebugSystem.Current?.Record( NetworkDebugSystem.MessageType.Rpc, message );
+
+		if ( !RateLimitCheck( source, message.MethodIdentity ) )
+		{
+			return;
+		}
 
 		if ( message.Guid == Guid.Empty )
 		{
