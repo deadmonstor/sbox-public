@@ -61,6 +61,7 @@ internal partial class NetworkSystem
 		AddHandler<ServerDataMsg>( OnReceiveServerData );
 		AddHandler<ServerNameMsg>( OnReceiveServerName );
 		AddHandler<MapNameMsg>( OnReceiveMapName );
+		AddHandler<MaxPlayersMsg>( OnReceiveMaxPlayers );
 		AddHandler<LogMsg>( OnLogMsg );
 	}
 
@@ -168,6 +169,20 @@ internal partial class NetworkSystem
 		}
 
 		Networking.MapName = data.Name;
+	}
+
+	/// <summary>
+	/// We have received a changed max players value.
+	/// </summary>
+	void OnReceiveMaxPlayers( MaxPlayersMsg data, Connection source, Guid msgId )
+	{
+		if ( !source.IsHost )
+		{
+			Log.Warning( "Got MaxPlayersMsg - but not from host!" );
+			return;
+		}
+
+		Networking.MaxPlayers = data.MaxPlayers;
 	}
 
 	/// <summary>
