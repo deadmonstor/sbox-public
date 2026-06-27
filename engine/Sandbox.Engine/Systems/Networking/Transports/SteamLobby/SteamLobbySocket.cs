@@ -224,6 +224,13 @@ internal class SteamLobbySocket : NetworkSocket, ILobby
 
 	internal override void SetMaxPlayers( int maxPlayers )
 	{
+		if ( maxPlayers > 250 )
+		{
+			// Steam lobby max members is 250, so we can't set it higher than that.
+			Log.Warning( $"SteamLobbySocket - Max players set to {maxPlayers}, but Steam lobby max is 250. Setting to 250." );
+			maxPlayers = 250;
+		}
+
 		SteamLobby.MaxMembers = maxPlayers;
 	}
 
