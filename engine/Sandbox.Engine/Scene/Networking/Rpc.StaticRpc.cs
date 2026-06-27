@@ -12,6 +12,11 @@ public static partial class Rpc
 	{
 		NetworkDebugSystem.Current?.Record( NetworkDebugSystem.MessageType.Rpc, message );
 
+		if ( !RateLimitCheck( source, message.MethodIdentity ) )
+		{
+			return;
+		}
+
 		if ( Game.TypeLibrary.GetMemberByIdent( message.MethodIdentity ) is not MethodDescription method )
 		{
 			throw new( $"Unknown Static RPC type for method with identity '{message.MethodIdentity}'" );
