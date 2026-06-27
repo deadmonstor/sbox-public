@@ -27,7 +27,7 @@ internal partial class NetworkSystem
 	/// </summary>
 	internal bool IsDisconnecting { get; set; }
 
-	public LobbyConfig Config { get; internal init; }
+	public LobbyConfig Config { get; internal set; }
 	public ConnectionInfoManager ConnectionInfo { get; }
 	public HostStats HostStats { get; private set; }
 	public string DebugName { get; }
