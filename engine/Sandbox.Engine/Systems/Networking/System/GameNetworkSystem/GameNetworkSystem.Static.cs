@@ -138,6 +138,7 @@ internal static class DedicatedServer
 	private static Dictionary<string, string> _data = new();
 	private static string _mapName;
 	private static string _name;
+	private static int _maxPlayers;
 	private static LobbyPrivacy _privacy;
 
 	/// <summary>
@@ -200,23 +201,28 @@ internal static class DedicatedServer
 	/// </summary>
 	public static int MaxPlayers
 	{
-		get => Networking.MaxPlayers;
+		get => _maxPlayers;
 		set
 		{
+			var minPlayers = Application.GamePackage?.Info.MinPlayers ?? 1;
+			var maxPlayers = Application.GamePackage?.Info.MaxPlayers ?? int.MaxValue;
+
+			value = value.Clamp( minPlayers, maxPlayers );
+
 			var sgs = Steam.SteamGameServer();
 			if ( !sgs.IsValid || !Networking.IsHost )
 			{
-				Networking.MaxPlayers = value;
+				_maxPlayers = value;
 				return;
 			}
 
-			if ( Networking.MaxPlayers == value )
+			if ( _maxPlayers == value )
 				return;
 
 			sgs.SetMaxPlayerCount( value );
 			sgs.SetAdvertiseServerActive( true );
 
-			Networking.MaxPlayers = value;
+			_maxPlayers = value;
 		}
 	}
 
@@ -228,7 +234,23 @@ internal static class DedicatedServer
 		get => _privacy;
 		set
 		{
-			// TODO: Does nothing right now, but we should be able to set the privacy mode of a dedicated server.
+			if ( _privacy == value )
+				return;
+
+			_privacy = value;
+
+			var sgs = Steam.SteamGameServer();
+			if ( !sgs.IsValid || !Networking.IsHost )
+			{
+				_privacy = value;
+				return;
+			}
+
+			if ( value == LobbyPrivacy.FriendsOnly )
+				Log.Warning( "Dedicated server privacy set to friends only, this is not supported." );
+
+			SetData( "hdn", value == LobbyPrivacy.Public ? "0" : "1" );
+			// TODO: This doesnt actually stop people from joining, it just hides the server from the server list.
 		}
 	}
 

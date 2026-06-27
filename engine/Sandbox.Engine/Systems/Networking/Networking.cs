@@ -61,6 +61,7 @@ public static partial class Networking
 	private static string _serverName;
 	private static string _mapName;
 	private static int _maxPlayers;
+	private static LobbyPrivacy _privacy;
 
 	/// <summary>
 	/// The name of the server you are currently connected to.
@@ -120,8 +121,13 @@ public static partial class Networking
 	public static int MaxPlayers
 	{
 		get => _maxPlayers;
-		internal set
+		set
 		{
+			var minPlayers = Application.GamePackage?.Info.MinPlayers ?? 1;
+			var maxPlayers = Application.GamePackage?.Info.MaxPlayers ?? int.MaxValue;
+
+			value = value.Clamp( minPlayers, maxPlayers );
+
 			if ( _maxPlayers == value )
 				return;
 
@@ -135,9 +141,32 @@ public static partial class Networking
 				s.SetMaxPlayers( value );
 			}
 
-			// TODO: Wonder if there is a max and min?
 			var msg = new MaxPlayersMsg { MaxPlayers = value };
 			System.Broadcast( msg, Connection.ChannelState.Welcome );
+		}
+	}
+
+	/// <summary>
+	/// The privacy mode of the server you're connected to.
+	/// </summary>
+	/// <remarks> Friends only mode only works for Steam lobbies, not dedicated servers. </remarks>
+	public static LobbyPrivacy Privacy
+	{
+		get => _privacy;
+		set
+		{
+			if ( _privacy == value )
+				return;
+
+			_privacy = value;
+
+			if ( !IsHost || System is null )
+				return;
+
+			foreach ( var s in System.Sockets )
+			{
+				s.SetPrivacy( value );
+			}
 		}
 	}
 
