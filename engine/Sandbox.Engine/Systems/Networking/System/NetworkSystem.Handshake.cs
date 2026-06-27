@@ -184,6 +184,20 @@ internal partial class NetworkSystem
 		Log.Info( $"{msg.Name} [{msg.SteamId}] is connecting" );
 
 		//
+		// If the lobby is set to Private, don't allow anyone to join.
+		// For Steam Lobbies this will be a player for dedicated server this will kick everyone.
+		//
+		if ( Config.Privacy == LobbyPrivacy.Private && msg.SteamId != Utility.Steam.SteamId )
+		{
+			if ( source is not SteamLobbyConnection )
+			{
+				Log.Info( $"Kicked {msg.Name} [{msg.SteamId}] - server is private" );
+				source.Kick( "This server is Private." );
+				return;
+			}
+		}
+
+		//
 		// If the lobby is set to FriendsOnly, only allow players who are Steam friends with the host.
 		//
 		if ( !Application.IsDedicatedServer && Config.Privacy == LobbyPrivacy.FriendsOnly )

@@ -163,6 +163,8 @@ public static partial class Networking
 			if ( !IsHost || System is null )
 				return;
 
+			System.Config = System.Config with { Privacy = value };
+
 			foreach ( var s in System.Sockets )
 			{
 				s.SetPrivacy( value );

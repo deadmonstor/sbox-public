@@ -250,7 +250,6 @@ internal static class DedicatedServer
 				Log.Warning( "Dedicated server privacy set to friends only, this is not supported." );
 
 			SetData( "hdn", value == LobbyPrivacy.Public ? "0" : "1" );
-			// TODO: This doesnt actually stop people from joining, it just hides the server from the server list.
 		}
 	}
 
