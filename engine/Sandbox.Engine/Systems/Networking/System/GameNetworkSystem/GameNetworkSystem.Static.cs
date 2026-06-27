@@ -138,6 +138,7 @@ internal static class DedicatedServer
 	private static Dictionary<string, string> _data = new();
 	private static string _mapName;
 	private static string _name;
+	private static LobbyPrivacy _privacy;
 
 	/// <summary>
 	/// All metadata for this dedicated server.
@@ -191,6 +192,43 @@ internal static class DedicatedServer
 			sgs.SetAdvertiseServerActive( true );
 
 			_mapName = value;
+		}
+	}
+
+	/// <summary>
+	/// The maximum number of players allowed on this dedicated server.
+	/// </summary>
+	public static int MaxPlayers
+	{
+		get => Networking.MaxPlayers;
+		set
+		{
+			var sgs = Steam.SteamGameServer();
+			if ( !sgs.IsValid || !Networking.IsHost )
+			{
+				Networking.MaxPlayers = value;
+				return;
+			}
+
+			if ( Networking.MaxPlayers == value )
+				return;
+
+			sgs.SetMaxPlayerCount( value );
+			sgs.SetAdvertiseServerActive( true );
+
+			Networking.MaxPlayers = value;
+		}
+	}
+
+	/// <summary>
+	/// The privacy mode of this dedicated server.
+	/// </summary>
+	public static LobbyPrivacy Privacy
+	{
+		get => _privacy;
+		set
+		{
+			// TODO: Does nothing right now, but we should be able to set the privacy mode of a dedicated server.
 		}
 	}
 
@@ -315,6 +353,7 @@ internal static class DedicatedServer
 
 			_mapName = mapName;
 			_name = hostname;
+			_privacy = config.Privacy;
 
 			if ( !IsGameServerActive && !sgs.BLoggedOn() )
 			{

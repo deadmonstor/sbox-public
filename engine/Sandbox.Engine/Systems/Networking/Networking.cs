@@ -60,6 +60,7 @@ public static partial class Networking
 
 	private static string _serverName;
 	private static string _mapName;
+	private static int _maxPlayers;
 
 	/// <summary>
 	/// The name of the server you are currently connected to.
@@ -116,7 +117,29 @@ public static partial class Networking
 	/// <summary>
 	/// The maximum number of players allowed on the server you're connected to.
 	/// </summary>
-	public static int MaxPlayers { get; internal set; }
+	public static int MaxPlayers
+	{
+		get => _maxPlayers;
+		internal set
+		{
+			if ( _maxPlayers == value )
+				return;
+
+			_maxPlayers = value;
+
+			if ( !IsHost || System is null )
+				return;
+
+			foreach ( var s in System.Sockets )
+			{
+				s.SetMaxPlayers( value );
+			}
+
+			// TODO: Wonder if there is a max and min?
+			var msg = new MaxPlayersMsg { MaxPlayers = value };
+			System.Broadcast( msg, Connection.ChannelState.Welcome );
+		}
+	}
 
 	/// <summary>
 	/// The last connection string used to connect to a server.

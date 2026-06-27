@@ -74,6 +74,23 @@ public abstract class NetworkSocket
 	}
 
 	/// <summary>
+	/// Set the lobby privacy mode for the server.
+	/// </summary>
+	internal virtual void SetPrivacy( LobbyPrivacy privacy )
+	{
+
+	}
+
+	/// <summary>
+	/// Set the maximum number of players allowed on this server. This will be displayed to other players when they
+	/// query servers.
+	/// </summary>
+	internal virtual void SetMaxPlayers( int maxPlayers )
+	{
+
+	}
+
+	/// <summary>
 	/// Called once a second
 	/// </summary>
 	internal virtual void Tick( NetworkSystem networkSystem )
