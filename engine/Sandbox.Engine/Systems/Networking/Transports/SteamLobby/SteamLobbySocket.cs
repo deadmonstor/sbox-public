@@ -222,9 +222,30 @@ internal class SteamLobbySocket : NetworkSocket, ILobby
 		SteamLobby.SetData( "name", name );
 	}
 
+	internal override void SetMaxPlayers( int maxPlayers )
+	{
+		SteamLobby.MaxMembers = maxPlayers;
+	}
+
 	internal override void SetMapName( string name )
 	{
 		SteamLobby.SetData( "map", name );
+	}
+
+	internal override void SetPrivacy( LobbyPrivacy privacy )
+	{
+		switch ( privacy )
+		{
+			case LobbyPrivacy.Public:
+				SteamLobby.SetPublic();
+				break;
+			case LobbyPrivacy.FriendsOnly:
+				SteamLobby.SetFriendsOnly();
+				break;
+			case LobbyPrivacy.Private:
+				SteamLobby.SetPrivate();
+				break;
+		}
 	}
 
 	private void ChangeLobbyHost( HostCandidate candidate )

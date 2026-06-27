@@ -227,5 +227,15 @@ internal static partial class SteamNetwork
 		{
 			DedicatedServer.MapName = name;
 		}
+
+		internal override void SetMaxPlayers( int maxPlayers )
+		{
+			DedicatedServer.MaxPlayers = maxPlayers;
+		}
+
+		internal override void SetPrivacy( LobbyPrivacy privacy )
+		{
+			DedicatedServer.Privacy = privacy;
+		}
 	}
 }

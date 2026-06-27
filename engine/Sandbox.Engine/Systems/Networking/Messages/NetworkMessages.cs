@@ -46,6 +46,12 @@ struct MapNameMsg
 }
 
 [Expose]
+struct MaxPlayersMsg
+{
+	public int MaxPlayers { get; set; }
+}
+
+[Expose]
 struct ServerInfo
 {
 	public Dictionary<string, string> ServerData { get; set; }
