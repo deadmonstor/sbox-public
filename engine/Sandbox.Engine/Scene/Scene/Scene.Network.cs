@@ -78,11 +78,34 @@ public partial class Scene : GameObject
 		system.DeltaSnapshots.Tick();
 	}
 
-	internal void SerializeNetworkObjects( List<object> collection )
+	internal void SerializeNetworkObjects( Connection source, List<object> collection )
 	{
 		foreach ( var target in networkedObjects )
 		{
-			collection.Add( target.GetCreateMessage() );
+			if ( target.GameObject?.IsDestroyed ?? true )
+			{
+				continue;
+			}
+
+			if ( source is null )
+			{
+				collection.Add( target.GetCreateMessage() );
+				continue;
+			}
+
+			if ( target.GameObject.Network.AlwaysTransmit )
+			{
+				collection.Add( target.GetCreateMessage() );
+				continue;
+			}
+
+			var go = target.GameObject;
+			var worldBounds = go.GetLocalBounds() + go.WorldPosition;
+
+			if ( target.IsVisible( source, worldBounds ) )
+			{
+				collection.Add( target.GetCreateMessage() );
+			}
 		}
 	}
 

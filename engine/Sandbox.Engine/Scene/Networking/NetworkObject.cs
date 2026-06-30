@@ -446,6 +446,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 				if ( !_culledConnections.Remove( target.Id ) )
 					continue;
 
+				SendCreationMessageIfMissingForConnection( target );
 				GameObject.Network.SetCullState( target, false );
 			}
 
@@ -496,6 +497,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 
 				LocalSnapshotState.RemoveConnection( target.Id );
 				GameObject.Network.SetCullState( target, false );
+				SendCreationMessageIfMissingForConnection( target );
 
 				shouldTransmitToAny = true;
 				state.Culled = false;
@@ -518,12 +520,22 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 		return shouldTransmitToAny;
 	}
 
+	private void SendCreationMessageIfMissingForConnection( Connection target )
+	{
+		var hadSnapshot = LocalSnapshotState.UpdatedConnections.Contains( target.Id );
+
+		if ( !hadSnapshot )
+		{
+			target.SendMessage( GetCreateMessage() );
+		}
+	}
+
 	/// <summary>
 	/// Is this network object visible to the provided <see cref="Connection"/>. We'll check if we
 	/// have a culler component and use that, but we'll also use our bounds to determine if we're
 	/// visible.
 	/// </summary>
-	private bool IsVisible( Connection target, BBox worldBounds )
+	internal bool IsVisible( Connection target, BBox worldBounds )
 	{
 		// Do we have a INetworkVisible? We're going to let that take priority.
 		var go = GameObject;

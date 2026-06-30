@@ -395,7 +395,7 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 
 		using ( analytic.ScopeTimer( "NetworkObjectTime" ) )
 		{
-			Game.ActiveScene.SerializeNetworkObjects( msg.NetworkObjects );
+			Game.ActiveScene.SerializeNetworkObjects( source, msg.NetworkObjects );
 		}
 
 		var systems = Game.ActiveScene.GetSystems();
