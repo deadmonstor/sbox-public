@@ -155,7 +155,7 @@ public partial class GameObject
 
 		if ( !options.ShouldSave( this ) ) return null;
 
-		if ( IsOutermostPrefabInstanceRoot && !options.SerializePrefabForDiff && !options.SingleNetworkObject && !options.SceneForNetwork )
+		if ( Networking.PrefabOptimization && IsOutermostPrefabInstanceRoot && !options.SerializePrefabForDiff && !options.SceneForNetwork )
 		{
 			return SerializePrefabInstance();
 		}
@@ -200,20 +200,54 @@ public partial class GameObject
 		json[JsonKeys.Id] = Id;
 		if ( GameObjectVersion != 0 ) json[JsonKeys.Version] = GameObjectVersion;
 
-		// Networking wants all the flags (it applies them verbatim on the other end), otherwise just the saved ones.
 		var serializedFlags = (options.SceneForNetwork || options.SingleNetworkObject) ? Flags : (Flags & PersistedFlags);
 		json[JsonKeys.Flags] = (long)serializedFlags;
-		json[JsonKeys.Name] = Name;
 
-		SerializeTransform( json );
+		if ( !options.SkipNulls || Name != "GameObject" )
+		{
+			json[JsonKeys.Name] = Name;
+		}
 
-		json.Add( JsonKeys.Tags, string.Join( ",", Tags.TryGetAll( false ) ) );
-		json.Add( JsonKeys.Enabled, Enabled );
-		json.Add( JsonKeys.NetworkMode, (int)NetworkMode );
-		json.Add( JsonKeys.NetworkFlags, (int)NetworkFlags );
-		json.Add( JsonKeys.NetworkOrphaned, (int)NetworkOrphaned );
-		json.Add( JsonKeys.AlwaysTransmit, AlwaysTransmit );
-		json.Add( JsonKeys.OwnerTransfer, (int)OwnerTransfer );
+		if ( !options.SingleNetworkObject )
+		{
+			SerializeTransform( json );
+		}
+
+		var tags = string.Join( ",", Tags.TryGetAll( false ) );
+		if ( !options.SkipNulls || !string.IsNullOrEmpty( tags ) )
+		{
+			json.Add( JsonKeys.Tags, tags );
+		}
+
+		if ( !options.SingleNetworkObject )
+		{
+			json.Add( JsonKeys.Enabled, Enabled );
+		}
+
+		if ( !options.SkipNulls || NetworkMode != NetworkMode.Snapshot )
+		{
+			json.Add( JsonKeys.NetworkMode, (int)NetworkMode );
+		}
+
+		if ( !options.SkipNulls || NetworkFlags != NetworkFlags.None )
+		{
+			json.Add( JsonKeys.NetworkFlags, (int)NetworkFlags );
+		}
+
+		if ( !options.SkipNulls || NetworkOrphaned != NetworkOrphaned.Destroy )
+		{
+			json.Add( JsonKeys.NetworkOrphaned, (int)NetworkOrphaned );
+		}
+
+		if ( !options.SkipNulls || !AlwaysTransmit )
+		{
+			json.Add( JsonKeys.AlwaysTransmit, AlwaysTransmit );
+		}
+
+		if ( !options.SkipNulls || OwnerTransfer != OwnerTransfer.Fixed )
+		{
+			json.Add( JsonKeys.OwnerTransfer, (int)OwnerTransfer );
+		}
 
 		if ( (!options.SceneForNetwork && !options.SingleNetworkObject)
 				&& (IsNestedPrefabInstanceRoot || (IsOutermostPrefabInstanceRoot && options.SerializePrefabForDiff)) )

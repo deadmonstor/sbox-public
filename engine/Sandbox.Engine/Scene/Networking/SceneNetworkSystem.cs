@@ -2,6 +2,7 @@
 using Sandbox.Utility;
 using System.IO;
 using System.Text.Json.Nodes;
+using static Sandbox.GameObject;
 
 namespace Sandbox;
 
@@ -159,7 +160,9 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 			var networkObject = BatchSpawnList.FirstOrDefault();
 
 			if ( !(networkObject.GameObject?.IsDestroyed ?? true) )
+			{
 				Broadcast( networkObject.GetCreateMessage() );
+			}
 
 			BatchSpawnList.Clear();
 			return;
@@ -569,7 +572,10 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 					continue;
 
 				var go = new GameObject();
-				go.Deserialize( JsonNode.Parse( oc.JsonData ).AsObject(), networkDeserializeOptionsCreate );
+
+				var node = JsonNode.Parse( oc.JsonData ).AsObject();
+
+				go.Deserialize( node, networkDeserializeOptionsCreate );
 				createdNetworkObjects.Add( new( go, oc ) );
 			}
 
@@ -1092,7 +1098,11 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 				using ( BlobDataSerializer.LoadFromMemory( msg.BlobData ) )
 				{
 					var go = new GameObject();
-					go.Deserialize( JsonNode.Parse( msg.JsonData ).AsObject(), networkDeserializeOptionsCreate );
+
+					var node = JsonNode.Parse( msg.JsonData ).AsObject();
+
+
+					go.Deserialize( node, networkDeserializeOptionsCreate );
 					go.NetworkSpawnRemote( msg );
 				}
 			}
@@ -1122,7 +1132,9 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 		using ( CallbackBatch.Batch() )
 		using ( BlobDataSerializer.LoadFromMemory( message.BlobData ) )
 		{
-			go.Deserialize( JsonNode.Parse( message.JsonData ).AsObject(), networkDeserializeOptionsCreate );
+			var node = JsonNode.Parse( message.JsonData ).AsObject();
+
+			go.Deserialize( node, networkDeserializeOptionsCreate );
 			go.NetworkSpawnRemote( message );
 		}
 	}

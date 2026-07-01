@@ -203,6 +203,80 @@ internal class PrefabInstanceData
 	}
 
 	/// <summary>
+	/// Serialize a prefab-backed object for network transmission using the prefab as the baseline,
+	/// so the JSON payload only carries the delta from the prefab data.
+	/// </summary>
+	internal JsonObject SerializeNetworkPayload( GameObject instanceGameObject )
+	{
+		var prefabGameObject = FindPrefabGameObjectForInstanceId( instanceGameObject.Id );
+		if ( prefabGameObject is null )
+		{
+			return null;
+		}
+
+		var instanceGameObjectJson = instanceGameObject.SerializeStandard( new SerializeOptions
+		{
+			SingleNetworkObject = true,
+			SkipNulls = true
+		} );
+
+		var prefabSource = instanceGameObject.PrefabInstanceSource;
+		if ( string.IsNullOrEmpty( prefabSource ) )
+		{
+			return null;
+		}
+
+		instanceGameObjectJson[JsonKeys.PrefabInstanceSource] = prefabSource;
+		instanceGameObjectJson.Remove( JsonKeys.NetworkedPrefabInstance );
+		instanceGameObjectJson.Remove( JsonKeys.EditorPrefabInstanceNestedSource );
+		instanceGameObjectJson.Remove( JsonKeys.EditorSkipPrefabBreakOnRefresh );
+
+		RemapGuids( instanceGameObjectJson, _instanceGuidToPrefabGuid, remapAddedPrefabInstances: true );
+
+		var prefabGameObjectJson = prefabGameObject.Serialize( new SerializeOptions
+		{
+			SerializePrefabForDiff = true,
+			SingleNetworkObject = true,
+			SkipNulls = true
+		} );
+
+		var patch = Json.CalculateDifferences( prefabGameObjectJson, instanceGameObjectJson, DiffObjectDefinitions );
+
+		var json = new JsonObject
+		{
+			{ JsonKeys.Id, instanceGameObject.Id }
+		};
+
+		if ( GameObjectVersion != 0 )
+		{
+			json[JsonKeys.Version] = GameObjectVersion;
+		}
+
+		json[JsonKeys.PrefabInstanceSource] = prefabSource;
+
+		json[JsonKeys.PrefabInstancePatch] = Json.ToNode( patch );
+		json[JsonKeys.PrefabIdToInstanceId] = Json.ToNode( BuildPrefabToInstanceLookup( instanceGameObject ) );
+
+		return json;
+	}
+
+	private Dictionary<Guid, Guid> BuildPrefabToInstanceLookup( GameObject instanceGameObject )
+	{
+		var lookup = new Dictionary<Guid, Guid>();
+		var requiredGuids = GetRequiredInstanceGuids( instanceGameObject );
+
+		foreach ( var instanceGuid in requiredGuids )
+		{
+			if ( !_instanceGuidToPrefabGuid.TryGetValue( instanceGuid, out var prefabGuid ) )
+				continue;
+
+			lookup[prefabGuid] = instanceGuid;
+		}
+
+		return lookup;
+	}
+
+	/// <summary>
 	/// Clear Patch for this instance, can be used to revert back to the original state.
 	/// </summary>
 	public void ClearPatch( bool keepBasicGoOverridesOnRoot )
