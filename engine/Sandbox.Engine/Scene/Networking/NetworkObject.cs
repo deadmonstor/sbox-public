@@ -2,6 +2,7 @@
 using Sandbox.Network;
 using System.Runtime.InteropServices;
 using System.Text.Json.Nodes;
+using static Sandbox.GameObject;
 
 namespace Sandbox;
 
@@ -272,16 +273,17 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 			throw new Exception( "SceneNetworkSystem is null" );
 
 		var snapshot = ((IDeltaSnapshot)this).WriteSnapshotState();
+		var prefabPayload = GameObject.IsPrefabInstance ? GameObject.PrefabInstance.SerializeNetworkPayload( GameObject ) : null;
 
 		using var blobs = BlobDataSerializer.Capture();
 		var msg = new ObjectRefreshMsg
 		{
 			Guid = GameObject.Id,
 			Parent = GameObject.Parent.Id,
-			JsonData = GameObject.Serialize( _refreshSerializeOptions ).ToJsonString(),
+			JsonData = (prefabPayload ?? GameObject.Serialize( _refreshSerializeOptions )).ToJsonString(),
 			BlobData = blobs.ToByteArray(),
 			TableData = WriteReliableData(),
-			Snapshot = system.DeltaSnapshots.GetFullSnapshotData( snapshot )
+			Snapshot = system.DeltaSnapshots.GetFullSnapshotData( snapshot ),
 		};
 
 		return msg;
@@ -698,7 +700,8 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 		}
 
 		using var blobs = BlobDataSerializer.Capture();
-		var jsonData = GameObject.Serialize( includeLocalObjects ? _handoffSerializeOptions : _createSerializeOptions );
+		var prefabPayload = (!includeLocalObjects && GameObject.IsPrefabInstance) ? GameObject.PrefabInstance.SerializeNetworkPayload( GameObject ) : null;
+		var jsonData = prefabPayload ?? GameObject.Serialize( includeLocalObjects ? _handoffSerializeOptions : _createSerializeOptions );
 		if ( jsonData is null )
 		{
 			throw new( $"Unable to serialize {GameObject.Id} ({GameObject.Name})" );
@@ -716,7 +719,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 			Parent = GameObject.Parent.Id,
 			Owner = Owner,
 			TableData = WriteDataTable( true ),
-			Enabled = GameObject.Enabled
+			Enabled = GameObject.Enabled,
 		};
 
 		return create;
@@ -784,6 +787,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 		if ( !scene.IsValid() ) return;
 
 		var oldTransform = GameObject.Transform.TargetLocal;
+		using ( CallbackBatch.Batch() )
 		using ( BlobDataSerializer.LoadFromMemory( message.BlobData ) )
 		{
 			var jsonObj = JsonNode.Parse( message.JsonData ).AsObject();
@@ -791,7 +795,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 			// Only the host can modify network flags after the object has been spawned.
 			if ( !source.IsHost )
 			{
-				jsonObj.Remove( GameObject.JsonKeys.NetworkFlags );
+				jsonObj.Remove( JsonKeys.NetworkFlags );
 				GameObject.PreserveFromHostSyncMembers( jsonObj );
 			}
 

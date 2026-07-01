@@ -37,10 +37,18 @@ public abstract partial class Component : BytePack.ISerializer
 		var json = new JsonObject
 		{
 			{ JsonKeys.Type, t.SerializedName },
-			{ JsonKeys.Id, Id },
-			{ JsonKeys.Enabled, Enabled },
-			{ JsonKeys.Flags, (long)Flags }
+			{ JsonKeys.Id, Id }
 		};
+
+		if ( !skipNulls || !Enabled )
+		{
+			json.Add( JsonKeys.Enabled, Enabled );
+		}
+
+		if ( !skipNulls || Flags != ComponentFlags.None )
+		{
+			json.Add( JsonKeys.Flags, (long)Flags );
+		}
 
 		if ( (isSceneForNetwork || isSingleNetworkObject) && this is INetworkSnapshot sw )
 		{

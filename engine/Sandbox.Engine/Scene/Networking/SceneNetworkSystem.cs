@@ -3,6 +3,7 @@ using Sandbox.Network;
 using Sandbox.Utility;
 using System.IO;
 using System.Text.Json.Nodes;
+using static Sandbox.GameObject;
 
 namespace Sandbox;
 
@@ -1302,7 +1303,9 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 		using ( CallbackBatch.Batch() )
 		using ( BlobDataSerializer.LoadFromMemory( message.BlobData ) )
 		{
-			go.Deserialize( JsonNode.Parse( message.JsonData ).AsObject(), networkDeserializeOptionsCreate );
+			var node = JsonNode.Parse( message.JsonData ).AsObject();
+
+			go.Deserialize( node, networkDeserializeOptionsCreate );
 			go.NetworkSpawnRemote( message );
 		}
 
