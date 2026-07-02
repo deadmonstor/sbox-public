@@ -1,6 +1,7 @@
 ﻿using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Channels;
+using System.Threading.Tasks;
 
 namespace Sandbox.Network;
 
@@ -18,44 +19,52 @@ internal class TcpChannel : Connection
 
 	public bool IsConnected => client?.Connected ?? false;
 
-	async void SocketLoop( CancellationToken token )
+	async Task SocketLoop( CancellationToken token )
 	{
 		try
 		{
-			while ( !client.Connected )
+			while ( client?.Connected != true )
 			{
-				await Task.Delay( 10 );
+				await Task.Delay( 10, token );
 				token.ThrowIfCancellationRequested();
 			}
 
-			_address = client.Client.RemoteEndPoint?.ToString() ?? client.Client.LocalEndPoint.ToString();
+			_address = client?.Client?.RemoteEndPoint?.ToString() ?? client?.Client?.LocalEndPoint?.ToString() ?? "Tcp";
 
 			var stream = client.GetStream();
 
-			_ = Task.Run( async () => await SendThread( token ) );
-			_ = FakeLagProcess();
+			_ = Task.Run( async () => await SendThread( token ), token );
+			_ = Task.Run( async () => await FakeLagProcess( token ), token );
 
 			while ( !token.IsCancellationRequested )
 			{
-				while ( client.Available > 0 )
+				var header = new byte[sizeof( int )];
+				try
 				{
-					var header = new byte[sizeof( int )];
-					stream.ReadExactly( header );
-
-					var messageLength = BitConverter.ToInt32( header );
-					if ( messageLength <= 0 )
-					{
-						Log.Warning( "Weird stuff here" );
-						return;
-					}
-
-					var packet = new byte[messageLength];
-					stream.ReadExactly( packet );
-
-					incoming.Writer.TryWrite( packet );
+					await stream.ReadExactlyAsync( header.AsMemory( 0, header.Length ), token );
+				}
+				catch ( System.IO.EndOfStreamException )
+				{
+					break;
 				}
 
-				await Task.Delay( 1 );
+				var messageLength = BitConverter.ToInt32( header );
+				if ( messageLength <= 0 )
+				{
+					Log.Warning( $"TcpChannel: Invalid message length {messageLength} from {Address}" );
+					break;
+				}
+
+				var packet = new byte[messageLength];
+				try
+				{
+					await stream.ReadExactlyAsync( packet.AsMemory( 0, packet.Length ), token );
+				}
+				catch ( System.IO.EndOfStreamException )
+				{
+					break;
+				}
+				await incoming.Writer.WriteAsync( packet, token );
 			}
 		}
 		catch ( OperationCanceledException )
@@ -64,7 +73,7 @@ internal class TcpChannel : Connection
 		}
 		catch ( Exception e )
 		{
-			Log.Warning( e, $"TcpChannel: {e.Message}" );
+			Log.Warning( e, $"TcpChannel: {e.Message} from {Address}" );
 		}
 
 		client?.Close();
@@ -91,13 +100,12 @@ internal class TcpChannel : Connection
 		tokenSource = new();
 		isHost = false;
 
-		SocketLoop( tokenSource.Token );
+		_ = Task.Run( () => SocketLoop( tokenSource.Token ), tokenSource.Token );
 	}
 
 	public TcpChannel( string host, int port )
 	{
 		client = new();
-		client.ConnectAsync( host, port );
 		client.ReceiveBufferSize = 1024 * 1024;
 		client.SendBufferSize = 1024 * 1024;
 		client.LingerState = new( true, 15 ); // 15 seconds is a long time, but we want reliability
@@ -105,12 +113,12 @@ internal class TcpChannel : Connection
 		tokenSource = new();
 		isHost = true;
 
-		SocketLoop( tokenSource.Token );
+		_ = Task.Run( () => ConnectAndRunAsync( host, port, tokenSource.Token ) );
 	}
 
 	~TcpChannel()
 	{
-		tokenSource.Cancel();
+		tokenSource?.Cancel();
 	}
 
 	Channel<byte[]> sendChannel = Channel.CreateUnbounded<byte[]>();
@@ -118,11 +126,27 @@ internal class TcpChannel : Connection
 	private Queue<(byte[], RealTimeUntil, NetworkSystem.MessageHandler)> fakeLagIncoming = new();
 	private Queue<(byte[], RealTimeUntil)> fakeLagOutgoing = new();
 
-	private async Task FakeLagProcess()
+	private async Task ConnectAndRunAsync( string host, int port, CancellationToken token )
 	{
 		try
 		{
-			while ( !tokenSource.IsCancellationRequested )
+			await client.ConnectAsync( host, port );
+			await SocketLoop( token );
+		}
+		catch ( Exception e )
+		{
+			Log.Warning( e, $"TcpChannel connect failed: {e.Message} to {Address}" );
+			client?.Close();
+			client?.Dispose();
+			client = null;
+		}
+	}
+
+	private async Task FakeLagProcess( CancellationToken token )
+	{
+		try
+		{
+			while ( !token.IsCancellationRequested )
 			{
 				var processedPacket = false;
 
@@ -131,6 +155,7 @@ internal class TcpChannel : Connection
 					if ( i.Item2 )
 					{
 						processedPacket = true;
+						if ( token.IsCancellationRequested ) break;
 						InvokeMessageHandler( i.Item3, i.Item1 );
 						fakeLagIncoming.Dequeue();
 					}
@@ -141,15 +166,20 @@ internal class TcpChannel : Connection
 					if ( o.Item2 )
 					{
 						processedPacket = true;
-						sendChannel.Writer.TryWrite( BitConverter.GetBytes( o.Item1.Length ) );
-						sendChannel.Writer.TryWrite( o.Item1 );
+
+						await sendChannel.Writer.WriteAsync( BitConverter.GetBytes( o.Item1.Length ), token );
+						await sendChannel.Writer.WriteAsync( o.Item1, token );
 						fakeLagOutgoing.Dequeue();
 					}
 				}
 
 				if ( !processedPacket ) // Maybe something will be ready later?
-					await Task.Delay( 1 );
+					await Task.Delay( 1, token );
 			}
+		}
+		catch ( OperationCanceledException )
+		{
+			// normal
 		}
 		catch ( Exception e )
 		{
@@ -159,7 +189,7 @@ internal class TcpChannel : Connection
 
 	internal override void InternalSend( byte[] output, NetFlags flags )
 	{
-		if ( !client.Connected )
+		if ( client?.Connected != true )
 			return;
 
 		if ( Networking.FakePacketLoss > 0 && !flags.HasFlag( NetFlags.Reliable ) )
@@ -197,13 +227,21 @@ internal class TcpChannel : Connection
 		{
 			while ( !token.IsCancellationRequested )
 			{
-				await sendChannel.Reader.WaitToReadAsync();
+				await sendChannel.Reader.WaitToReadAsync( token );
 
-				if ( !sendChannel.Reader.TryRead( out byte[] data ) )
+				if ( client?.Connected != true || !sendChannel.Reader.TryRead( out byte[] data ) )
 					continue;
 
-				client.GetStream().Write( data );
-				MessagesSent++;
+				var writeStream = client.GetStream();
+				try
+				{
+					await writeStream.WriteAsync( data, token );
+					MessagesSent++;
+				}
+				catch ( System.IO.IOException )
+				{
+					continue;
+				}
 			}
 		}
 		catch ( OperationCanceledException )
@@ -219,6 +257,7 @@ internal class TcpChannel : Connection
 	internal override void InternalClose( int closeCode, string closeReason )
 	{
 		tokenSource.Cancel();
+		tokenSource.Dispose();
 		GC.SuppressFinalize( this );
 	}
 
