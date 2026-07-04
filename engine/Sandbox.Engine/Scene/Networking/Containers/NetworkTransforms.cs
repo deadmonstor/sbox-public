@@ -9,6 +9,9 @@ namespace Sandbox;
 internal class NetworkTransforms : NetworkTable<Transform>
 {
 	private Dictionary<int, (int Position, int Rotation, int Scale)> _componentHashes { get; set; } = new();
+	private readonly Dictionary<int, QuantizedVector301> _vectorCache = new();
+	private readonly Dictionary<int, QuantizedRotation32> _rotationCache = new();
+	private readonly Dictionary<int, byte[]> _serializedCache = new();
 
 	private void UpdateComponentHashes( int key )
 	{
@@ -24,7 +27,27 @@ internal class NetworkTransforms : NetworkTable<Transform>
 		);
 	}
 
-	private readonly SnapshotValueCache _snapshotCache = new();
+	private void AddQuantized( LocalSnapshotState state, int slot, QuantizedVector301 value )
+	{
+		if ( !_vectorCache.TryGetValue( slot, out var cached ) || !cached.Equals( value ) )
+		{
+			_vectorCache[slot] = value;
+			_serializedCache[slot] = QuantizedVector301.ToRawBytes( value );
+		}
+
+		state.AddSerialized( slot, _serializedCache[slot], LocalSnapshotState.HashFlags.All );
+	}
+
+	private void AddQuantized( LocalSnapshotState state, int slot, QuantizedRotation32 value )
+	{
+		if ( !_rotationCache.TryGetValue( slot, out var cached ) || !cached.Equals( value ) )
+		{
+			_rotationCache[slot] = value;
+			_serializedCache[slot] = QuantizedRotation32.ToRawBytes( value );
+		}
+
+		state.AddSerialized( slot, _serializedCache[slot], LocalSnapshotState.HashFlags.All );
+	}
 
 	protected override void WriteSnapshot( int slot, LocalSnapshotState state )
 	{
@@ -34,9 +57,9 @@ internal class NetworkTransforms : NetworkTable<Transform>
 
 			var hashes = _componentHashes[key];
 
-			state.AddCached( _snapshotCache, hashes.Position, transform.Position, LocalSnapshotState.HashFlags.All );
-			state.AddCached( _snapshotCache, hashes.Rotation, transform.Rotation, LocalSnapshotState.HashFlags.All );
-			state.AddCached( _snapshotCache, hashes.Scale, transform.Scale, LocalSnapshotState.HashFlags.All );
+			AddQuantized( state, hashes.Position, new QuantizedVector301( transform.Position ) );
+			AddQuantized( state, hashes.Rotation, new QuantizedRotation32( transform.Rotation ) );
+			AddQuantized( state, hashes.Scale, new QuantizedVector301( transform.Scale ) );
 		}
 	}
 
@@ -50,21 +73,21 @@ internal class NetworkTransforms : NetworkTable<Transform>
 			var transform = Get( key );
 			var didTransformChange = false;
 
-			if ( snapshot.TryGetValue<Vector3>( hashes.Position, out var position ) )
+			if ( snapshot.Lookup.TryGetValue( hashes.Position, out var positionData ) )
 			{
-				transform.Position = position;
+				transform.Position = QuantizedVector301.FromRawBytes( positionData.Value ).ToVector3();
 				didTransformChange = true;
 			}
 
-			if ( snapshot.TryGetValue<Rotation>( hashes.Rotation, out var rotation ) )
+			if ( snapshot.Lookup.TryGetValue( hashes.Rotation, out var rotationData ) )
 			{
-				transform.Rotation = rotation;
+				transform.Rotation = QuantizedRotation32.FromRawBytes( rotationData.Value ).ToRotation();
 				didTransformChange = true;
 			}
 
-			if ( snapshot.TryGetValue<Vector3>( hashes.Scale, out var scale ) )
+			if ( snapshot.Lookup.TryGetValue( hashes.Scale, out var scaleData ) )
 			{
-				transform.Scale = scale;
+				transform.Scale = QuantizedVector301.FromRawBytes( scaleData.Value ).ToVector3();
 				didTransformChange = true;
 			}
 
@@ -84,16 +107,21 @@ internal class NetworkTransforms : NetworkTable<Transform>
 	protected override void OnCleared()
 	{
 		_componentHashes.Clear();
-		_snapshotCache.Clear();
+		_vectorCache.Clear();
+		_rotationCache.Clear();
+		_serializedCache.Clear();
 	}
 
 	protected override void OnKeyRemoved( int key )
 	{
 		if ( _componentHashes.TryGetValue( key, out var hashes ) )
 		{
-			_snapshotCache.Remove( hashes.Position );
-			_snapshotCache.Remove( hashes.Rotation );
-			_snapshotCache.Remove( hashes.Scale );
+			_vectorCache.Remove( hashes.Position );
+			_vectorCache.Remove( hashes.Scale );
+			_rotationCache.Remove( hashes.Rotation );
+			_serializedCache.Remove( hashes.Position );
+			_serializedCache.Remove( hashes.Rotation );
+			_serializedCache.Remove( hashes.Scale );
 		}
 
 		_componentHashes.Remove( key );
@@ -103,7 +131,9 @@ internal class NetworkTransforms : NetworkTable<Transform>
 	{
 		// NetworkTable might be reinitialized under a new parent slot(?!) - invalidate _componentHashes so the new parent slot is used
 		_componentHashes.Clear();
-		_snapshotCache.Clear();
+		_vectorCache.Clear();
+		_rotationCache.Clear();
+		_serializedCache.Clear();
 
 		foreach ( var key in Keys )
 		{
