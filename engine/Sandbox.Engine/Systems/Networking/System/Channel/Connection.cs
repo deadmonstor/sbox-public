@@ -8,7 +8,7 @@ namespace Sandbox;
 /// A connection, usually to a server or a client.
 /// </summary>
 [Expose, ActionGraphIgnore]
-public abstract partial class Connection
+public abstract partial class Connection : BytePack.ISerializer
 {
 	internal abstract void InternalSend( byte[] data, NetFlags flags );
 	internal abstract void InternalRecv( NetworkSystem.MessageHandler handler );
