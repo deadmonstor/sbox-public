@@ -169,6 +169,7 @@ public partial class SceneEditorSession : Scene.ISceneEditorSession
 	/// </summary>
 	public void MakeActive( bool bringToFront = true )
 	{
+		Log.Info( $"SceneEditorSession.MakeActive: sessionType={GetType().Name} sceneId={Scene?.Id} bringToFront={bringToFront}" );
 		Active = this;
 
 		if ( bringToFront && EditorWindow is not null )

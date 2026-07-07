@@ -81,13 +81,26 @@ public partial class GameObject
 			var shouldIgnoreNotSavedFlag = SingleNetworkObject || SceneForNetwork;
 
 			// Marked as do not save. This means to disk, really.
-			if ( gameObject.Flags.Contains( GameObjectFlags.NotSaved ) && !shouldIgnoreNotSavedFlag ) return false;
+			if ( gameObject.Flags.Contains( GameObjectFlags.NotSaved ) && !shouldIgnoreNotSavedFlag )
+			{
+				Log.Trace( $"GameObject.Serialize: skipping '{gameObject.Name}' ({gameObject.Id}) because NotSaved" );
+				return false;
+			}
 
 			// We're saving for the network.
 			if ( SceneForNetwork || SingleNetworkObject )
 			{
-				if ( gameObject.NetworkMode == NetworkMode.Never ) return false;
-				if ( gameObject.Flags.Contains( GameObjectFlags.NotNetworked ) ) return false;
+				if ( gameObject.NetworkMode == NetworkMode.Never )
+				{
+					Log.Trace( $"GameObject.Serialize: skipping '{gameObject.Name}' ({gameObject.Id}) because NetworkMode=Never" );
+					return false;
+				}
+
+				if ( gameObject.Flags.Contains( GameObjectFlags.NotNetworked ) )
+				{
+					Log.Trace( $"GameObject.Serialize: skipping '{gameObject.Name}' ({gameObject.Id}) because NotNetworked" );
+					return false;
+				}
 			}
 
 			var isObjectNetworked = gameObject.Network.Active || gameObject.NetworkMode == NetworkMode.Object;
@@ -96,7 +109,11 @@ public partial class GameObject
 			// If we're serializing the entire scene to send down the network, then don't send this
 			// object if it's a network object, it'll get sent in the snapshots.
 			//
-			if ( SceneForNetwork && isObjectNetworked ) return false;
+			if ( SceneForNetwork && isObjectNetworked )
+			{
+				Log.Trace( $"GameObject.Serialize: skipping '{gameObject.Name}' ({gameObject.Id}) because it is a network object" );
+				return false;
+			}
 
 			return true;
 		}

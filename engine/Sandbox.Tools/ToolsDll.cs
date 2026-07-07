@@ -79,6 +79,27 @@ internal class ToolsDll : IToolsDll
 		EditorScene.Stop();
 	}
 
+	public void SetPlaying( Scene scene )
+	{
+		if ( scene is null || !scene.IsValid() )
+		{
+			Log.Warning( "ToolsDll.SetPlaying: no valid scene provided" );
+			return;
+		}
+
+		Log.Info( $"ToolsDll.SetPlaying: sceneId={scene.Id} name='{scene.Name}' rootChildren={scene.Children.Count} gameObjects={scene.Directory.GameObjectCount}" );
+
+		var session = SceneEditorSession.Active;
+		if ( session is null )
+		{
+			Log.Warning( "ToolsDll.SetPlaying: no active scene editor session" );
+			return;
+		}
+
+		session.SetPlaying( scene );
+		EditorEvent.Run( "scene.play" );
+	}
+
 	/// <summary>
 	/// Bootstrapping has finished. Close the splash screen and show the editor.
 	/// </summary>

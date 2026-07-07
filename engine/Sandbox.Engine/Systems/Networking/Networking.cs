@@ -508,6 +508,7 @@ public static partial class Networking
 
 	static async Task<bool> CreateDedicatedServer( LobbyConfig config, CancellationToken token = default )
 	{
+		Log.Info( $"Networking.CreateDedicatedServer: begin. ActiveSceneId={Game.ActiveScene?.Id} rootChildren={Game.ActiveScene?.Children.Count ?? 0} gameObjects={Game.ActiveScene?.Directory?.GameObjectCount ?? 0}" );
 		lock ( NetworkThreadLock )
 		{
 			var net = new NetworkSystem( "server", Engine.IGameInstanceDll.Current.TypeLibrary )
@@ -518,8 +519,10 @@ public static partial class Networking
 			System = net;
 			System.InitializeHost();
 		}
+		Log.Info( $"Networking.CreateDedicatedServer: after InitializeHost. ActiveSceneId={Game.ActiveScene?.Id} rootChildren={Game.ActiveScene?.Children.Count ?? 0} gameObjects={Game.ActiveScene?.Directory?.GameObjectCount ?? 0}" );
 
 		var success = await DedicatedServer.Start( config );
+		Log.Info( $"Networking.CreateDedicatedServer: DedicatedServer.Start success={success}. ActiveSceneId={Game.ActiveScene?.Id} rootChildren={Game.ActiveScene?.Children.Count ?? 0} gameObjects={Game.ActiveScene?.Directory?.GameObjectCount ?? 0}" );
 		if ( !success )
 		{
 			// Currently we shutdown the server if we fail to start the lobby, however lets clean up just incase.

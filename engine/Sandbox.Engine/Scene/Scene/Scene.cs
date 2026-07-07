@@ -251,6 +251,7 @@ public partial class Scene : GameObject
 
 	internal void Render( SwapChainHandle_t swapChain, Vector2? size )
 	{
+		Log.Trace( $"Scene.Render: sceneId={Id} cameras={Cameras.Count} size={(size is null ? "(default)" : size.ToString())} sceneWorld={SceneWorld.IsValid()} rootChildren={Children.Count} activeCamera='{Camera?.GameObject?.Name ?? "(none)"}' cameraClearFlags={(Camera is not null ? Camera.ClearFlags.ToString() : "(none)")}" );
 		using var _renderScope = _renderTimer.Start();
 
 		PreCameraRender();
@@ -295,6 +296,7 @@ public partial class Scene : GameObject
 	/// </summary>
 	internal void PreCameraRender()
 	{
+		Log.Trace( $"Scene.PreCameraRender: sceneId={Id} cameras={Cameras.Count} sceneWorld={SceneWorld.IsValid()} debugWorld={DebugSceneWorld.IsValid()} rootChildren={Children.Count} gameObjects={Directory.GameObjectCount} activeCamera='{Camera?.GameObject?.Name ?? "(none)"}' clearFlags={(Camera is not null ? Camera.ClearFlags.ToString() : "(none)")}" );
 		// We want to initialize all cameras (enabled & disabled) incase they're used to render manually
 		// we need to make sure the SceneCamera is created etc.
 		var cameras = Cameras.OrderBy( x => x.Priority );

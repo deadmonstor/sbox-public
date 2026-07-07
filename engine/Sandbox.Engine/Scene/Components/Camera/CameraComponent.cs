@@ -321,6 +321,7 @@ public sealed partial class CameraComponent : Component, Component.ExecuteInEdit
 		camera.WireframeMode = WireframeMode;
 		camera.EnablePostProcessing = EnablePostProcessing;
 		camera.BackgroundColor = ClearFlags.Contains( ClearFlags.Color ) ? BackgroundColor : Color.Transparent;
+		Log.Info( $"CameraComponent.UpdateSceneCamera: go='{GameObject?.Name ?? "(null)"}' active={Active} clearFlags={ClearFlags} background={camera.BackgroundColor} worldValid={camera.World.IsValid()} renderTags={camera.RenderTags.Count()} excludeTags={camera.ExcludeTags.Count()}" );
 	}
 
 	internal void CopyPostProcessing( SceneCamera camera )
@@ -469,6 +470,7 @@ public sealed partial class CameraComponent : Component, Component.ExecuteInEdit
 		using ( Scene.Push() )
 		{
 			InitializeRendering();
+			Log.Info( $"CameraComponent.AddToRenderList: go='{GameObject?.Name ?? "(null)"}' renderTarget={(RenderTarget is not null)} customSize={(CustomSize is null ? "(null)" : CustomSize.ToString())} size={(size is null ? "(default)" : size.ToString())} clearFlags={ClearFlags} background={sceneCamera.BackgroundColor}" );
 
 			if ( RenderTarget is not null && RenderTarget.native.IsValid )
 			{

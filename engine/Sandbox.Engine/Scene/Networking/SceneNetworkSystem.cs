@@ -88,43 +88,50 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 	/// Load a scene for all other clients. This can only be called by the host.
 	/// </summary>
 	internal void LoadSceneBroadcast( SceneLoadOptions options )
-	{
-		if ( !Networking.IsActive || !Networking.IsHost )
-			return;
-
+		{
+			if ( !Networking.IsActive || !Networking.IsHost )
+				return;
+	
 		// Clear all pending scene loads before we load a new scene
-		PendingSceneLoads.Clear();
-
+			PendingSceneLoads.Clear();
+	
 		var mounedVpks = Game.ActiveScene.GetAllComponents<MapInstance>()
-			.Select( x => x.MapName )
-			.ToList();
-
+				.Select( x => x.MapName )
+				.ToList();
+	
 		var loadMsg = new LoadSceneBeginMsg
-		{
-			ShowLoadingScreen = options.ShowLoadingScreen,
-			MountedVPKs = mounedVpks,
-			SceneId = Game.ActiveScene.Id,
-			Id = Guid.NewGuid()
-		};
-
+			{
+				ShowLoadingScreen = options.ShowLoadingScreen,
+				MountedVPKs = mounedVpks,
+				SceneId = Game.ActiveScene.Id,
+				Id = Guid.NewGuid()
+			};
+	
+		Log.Info( $"SceneNetworkSystem.LoadSceneBroadcast: broadcasting scene load Id={loadMsg.Id} SceneId={loadMsg.SceneId} MountedVPKs={mounedVpks.Count}" );
+	
 		var msg = ByteStream.Create( 256 );
-		msg.Write( InternalMessageType.Packed );
-
+			msg.Write( InternalMessageType.Packed );
+	
 		Networking.System.Serialize( loadMsg, ref msg );
-
+	
 		foreach ( var c in Connection.All )
-		{
-			if ( c == Connection.Local )
-				continue;
-
+			{
+			Log.Trace( $"SceneNetworkSystem.LoadSceneBroadcast: considering connection {c.Id} State={c.State} Name='{c.Name ?? "(null)"}'" );
+				if ( c == Connection.Local )
+					continue;
+	
 			if ( c.State < Connection.ChannelState.Snapshot )
+			{
+				Log.Trace( $"SceneNetworkSystem.LoadSceneBroadcast: skipping connection {c.Id} due to state {c.State}" );
 				continue;
+			}
 
 			PendingSceneLoads[c.Id] = loadMsg.Id;
 			c.SendStream( msg );
 			c.State = Connection.ChannelState.MountVPKs;
+			Log.Info( $"SceneNetworkSystem.LoadSceneBroadcast: sent load begin to {c.Id} (now MountVPKs)" );
 		}
-
+	
 		msg.Dispose();
 	}
 
@@ -236,15 +243,19 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 	/// Called when the host has provided us with a snapshot for a newly loaded scene.
 	/// </summary>
 	private async Task OnLoadSceneSnapshotMsg( LoadSceneSnapshotMsg msg, Connection connection, Guid msgId )
-	{
+		{
 		NetworkDebugSystem.Current?.Record( NetworkDebugSystem.MessageType.Snapshot, msg );
-
+	
+		Log.Info( $"SceneNetworkSystem.OnLoadSceneSnapshotMsg: Received snapshot for SceneId={msg.SceneId} Id={msg.Id} from {connection.Id}" );
+	
 		await SetSnapshotAsync( msg.Snapshot );
 
-		// Let them know we have now loaded this scene.
-		var loadedMsg = new SceneLoadedMsg { SceneId = msg.SceneId, Id = msg.Id };
-		connection.SendMessage( loadedMsg, NetFlags.Reliable );
+		Log.Info( $"SceneNetworkSystem.OnLoadSceneSnapshotMsg: SetSnapshotAsync completed for SceneId={msg.SceneId} Id={msg.Id}" );
 
+		// Let them know we have now loaded this scene.
+			var loadedMsg = new SceneLoadedMsg { SceneId = msg.SceneId, Id = msg.Id };
+			connection.SendMessage( loadedMsg, NetFlags.Reliable );
+	
 		LoadingScreen.IsVisible = false;
 	}
 
@@ -306,9 +317,10 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 	/// Called when the host has told us to load a new scene.
 	/// </summary>
 	private async Task OnLoadSceneMsg( LoadSceneBeginMsg msg, Connection connection, Guid msgId )
-	{
+		{
+		Log.Info( $"SceneNetworkSystem.OnLoadSceneMsg: Received LoadSceneBegin Id={msg.Id} SceneId={msg.SceneId} MountedVPKs={msg.MountedVPKs?.Count ?? 0} from {connection.Id}" );
 		// Always show the loading screen on clients when the host changes scene,
-		// so they see feedback immediately instead of a frozen frame.
+			// so they see feedback immediately instead of a frozen frame.
 		if ( !Game.IsEditor )
 		{
 			LoadingScreen.IsVisible = true;
@@ -318,15 +330,18 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 		// Go ahead and destroy the scene
 		if ( Game.ActiveScene is not null )
 		{
+			Log.Trace( "SceneNetworkSystem.OnLoadSceneMsg: Destroying existing active scene before mounting new one" );
 			Game.ActiveScene.Destroy();
 			Game.ActiveScene = null;
 		}
 
 		MountedVPKs?.Dispose();
 		MountedVPKs = await MountMaps( msg.MountedVPKs );
+		Log.Info( $"SceneNetworkSystem.OnLoadSceneMsg: Mounted {msg.MountedVPKs?.Count ?? 0} VPKs" );
 
 		// Let them know we would like a snapshot now.
 		var loadedMsg = new LoadSceneRequestSnapshotMsg { SceneId = msg.SceneId, Id = msg.Id };
+		Log.Trace( $"SceneNetworkSystem.OnLoadSceneMsg: Sending LoadSceneRequestSnapshot to host for SceneId={msg.SceneId} Id={msg.Id}" );
 		connection.SendMessage( loadedMsg, NetFlags.Reliable );
 	}
 
@@ -334,20 +349,26 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 	/// Called by clients to confirm they have finished loading the new scene.
 	/// </summary>
 	private void OnSceneLoadedMsg( SceneLoadedMsg msg, Connection connection, Guid msgId )
-	{
+		{
+		Log.Info( $"SceneNetworkSystem.OnSceneLoadedMsg: Received SceneLoaded from {connection.Id} SceneId={msg.SceneId} Id={msg.Id}" );
 		// If this connection doesn't have a pending scene load with this id then bail.
-		if ( !PendingSceneLoads.TryGetValue( connection.Id, out var id ) || id != msg.Id )
+			if ( !PendingSceneLoads.TryGetValue( connection.Id, out var id ) || id != msg.Id )
+		{
+			Log.Warning( $"SceneNetworkSystem.OnSceneLoadedMsg: No pending scene load for connection {connection.Id} or id mismatch (expected {id}, got {msg.Id})" );
 			return;
+		}
 
 		var activeScene = Game.ActiveScene;
 
 		if ( !activeScene.IsValid() || activeScene.Id != msg.SceneId )
 		{
+			Log.Warning( $"SceneNetworkSystem.OnSceneLoadedMsg: Active scene invalid or mismatched. ActiveSceneId={(activeScene.IsValid()? activeScene.Id : Guid.Empty)} expected {msg.SceneId}. Removing pending load for {connection.Id}" );
 			PendingSceneLoads.Remove( connection.Id );
 			return;
 		}
 
 		connection.State = Connection.ChannelState.Connected;
+		Log.Info( $"SceneNetworkSystem.OnSceneLoadedMsg: Connection {connection.Id} now Connected" );
 
 		PendingSceneLoads.Remove( connection.Id );
 		Instance?.OnJoined( connection );
@@ -413,6 +434,20 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 			};
 
 			msg.GameObjectSystems.Add( type );
+		}
+
+		var mapInstances = Game.ActiveScene.GetAllComponents<MapInstance>().ToList();
+		var mapInstanceDebug = string.Join( " | ", mapInstances.Select( x => $"go='{x.GameObject?.Name ?? "(null)"}' map='{x.MapName ?? "(null)"}' mode={x.GameObject?.NetworkMode} flags={x.GameObject?.Flags}" ) );
+		var sceneDataContainsMapInstance = msg.SceneData?.Contains( "Sandbox.MapInstance", StringComparison.Ordinal ) ?? false;
+		var modelRenderers = Game.ActiveScene.GetAllComponents<ModelRenderer>().Count();
+		var skinnedModelRenderers = Game.ActiveScene.GetAllComponents<SkinnedModelRenderer>().Count();
+		var meshComponents = Game.ActiveScene.GetAllComponents<MeshComponent>().Count();
+		var lights = Game.ActiveScene.GetAllComponents<Light>().Count() + Game.ActiveScene.GetAllComponents<AmbientLight>().Count();
+		Log.Info( $"SceneNetworkSystem.GetSnapshot: source={source?.Id} sceneId={Game.ActiveScene?.Id} rootChildren={Game.ActiveScene?.Children.Count ?? 0} gameObjects={Game.ActiveScene?.Directory?.GameObjectCount ?? 0} sceneDataLen={msg.SceneData?.Length ?? 0} blobBytes={msg.BlobData?.Length ?? 0} networkObjects={msg.NetworkObjects?.Count ?? 0} systems={msg.GameObjectSystems?.Count ?? 0} mapInstancesInScene={mapInstances.Count} sceneDataContainsMapInstance={sceneDataContainsMapInstance}" );
+		Log.Info( $"SceneNetworkSystem.GetSnapshot: renderables modelRenderers={modelRenderers} skinnedModelRenderers={skinnedModelRenderers} meshComponents={meshComponents} lights={lights}" );
+		if ( mapInstances.Count > 0 )
+		{
+			Log.Info( $"SceneNetworkSystem.GetSnapshot: mapInstanceDetails {mapInstanceDebug}" );
 		}
 
 		analytic.SetValue( "SceneDataLength", msg.SceneData?.Length ?? 0 );
@@ -537,15 +572,18 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 	public override async Task SetSnapshotAsync( SnapshotMsg msg )
 	{
 		ThreadSafe.AssertIsMainThread();
+		Log.Info( $"SceneNetworkSystem.SetSnapshotAsync: begin. sceneDataLen={msg.SceneData?.Length ?? 0} blobBytes={msg.BlobData?.Length ?? 0} networkObjects={msg.NetworkObjects?.Count ?? 0} systems={msg.GameObjectSystems?.Count ?? 0}" );
 
 		if ( Game.ActiveScene is not null )
 		{
+			Log.Info( $"SceneNetworkSystem.SetSnapshotAsync: destroying previous active scene {Game.ActiveScene.Id}/{Game.ActiveScene.Name}" );
 			Game.ActiveScene?.Destroy();
 			Game.ActiveScene = null;
 		}
 
 		Game.ActiveScene = new();
 		Game.ActiveScene.StartLoading();
+		Log.Info( $"SceneNetworkSystem.SetSnapshotAsync: created new active scene {Game.ActiveScene.Id}" );
 
 		Time.Now = (float)msg.Time;
 		Time.NowDouble = msg.Time;
@@ -559,6 +597,11 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 			{
 				var sceneData = JsonNode.Parse( msg.SceneData ).AsObject();
 				Game.ActiveScene.Deserialize( sceneData, networkDeserializeOptionsCreate );
+				Log.Info( $"SceneNetworkSystem.SetSnapshotAsync: scene JSON deserialized, rootChildren={Game.ActiveScene.Children.Count}" );
+			}
+			else
+			{
+				Log.Warning( "SceneNetworkSystem.SetSnapshotAsync: snapshot SceneData was empty" );
 			}
 
 			var createdNetworkObjects = new List<Tuple<GameObject, ObjectCreateMsg>>();
@@ -577,8 +620,14 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 			{
 				go.NetworkSpawnRemote( oc );
 			}
+
+			Log.Info( $"SceneNetworkSystem.SetSnapshotAsync: spawned {createdNetworkObjects.Count} network objects from snapshot" );
 		}
 
+		var cameraCount = Game.ActiveScene.GetAllComponents<CameraComponent>().Count();
+		Log.Info( $"SceneNetworkSystem.SetSnapshotAsync: camera components after deserialize={cameraCount}, selectedMainCamera={(Game.ActiveScene.Camera is not null)}" );
+
+		var appliedSystems = 0;
 		foreach ( var s in msg.GameObjectSystems )
 		{
 			var type = Game.TypeLibrary.GetTypeByIdent( s.Type );
@@ -593,7 +642,9 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 			system.ReadDataTable( s.TableData );
 
 			ReadGameObjectSystemSnapshot( system, s );
+			appliedSystems++;
 		}
+		Log.Info( $"SceneNetworkSystem.SetSnapshotAsync: applied {appliedSystems} game object systems from snapshot" );
 
 		MountedVPKs?.Dispose();
 		MountedVPKs = null;
@@ -603,17 +654,40 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 		// Wait for loading to finish
 		if ( Game.ActiveScene is not null )
 		{
+			Log.Info( $"SceneNetworkSystem.SetSnapshotAsync: waiting for scene loading to finish for scene {Game.ActiveScene.Id}" );
 			await Game.ActiveScene.WaitForLoading();
 		}
 
 		if ( Game.ActiveScene.IsValid() )
 		{
+			Game.ActiveScene.UpdateMainCamera();
+			var cam = Game.ActiveScene.Camera;
+			Log.Info( $"SceneNetworkSystem.SetSnapshotAsync: post-load camera selected={(cam is not null)} cameraName='{cam?.GameObject?.Name ?? "(none)"}' active={cam?.Active} viewport={cam?.Viewport} renderTarget={(cam?.RenderTarget is not null)} pos={cam?.WorldPosition} rot={cam?.WorldRotation}" );
+			var mapInstances = Game.ActiveScene.GetAllComponents<MapInstance>().ToList();
+			Log.Info( $"SceneNetworkSystem.SetSnapshotAsync: mapInstances={mapInstances.Count} loaded={mapInstances.Count( x => x.IsLoaded )} maps='{string.Join( ", ", mapInstances.Select( x => x.MapName ) )}'" );
+			var modelRenderers = Game.ActiveScene.GetAllComponents<ModelRenderer>().ToList();
+			Log.Info( $"SceneNetworkSystem.SetSnapshotAsync: renderables modelRenderers={modelRenderers.Count} skinnedModelRenderers={Game.ActiveScene.GetAllComponents<SkinnedModelRenderer>().Count()} meshComponents={Game.ActiveScene.GetAllComponents<MeshComponent>().Count()} lights={Game.ActiveScene.GetAllComponents<Light>().Count() + Game.ActiveScene.GetAllComponents<AmbientLight>().Count()}" );
+			foreach ( var mr in modelRenderers.Take( 8 ) )
+			{
+				Log.Info( $"SceneNetworkSystem.SetSnapshotAsync: modelRenderer go='{mr.GameObject?.Name ?? "(null)"}' active={mr.Active} goEnabled={mr.GameObject?.Enabled} model='{mr.Model?.ResourcePath ?? "(null)"}' pos={mr.GameObject?.WorldPosition} rot={mr.GameObject?.WorldRotation} tags='{string.Join( ",", mr.GameObject?.Tags?.TryGetAll() ?? [] )}'" );
+			}
 			Game.ActiveScene.Signal( GameObjectSystem.Stage.SceneLoaded );
 
 			Game.ActiveScene.RunEvent<ISceneStartup>( x => x.OnClientInitialize() );
+			Log.Info( $"SceneNetworkSystem.SetSnapshotAsync: scene became valid and initialized. sceneId={Game.ActiveScene.Id} name='{Game.ActiveScene.Name}'" );
+		}
+		else
+		{
+			Log.Warning( "SceneNetworkSystem.SetSnapshotAsync: active scene invalid after loading" );
 		}
 
 		Game.IsPlaying = true;
+		if ( Application.IsEditor && Engine.IToolsDll.Current is not null )
+		{
+			Log.Info( $"SceneNetworkSystem.SetSnapshotAsync: requesting tools to activate playing session for scene {Game.ActiveScene.Id}" );
+			Engine.IToolsDll.Current.SetPlaying( Game.ActiveScene );
+		}
+		Log.Info( "SceneNetworkSystem.SetSnapshotAsync: complete" );
 	}
 
 	/// <summary>
@@ -688,7 +762,9 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 			return;
 
 		var sceneInformation = scene.Components.Get<SceneInformation>();
-		OnLoadedScene( sceneInformation?.Title );
+		var loadedSceneName = sceneInformation?.Title ?? scene.Name ?? scene.Source?.ResourcePath ?? "";
+		Log.Info( $"SceneNetworkSystem.OnInitialize: scene ready. title='{sceneInformation?.Title ?? "(null)"}', resolvedName='{loadedSceneName}'" );
+		OnLoadedScene( loadedSceneName );
 	}
 
 	public override void OnJoined( Connection client )

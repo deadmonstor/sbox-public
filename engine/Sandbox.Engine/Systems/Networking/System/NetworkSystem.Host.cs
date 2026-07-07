@@ -4,6 +4,7 @@ internal partial class NetworkSystem
 {
 	public void InitializeHost()
 	{
+		Log.Info( $"NetworkSystem.InitializeHost: begin. ActiveSceneId={Game.ActiveScene?.Id} rootChildren={Game.ActiveScene?.Children.Count ?? 0} gameObjects={Game.ActiveScene?.Directory?.GameObjectCount ?? 0}" );
 		IsHost = true;
 		InstallStringTables();
 
@@ -18,7 +19,7 @@ internal partial class NetworkSystem
 		}
 
 		InitializeGameSystem();
+		Log.Info( $"NetworkSystem.InitializeHost: end. ActiveSceneId={Game.ActiveScene?.Id} rootChildren={Game.ActiveScene?.Children.Count ?? 0} gameObjects={Game.ActiveScene?.Directory?.GameObjectCount ?? 0}" );
 	}
 }
-
 

@@ -11,6 +11,7 @@ public class GameEditorSession : SceneEditorSession
 	public GameEditorSession( SceneEditorSession parent, Scene scene ) : base( scene )
 	{
 		Parent = parent;
+		Log.Info( $"GameEditorSession.ctor: parentSceneId={parent?.Scene?.Id} childSceneId={scene?.Id} childName='{scene?.Name ?? "(null)"}'" );
 
 		Assert.IsNull( Current, "Attempted to create new GameEditorSession when one already exists!" );
 		Current = this;
@@ -18,6 +19,7 @@ public class GameEditorSession : SceneEditorSession
 
 	public override void Destroy()
 	{
+		Log.Info( $"GameEditorSession.Destroy: childSceneId={Scene?.Id} current={(Current == this)}" );
 		base.Destroy();
 
 		Current = null;

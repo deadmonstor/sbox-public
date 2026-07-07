@@ -121,6 +121,7 @@ public partial class MapInstance : Component, Component.ExecuteInEditor
 		if ( !Active )
 			return Task.CompletedTask;
 
+		Log.Info( $"MapInstance.OnLoad: map='{MapName}' useLaunch={UseMapFromLaunch} gameObject='{GameObject?.Name ?? "(null)"}'" );
 		return LoadMapAsync( context );
 	}
 
@@ -217,6 +218,7 @@ public partial class MapInstance : Component, Component.ExecuteInEditor
 		if ( loadedMapName == mapName )
 			return true;
 
+		Log.Info( $"MapInstance.LoadMapAsync: begin mapName='{mapName}' previous='{loadedMapName ?? "(null)"}'" );
 		SentrySdk.AddBreadcrumb( $"LoadMapAsync {mapName}", "map.load" );
 
 		context?.Title = "Loading Map";
@@ -227,6 +229,7 @@ public partial class MapInstance : Component, Component.ExecuteInEditor
 
 		if ( string.IsNullOrWhiteSpace( mapName ) )
 		{
+			Log.Warning( "MapInstance.LoadMapAsync: mapName is empty, unloading map" );
 			UnloadMap();
 			return true;
 		}
@@ -280,6 +283,7 @@ public partial class MapInstance : Component, Component.ExecuteInEditor
 
 				loadedMapPkg = package;
 				mapFileName = package.PrimaryAsset;
+				Log.Info( $"MapInstance.LoadMapAsync: mounted package '{package.FullIdent}', primaryAsset='{mapFileName}'" );
 
 				if ( mapFileName.EndsWith( ".vmap" ) )
 					mapFileName = System.IO.Path.ChangeExtension( mapFileName, ".vpk" );
@@ -310,6 +314,7 @@ public partial class MapInstance : Component, Component.ExecuteInEditor
 			{
 				loadedMapName = mapName;
 				SentrySdk.AddBreadcrumb( $"Map Name is {loadedMapName}, filename is {mapFileName}", "map.load" );
+				Log.Info( $"MapInstance.LoadMapAsync: resolved map file '{mapFileName}' for map '{mapName}'" );
 
 				await Task.Yield();
 				token.ThrowIfCancellationRequested();
@@ -320,6 +325,7 @@ public partial class MapInstance : Component, Component.ExecuteInEditor
 				{
 					var loader = new MapComponentMapLoader( this, NoOrigin ? 0 : WorldPosition );
 					loadedMap = new SceneMap( loader.World, mapFileName, loader );
+					Log.Info( $"MapInstance.LoadMapAsync: created SceneMap from VPK '{mapFileName}', valid={loadedMap.IsValid()}" );
 
 					if ( loadedMap.IsValid() )
 					{
@@ -361,6 +367,8 @@ public partial class MapInstance : Component, Component.ExecuteInEditor
 						Log.Warning( $"Failed to load scenemap: {sceneMapScenePath}" );
 						return false;
 					}
+
+					Log.Warning( $"MapInstance.LoadMapAsync: no scene gameobjects loaded for '{mapName}' (path='{sceneMapScenePath ?? "(from world.scene_c)"}')" );
 				}
 			}
 			catch ( Exception e )
@@ -372,6 +380,7 @@ public partial class MapInstance : Component, Component.ExecuteInEditor
 
 			OnMapLoaded?.InvokeWithWarning();
 			IsLoaded = true;
+			Log.Info( $"MapInstance.LoadMapAsync: completed. map='{mapName}' isLoaded={IsLoaded} loadedMapValid={loadedMap.IsValid()} sceneMapScenePath='{sceneMapScenePath ?? "(null)"}'" );
 		}
 		finally
 		{
@@ -412,11 +421,15 @@ public partial class MapInstance : Component, Component.ExecuteInEditor
 		// If this is being loaded from a vpk, load scene contents from world.scene_c.
 		// If this is from an actual scene, just use that.
 		var path = string.IsNullOrWhiteSpace( sceneMapScenePath ) ? $"{loadedMap?.MapFolder}/world.scene_c" : sceneMapScenePath + "_c";
+		Log.Info( $"MapInstance.LoadMapSceneGameObjects: loading scene data from '{path}' for map '{mapName}'" );
 		var sceneFile = SceneFile.Load( path );
 		sceneFile ??= Game.Resources.LoadRawGameResource( path ) as SceneFile;
 
 		if ( sceneFile is null )
+		{
+			Log.Warning( $"MapInstance.LoadMapSceneGameObjects: scene file not found at '{path}'" );
 			return false;
+		}
 
 		// Wouldn't this be nice? Doesn't make sense within a MapInstance, but when we switch away
 		// SceneLoadOptions options = new() { IsAdditive = true };
@@ -427,6 +440,7 @@ public partial class MapInstance : Component, Component.ExecuteInEditor
 		using var sceneScope = Scene.Push();
 		using var batchGroup = CallbackBatch.Batch();
 
+		var loadedCount = 0;
 		foreach ( var json in sceneFile.GameObjects )
 		{
 			// Should we ignore this GameObject?
@@ -450,7 +464,11 @@ public partial class MapInstance : Component, Component.ExecuteInEditor
 			{
 				go.NetworkSpawn();
 			}
+
+			loadedCount++;
 		}
+
+		Log.Info( $"MapInstance.LoadMapSceneGameObjects: loaded {loadedCount} GameObjects from '{path}'" );
 
 		return true;
 	}

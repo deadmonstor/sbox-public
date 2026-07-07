@@ -32,129 +32,75 @@ public partial class Scene : GameObject
 	/// if you want to bring other clients.
 	/// </summary>
 	public bool Load( SceneLoadOptions options )
-	{
-		var sceneFile = options.GetSceneFile();
-
-		if ( !sceneFile.IsValid() )
 		{
-			Log.Error( "No valid Scene was found in SceneLoadOptions." );
-			return false;
-		}
-
-		if ( sceneFile.ResourceName != null )
-		{
-			Name = sceneFile.ResourceName;
-		}
-
-		ProcessDeletes();
-
-		if ( !options.IsAdditive )
-		{
-			if ( options.DeleteEverything )
+			var sceneFile = options.GetSceneFile();
+			Log.Info( $"Scene.Load: starting. ResourcePath='{sceneFile?.ResourcePath ?? "(null)"}', SceneId={sceneFile.Id}, IsAdditive={options.IsAdditive}, ShowLoadingScreen={options.ShowLoadingScreen}" );
+			if ( !sceneFile.IsValid() )
 			{
-				Clear( true );
+				Log.Error( "Scene.Load: No valid Scene was found in SceneLoadOptions." );
+				return false;
 			}
-			else
+			if ( sceneFile.ResourceName != null )
 			{
-				// get all the gameobjects that should survive
-				var savedObjects = GetAllObjects( false ).Where( x => x.Flags.Contains( GameObjectFlags.DontDestroyOnLoad ) );
-
-				// move them to the scene root
-				foreach ( var saved in savedObjects )
+				Name = sceneFile.ResourceName;
+				Log.Info( $"Scene.Load: ResourceName set to '{Name}'" );
+			}
+			ProcessDeletes();
+			Log.Trace( "Scene.Load: ProcessDeletes completed" );
+			if ( !options.IsAdditive )
+			{
+				if ( options.DeleteEverything )
 				{
-					saved.SetParent( this );
+					Log.Info( "Scene.Load: Clearing entire scene (DeleteEverything = true)" );
+					Clear( true );
 				}
-
-				Clear( false );
-			}
-
-			ProcessDeletes();
-		}
-
-		if ( !IsEditor && options.ShowLoadingScreen )
-		{
-			StartLoading();
-			LoadingScreen.IsVisible = true;
-			LoadingScreen.Title = "Loading Scene";
-		}
-
-		RunEvent<ISceneLoadingEvents>( x => x.BeforeLoad( this, options ) );
-
-		if ( sceneFile.Id != Guid.Empty && sceneFile.Id != Id )
-		{
-			ForceChangeId( sceneFile.Id );
-			Directory.Add( this );
-		}
-
-		if ( !options.IsAdditive )
-		{
-			Source = sceneFile;
-		}
-
-		{
-			using var optionsScope = ActionGraph.PushSerializationOptions( sceneFile.SerializationOptions with { ForceUpdateCached = IsEditor } );
-			using var sceneScope = Push();
-
-			// Depending on if we load a scene from file or from memory, we need to account for that here
-			using var blobs = BlobDataSerializer.Load( sceneFile.BinaryData, sceneFile.ResourcePath );
-			using var batchGroup = CallbackBatch.Batch();
-
-			// Clear cached binary data now that we've loaded it
-			sceneFile.BinaryData = null;
-
-			if ( sceneFile.GameObjects is not null )
-			{
-				foreach ( var json in sceneFile.GameObjects )
+				else
 				{
-					var go = CreateObject( false );
-					go.Deserialize( json );
+					// get all the gameobjects that should survive
+					var savedObjects = GetAllObjects( false ).Where( x => x.Flags.Contains( GameObjectFlags.DontDestroyOnLoad ) );
+					// move them to the scene root
+					foreach ( var saved in savedObjects )
+					{
+						saved.SetParent( this );
+					}
+					Log.Trace( $"Scene.Load: Preserving {savedObjects.Count()} objects across load" );
+					Clear( false );
 				}
+				ProcessDeletes();
 			}
-
-			if ( sceneFile.SceneProperties is not null )
-			{
-				DeserializeProperties( sceneFile.SceneProperties, options.IsSystemScene );
+			if ( !IsEditor && options.ShowLoadingScreen )
+			{			Log.Info( "Scene.Load: Showing loading screen and starting async load" );
+				StartLoading();
+				LoadingScreen.IsVisible = true;
+				LoadingScreen.Title = "Loading Scene";
 			}
-
-			//
-			// Let ISceneLoadingEvents add their own tasks
-			//
-			List<LoadingContext> sceneLoadingTasks = new();
-			RunEvent<ISceneLoadingEvents>( x =>
+			RunEvent<ISceneLoadingEvents>( x => x.BeforeLoad( this, options ) );
+			Log.Trace( "Scene.Load: Ran BeforeLoad events" );
+			if ( sceneFile.Id != Guid.Empty && sceneFile.Id != Id )
 			{
-				var context = new LoadingContext();
-				context.Task = x.OnLoad( this, options, context );
-
-				sceneLoadingTasks.Add( context );
-			} );
-
-			foreach ( var task in sceneLoadingTasks )
-			{
-				AddLoadingTask( task );
+				ForceChangeId( sceneFile.Id );
+				Directory.Add( this );
+				Log.Trace( $"Scene.Load: Forced scene Id change to {sceneFile.Id}" );		}
+			if ( !options.IsAdditive )
+			{			Source = sceneFile;
+				Log.Trace( $"Scene.Load: Source set to {sceneFile.ResourcePath}" );
 			}
-
-			if ( !IsEditor )
-			{
-				NetworkSpawnRecursive( null );
-			}
+			{			using var optionsScope = ActionGraph.PushSerializationOptions( sceneFile.SerializationOptions with { ForceUpdateCached = IsEditor } );
+					using var sceneScope = Push();
+					// Depending on if we load a scene from file or from memory, we need to account for that here
+					using var blobs = BlobDataSerializer.Load( sceneFile.BinaryData, sceneFile.ResourcePath );
+					using var batchGroup = CallbackBatch.Batch();
+					// Clear cached binary data now that we've loaded it
+					sceneFile.BinaryData = null;
+					int objCount = 0;				if ( sceneFile.GameObjects is not null )				{					foreach ( var json in sceneFile.GameObjects )					{						var go = CreateObject( false );						go.Deserialize( json );						objCount++;					}				}				if ( sceneFile.SceneProperties is not null )				{					DeserializeProperties( sceneFile.SceneProperties, options.IsSystemScene );					Log.Trace( "Scene.Load: Deserialized scene properties" );				}				Log.Info( $"Scene.Load: Deserialized {objCount} GameObjects from scene file" );				//
+					// Let ISceneLoadingEvents add their own tasks
+					//
+					List<LoadingContext> sceneLoadingTasks = new();
+					RunEvent<ISceneLoadingEvents>( x =>
+					{					var context = new LoadingContext();					context.Task = x.OnLoad( this, options, context );					sceneLoadingTasks.Add( context );				} );				Log.Trace( $"Scene.Load: Collected {sceneLoadingTasks.Count} ISceneLoadingEvents tasks" );				foreach ( var task in sceneLoadingTasks )				{					AddLoadingTask( task );				}				if ( !IsEditor )				{					NetworkSpawnRecursive( null );					Log.Trace( "Scene.Load: NetworkSpawnRecursive completed" );				}		}
+			// Now that we're done, add the system scene
+			if ( !IsEditor && !options.IsAdditive )		{			AddSystemScene();			Log.Trace( "Scene.Load: Added system scene" );		}		if ( !options.IsSystemScene )		{			// Now we can signal to GameObjectSystems that we have finished loading.			// We wrap this in an IsSystemScene check so that it's not called twice			// for every scene load.			Signal( GameObjectSystem.Stage.SceneLoaded );			Log.Info( "Scene.Load: Signalled SceneLoaded to GameObjectSystems" );		}		Log.Info( $"Scene.Load: finished successfully. SceneId={Id}, Name='{Name}'" );		return true;
 		}
-
-		// Now that we're done, add the system scene
-		if ( !IsEditor && !options.IsAdditive )
-		{
-			AddSystemScene();
-		}
-
-		if ( !options.IsSystemScene )
-		{
-			// Now we can signal to GameObjectSystems that we have finished loading.
-			// We wrap this in an IsSystemScene check so that it's not called twice
-			// for every scene load.
-			Signal( GameObjectSystem.Stage.SceneLoaded );
-		}
-
-		return true;
-	}
 
 	/// <summary>
 	/// Load from the provided file name. This will not load the scene for other clients in a

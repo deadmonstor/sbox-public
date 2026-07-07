@@ -361,6 +361,7 @@ internal partial class NetworkSystem
 		source.State = Connection.ChannelState.Snapshot;
 
 		log.Trace( $"[{this}] Requesting a snapshot" );
+		Log.Info( $"Handshake.RequestSnapshot: building snapshot for {source.Name} [{source.SteamId}] conn={source.Id}" );
 
 		var snapshot = new SnapshotMsg
 		{
@@ -369,6 +370,7 @@ internal partial class NetworkSystem
 		};
 
 		GameSystem?.GetSnapshot( source, ref snapshot );
+		Log.Info( $"Handshake.RequestSnapshot: built snapshot sceneDataLen={snapshot.SceneData?.Length ?? 0} blobBytes={snapshot.BlobData?.Length ?? 0} networkObjects={snapshot.NetworkObjects?.Count ?? 0} systems={snapshot.GameObjectSystems?.Count ?? 0}" );
 
 		var output = new InitialSnapshotResponse
 		{
@@ -400,6 +402,7 @@ internal partial class NetworkSystem
 
 		LoadingScreen.Title = "Loading Snapshot";
 		Log.Trace( $"[{this}] Got a snapshot" );
+		Log.Info( $"Handshake.Snapshot: received snapshot from host {source.Id}. sceneDataLen={msg.Snapshot.SceneData?.Length ?? 0} blobBytes={msg.Snapshot.BlobData?.Length ?? 0} networkObjects={msg.Snapshot.NetworkObjects?.Count ?? 0} systems={msg.Snapshot.GameObjectSystems?.Count ?? 0}" );
 
 		//
 		// Spawn the scene, which could also lead to calling OnStart, OnEnable on components
@@ -411,10 +414,12 @@ internal partial class NetworkSystem
 			try
 			{
 				await GameSystem.SetSnapshotAsync( msg.Snapshot );
+				Log.Info( "Handshake.Snapshot: GameSystem.SetSnapshotAsync completed successfully" );
 			}
 			catch ( Exception e )
 			{
 				Log.Error( e );
+				Log.Error( $"Handshake.Snapshot: failed while applying snapshot. sceneDataLen={msg.Snapshot.SceneData?.Length ?? 0} networkObjects={msg.Snapshot.NetworkObjects?.Count ?? 0}" );
 				IGameInstanceDll.Current.Disconnect( "Error Deserializing Snapshot" );
 				return;
 			}
@@ -428,6 +433,7 @@ internal partial class NetworkSystem
 		};
 
 		source.SendMessage( output );
+		Log.Info( "Handshake.Snapshot: sent ClientReady to host" );
 	}
 
 	Task On_Handshake_ClientReady( ClientReady msg, Connection source, Guid msgId )
@@ -448,6 +454,7 @@ internal partial class NetworkSystem
 		}
 
 		source.State = Connection.ChannelState.Connected;
+		Log.Info( $"Handshake.ClientReady: {source.Name} [{source.SteamId}] transitioned to Connected" );
 
 		//
 		// Tell game this guy is fully active.
@@ -502,6 +509,7 @@ internal partial class NetworkSystem
 
 		Connection.Local.State = Connection.ChannelState.Connected;
 		source.State = Connection.ChannelState.Connected;
+		Log.Info( $"Handshake.Activate: local connection now Connected. host={source.Id}" );
 
 		return Task.CompletedTask;
 	}

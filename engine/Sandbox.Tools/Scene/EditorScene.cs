@@ -292,6 +292,7 @@ public static class EditorScene
 		}
 
 		SceneEditorSession.Active.SetPlaying( Game.ActiveScene );
+		Log.Info( $"EditorScene.Play: set playing for sceneId={Game.ActiveScene?.Id} name='{Game.ActiveScene?.Name ?? "(null)"}'" );
 
 		EditorEvent.Run( "scene.play" );
 	}

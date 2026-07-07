@@ -513,6 +513,7 @@ internal class GameInstance : IGameInstance
 		}
 		else
 		{
+			Log.Info( $"GameInstance.OpenStartupScene: loading startup scene '{startupScene}' (dedicated={Application.IsDedicatedServer}, mapPackage={_mapPackage?.FullIdent ?? "(none)"})" );
 			var options = new SceneLoadOptions();
 
 			// this is a blank scene, so it shouldn't matter. We set
@@ -530,6 +531,12 @@ internal class GameInstance : IGameInstance
 
 			// Since this was an additive load, we need to manually add the system scene
 			Game.ActiveScene.AddSystemScene();
+			var mapInstanceCount = Game.ActiveScene.GetAllComponents<MapInstance>().Count();
+			Log.Info( $"GameInstance.OpenStartupScene: loaded '{startupScene}'. mapInstances={mapInstanceCount}, gameObjects={Game.ActiveScene.Directory.GameObjectCount}, components={Game.ActiveScene.Directory.ComponentCount}" );
+			if ( mapInstanceCount == 0 )
+			{
+				Log.Warning( $"GameInstance.OpenStartupScene: startup scene '{startupScene}' has no MapInstance components; clients may join into an empty world." );
+			}
 
 			Game.ActiveScene.RunEvent<ISceneStartup>( x => x.OnHostInitialize() );
 

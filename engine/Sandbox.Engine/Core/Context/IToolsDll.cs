@@ -18,6 +18,7 @@ internal unsafe interface IToolsDll
 	public void Exiting();
 	public bool ConsoleFocus();
 	public void ExitPlaymode();
+	public void SetPlaying( Scene scene );
 
 	public void Spin();
 	public void RunFrame();

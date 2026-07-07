@@ -52,12 +52,15 @@ public partial class Scene : GameObject
 		{
 			var instance = IGameInstance.Current;
 
+			Log.Info( $"Scene.WaitForLoading: starting. PendingTasks={_loadingTasks.Count}" );
+
 			// wait one frame for all the tasks to build up
 			await Task.Yield();
 
 			// wait for all the loading tasks to finish
 			while ( _loadingTasks.Count > 0 )
 			{
+				Log.Trace( $"Scene.WaitForLoading: waiting for {_loadingTasks.Count} tasks" );
 				LoadingScreen.UpdateLoadingTasks( _loadingTasks );
 				await Task.WhenAny( _loadingTasks.Select( x => x.Task ) );
 				_loadingTasks.RemoveAll( x => x.IsCompleted );
@@ -66,53 +69,53 @@ public partial class Scene : GameObject
 			// Remove all the tasks
 			LoadingScreen.UpdateLoadingTasks( [] );
 
-			if ( !IsValid ) return;
-
-			//
-			// Some people are locking up forever. Need more info.
-			//
-
-			//while ( NativeEngine.ResourceSystem.HasPendingWork() )
-			//{
-			//	LoadingScreen.Subtitle = "Loading Resources..";
-			//	await Task.DelayRealtime( 100 );
-			//}
+			if ( !IsValid )
+			{
+				Log.Warning( "Scene.WaitForLoading: scene became invalid before finishing load" );
+				return;
+			}
 
 			// generated after everything is loaded
 			if ( NavMesh.IsEnabled && this is not PrefabScene )
 			{
+				Log.Info( "Scene.WaitForLoading: Generating NavMesh.." );
 				LoadingScreen.Subtitle = "Generating NavMesh..";
 
 				await NavMesh.Load( PhysicsWorld );
 
 				LoadingScreen.Subtitle = "Loading Finished..";
+				Log.Info( "Scene.WaitForLoading: NavMesh generation finished" );
 			}
 
-			if ( !IsValid ) return;
+			if ( !IsValid )
+			{
+				Log.Warning( "Scene.WaitForLoading: scene became invalid after navmesh" );
+				return;
+			}
 
 			using ( Push() )
 			{
-				// tell the game instance we finished loading
+				Log.Trace( "Scene.WaitForLoading: Entering Push scope to finalize load" );
 				instance?.OnLoadingFinished();
-
-				// shoot events
 				RunEvent<ISceneLoadingEvents>( x => x.AfterLoad( this ) );
+				Log.Trace( "Scene.WaitForLoading: Ran AfterLoad events" );
 
-				// Run pending startups
 				RunPendingStarts();
 
 				if ( WantsSystemScene && this is not PrefabScene )
 					g_pRenderDevice.FlushPipelineCache();
 
-				// Tell networking we've finished loading, lets players join
 				var sceneInformation = Components.Get<SceneInformation>();
-				SceneNetworkSystem.OnLoadedScene( sceneInformation?.Title );
+				var loadedSceneName = sceneInformation?.Title ?? Name ?? Source?.ResourcePath ?? "";
+				Log.Info( $"Scene.WaitForLoading: Loaded scene title='{sceneInformation?.Title ?? "(null)"}', resolvedName='{loadedSceneName}' - notifying networking" );
+				SceneNetworkSystem.OnLoadedScene( loadedSceneName );
 			}
 		}
 		finally
 		{
 			_loadingMainTask = default;
 			LoadingScreen.IsVisible = false;
+			Log.Trace( "Scene.WaitForLoading: finished, loading screen hidden" );
 		}
 	}
 }

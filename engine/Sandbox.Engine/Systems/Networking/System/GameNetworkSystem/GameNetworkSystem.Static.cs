@@ -74,17 +74,12 @@ public abstract partial class GameNetworkSystem
 	/// Called after we've loaded a new scene.
 	/// </summary>
 	internal static void OnLoadedScene( string sceneName )
-	{
-		if ( Networking.System is null )
-			return;
-
-		if ( Networking.IsConnecting )
-			return;
-
-		DedicatedServer.MapName = sceneName;
-		Networking.System.OnSceneLoaded();
-		CurrentSceneName = sceneName;
-	}
+		{		// Always remember the last loaded scene name so dedicated servers can pick it up when they start.		CurrentSceneName = sceneName;
+			if ( Networking.IsConnecting )
+				return;
+			// If Steam game server is available, update the advertise map name immediately.		DedicatedServer.MapName = sceneName;
+			if ( Networking.System is null )			return;
+			Networking.System.OnSceneLoaded();	}
 }
 
 public struct LobbyInformation
