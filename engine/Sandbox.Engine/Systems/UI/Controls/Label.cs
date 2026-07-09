@@ -248,6 +248,8 @@ namespace Sandbox.UI
 			var s = Math.Min( SelectionStart, SelectionEnd );
 			var e = Math.Max( SelectionStart, SelectionEnd );
 
+			if ( e <= s ) return "";
+
 			return StringInfo.SubstringByTextElements( s, e - s );
 		}
 
