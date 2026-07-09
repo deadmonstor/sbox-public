@@ -67,17 +67,21 @@ partial class ViewportTools
 		}
 
 		menu.AddSeparator();
-
 		menu.AddOption( new( "Start Hosting", "dns", EditorUtility.Network.StartHosting ) { Enabled = !EditorUtility.Network.Active } );
 		menu.AddOption( new( "Disconnect", "phonelink_erase", EditorUtility.Network.Disconnect ) { Enabled = EditorUtility.Network.Active } );
 
 		menu.AddSeparator();
-		menu.AddOption( new( "Join via new instance", "connected_tv", SpawnProcess ) { Enabled = EditorUtility.Network.Hosting } );
+		menu.AddOption( new( "Join via new instance", "connected_tv", SpawnProcess ) { Enabled = EditorUtility.Network.Hosting || IsDedicatedServerOpen() } );
 		menu.AddOption( new( "Start dedicated server", "terminal", SpawnDedicatedServer ) );
 		menu.AddSeparator();
 		menu.AddOption( new( "Preferences", "tune", OpenPreferences ) );
 
 		menu.OpenAtCursor();
+	}
+
+	static bool IsDedicatedServerOpen()
+	{
+		return Process.GetProcessesByName( "sbox-server" ).Length > 0;
 	}
 
 	void OpenPreferences()
@@ -108,6 +112,7 @@ partial class ViewportTools
 
 		p.StartInfo.ArgumentList.Add( "+game" );
 		p.StartInfo.ArgumentList.Add( Project.Current.GetProjectPath() );
+		p.StartInfo.ArgumentList.Add( "+net_allow_local 1" );
 
 		AddUserCommandLineArgs( p.StartInfo, EditorPreferences.DedicatedServerCommandLineArgs );
 
