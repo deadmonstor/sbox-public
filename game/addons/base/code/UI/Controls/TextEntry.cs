@@ -215,7 +215,8 @@ public partial class TextEntry : BaseControl
 
 		if ( MaxLength.HasValue && TextLength > MaxLength )
 		{
-			pasteResult = pasteResult.Substring( 0, MaxLength.Value - CaretPosition );
+			var allowedLength = Math.Clamp( MaxLength.Value - CaretPosition, 0, pasteResult.Length );
+			pasteResult = pasteResult.Substring( 0, allowedLength );
 		}
 
 		Text ??= "";
