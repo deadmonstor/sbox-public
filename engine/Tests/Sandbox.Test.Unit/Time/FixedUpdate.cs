@@ -161,6 +161,36 @@ public class FixedUpdateTest
 	}
 
 	[TestMethod]
+	[DataRow( 10.0 )] // Low FPS - well below FixedUpdateFrequency
+	[DataRow( 60.0 )] // Normal FPS - well above FixedUpdateFrequency
+	public void SpeedIndependentOfFrameRateWhenMaxStepsExceeded( double fps )
+	{
+		// Regression test for #11373: with maxSteps=1 and a low FixedUpdateFrequency, velocity-based
+		// movement (position += velocity * Time.Delta summed across fixed updates) should cover the
+		// same total distance over a fixed span of real time, regardless of render FPS.
+		var fu = new FixedUpdate();
+		fu.Frequency = 50; // 50Hz fixed update, same as the default PhysicsSettings
+		const int maxSteps = 1;
+		const double velocity = 100.0;
+
+		double distance = 0;
+		Action action = () => distance += velocity * Time.Delta;
+
+		double time = 0.0;
+		double frameDelta = 1.0 / fps;
+		const double simSeconds = 5.0;
+
+		while ( time < simSeconds )
+		{
+			fu.Run( action, time, maxSteps );
+			time += frameDelta;
+		}
+
+		// Regardless of FPS, we should have covered ~velocity * simSeconds of distance.
+		Assert.AreEqual( velocity * simSeconds, distance, velocity * frameDelta * 2, $"Distance should be framerate independent at {fps} FPS" );
+	}
+
+	[TestMethod]
 	public void LargeTimeJump()
 	{
 		var fu = new FixedUpdate();

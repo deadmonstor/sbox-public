@@ -73,6 +73,11 @@ internal class FontManager : FontMapper
 
 	List<FileWatch> watchers = new();
 
+	// Tracks which files (per filesystem) we've already scanned, so repeated
+	// LoadAll calls for the same filesystem don't re-open and re-parse every font again.
+	HashSet<(BaseFileSystem, string)> ScannedFiles = new();
+	HashSet<BaseFileSystem> WatchedFileSystems = new();
+
 	public void LoadAll( BaseFileSystem fileSystem )
 	{
 		lock ( Cache )
@@ -84,10 +89,22 @@ internal class FontManager : FontMapper
 		var fontFiles = fileSystem.FindFile( "/fonts/", "*.ttf", true )
 			.Union( fileSystem.FindFile( "/fonts/", "*.otf", true ) );
 
-		Parallel.ForEach( fontFiles, ( string font ) =>
+		List<string> newFiles;
+		lock ( ScannedFiles )
+		{
+			newFiles = fontFiles.Where( font => ScannedFiles.Add( (fileSystem, font) ) ).ToList();
+		}
+
+		Parallel.ForEach( newFiles, ( string font ) =>
 		{
 			Load( fileSystem.OpenRead( $"/fonts/{font}" ) );
 		} );
+
+		lock ( WatchedFileSystems )
+		{
+			if ( !WatchedFileSystems.Add( fileSystem ) )
+				return;
+		}
 
 		// Load any new fonts
 		var ttfWatch = fileSystem.Watch( $"*.ttf" );
@@ -165,6 +182,16 @@ internal class FontManager : FontMapper
 			watcher.Dispose();
 		}
 		watchers.Clear();
+
+		lock ( WatchedFileSystems )
+		{
+			WatchedFileSystems.Clear();
+		}
+
+		lock ( ScannedFiles )
+		{
+			ScannedFiles.Clear();
+		}
 
 		lock ( LoadedFonts )
 		{

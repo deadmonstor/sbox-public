@@ -60,17 +60,30 @@ public partial class SoundHandle
 		private uint _context;
 		private float[] _visemes;
 
-		// Contexts waiting to be destroyed at the start of the next MixOneBuffer().
+		// Contexts waiting to be released (pooled or destroyed) at the start of the next MixOneBuffer().
 		static readonly ConcurrentQueue<uint> _destructionQueue = new();
+
+		// Idle contexts available for reuse, avoiding a fresh (~160ms) ovrLipSync_CreateContextEx
+		// every time a voice stream is recreated (e.g. after a pause in talking). All contexts are
+		// created with the same config (VoiceManager.SampleRate, Enhanced_with_Laughter), so any
+		// pooled context is interchangeable.
+		static readonly ConcurrentBag<uint> _contextPool = new();
+		const int MaxPooledContexts = 32;
 
 		/// <summary>
 		/// Drain OVR contexts queued by DisableLipSync(). Called by MixingThread at the start
-		/// of each MixOneBuffer(), guaranteeing no context is destroyed while ProcessLipSync uses it.
+		/// of each MixOneBuffer(), guaranteeing no context is reused/destroyed while ProcessLipSync
+		/// uses it. Contexts are pooled for reuse rather than destroyed, up to MaxPooledContexts.
 		/// </summary>
 		internal static void DrainDestructionQueue()
 		{
 			while ( _destructionQueue.TryDequeue( out var ctx ) )
-				OVRLipSyncGlobal.ovrLipSync_DestroyContext( ctx );
+			{
+				if ( _contextPool.Count < MaxPooledContexts )
+					_contextPool.Add( ctx );
+				else
+					OVRLipSyncGlobal.ovrLipSync_DestroyContext( ctx );
+			}
 		}
 
 		internal LipSyncAccessor()
@@ -83,11 +96,15 @@ public partial class SoundHandle
 
 			// Create resources first, then set _enabled = true (volatile release).
 			// The mix thread sees _enabled = true only after _context and _visemes are ready.
-			OVRLipSyncGlobal.ovrLipSync_CreateContextEx(
-				out _context,
-				OVRLipSync.ContextProvider.Enhanced_with_Laughter,
-				VoiceManager.SampleRate,
-				true );
+			// Reuse a pooled context if one's available - creating a new one natively is expensive.
+			if ( !_contextPool.TryTake( out _context ) )
+			{
+				OVRLipSyncGlobal.ovrLipSync_CreateContextEx(
+					out _context,
+					OVRLipSync.ContextProvider.Enhanced_with_Laughter,
+					VoiceManager.SampleRate,
+					true );
+			}
 
 			_visemes = new float[(int)OVRLipSync.Viseme.Count];
 			_enabled = true; // volatile write
@@ -98,11 +115,11 @@ public partial class SoundHandle
 			if ( !_enabled ) return;
 
 			// Set _enabled = false (volatile write) FIRST so the mix thread's ProcessLipSync
-			// guard fires before any context is destroyed.
+			// guard fires before any context is reused/destroyed.
 			_enabled = false;
 
-			// Queue the context for destruction at the start of the next MixOneBuffer().
-			// We never destroy it here because the mix thread might still be in ProcessLipSync
+			// Queue the context for release at the start of the next MixOneBuffer().
+			// We never touch it here because the mix thread might still be in ProcessLipSync
 			// having read _enabled = true just before we set it to false.
 			_destructionQueue.Enqueue( _context );
 			_context = 0;
