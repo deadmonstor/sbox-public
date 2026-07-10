@@ -328,7 +328,7 @@ public partial class Scene : GameObject
 		PreCameraRender();
 
 		// Get all cameras sorted by render priority
-		var cameras = RentSortedCameras();
+		var cameras = RentSortedCameras( mainCameraLast: true );
 		try
 		{
 			foreach ( var cc in cameras )
@@ -352,7 +352,7 @@ public partial class Scene : GameObject
 	/// <see cref="Cameras"/> by priority, equal priorities in set order like OrderBy. A snapshot, since
 	/// rendering a camera can add or remove cameras. A nested call gets its own list.
 	/// </summary>
-	List<CameraComponent> RentSortedCameras()
+	List<CameraComponent> RentSortedCameras( bool mainCameraLast = false )
 	{
 		var cameras = _sortedCameraScratch ?? new();
 		_sortedCameraScratch = null;
@@ -361,7 +361,20 @@ public partial class Scene : GameObject
 		{
 			var priority = camera.Priority;
 			int i = cameras.Count;
-			while ( i > 0 && cameras[i - 1].Priority > priority ) i--;
+			while ( i > 0 )
+			{
+				var previous = cameras[i - 1];
+				if ( mainCameraLast && previous.IsMainCamera != camera.IsMainCamera )
+				{
+					if ( !previous.IsMainCamera ) break;
+				}
+				else if ( previous.Priority <= priority )
+				{
+					break;
+				}
+
+				i--;
+			}
 			cameras.Insert( i, camera );
 		}
 
