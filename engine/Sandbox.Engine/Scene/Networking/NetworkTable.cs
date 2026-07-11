@@ -30,6 +30,7 @@ internal class NetworkTable : IDisposable
 		public byte[] Serialized;
 		public bool Initialized;
 		public int Slot;
+		public Guid TargetGuid;
 
 		bool INetworkProxy.IsProxy => !HasControl( Connection.Local );
 
@@ -69,6 +70,22 @@ internal class NetworkTable : IDisposable
 	private readonly List<Entry> _reliableEntries = [];
 	private readonly List<Entry> _snapshotEntries = [];
 	private readonly List<Entry> _queryEntries = [];
+
+	/// <summary>
+	/// Fired whenever an entry's value genuinely changes (local write or applied network update),
+	/// before the new value is actually applied. Used by <see cref="NetworkTimelineRecorder"/>.
+	/// </summary>
+	internal Action<Entry, object, object> OnValueChanging;
+
+	/// <summary>
+	/// When true, inbound network writes are still recorded (via <see cref="OnValueChanging"/>) but not
+	/// applied to the underlying value - used while scrubbing the network timeline debugger.
+	/// </summary>
+	internal bool Frozen;
+
+	internal Entry GetEntry( int slot ) => _entries.GetValueOrDefault( slot );
+
+	internal IEnumerable<Entry> AllEntriesForSnapshot => _entries.Values;
 
 	/// <summary>
 	/// Do we have any pending changes for entries we control?
@@ -178,6 +195,8 @@ internal class NetworkTable : IDisposable
 			if ( !serializer.HasChanges )
 				return;
 
+			OnValueChanging?.Invoke( entry, null, value );
+
 			entry.Serialized = null;
 			entry.IsDirty = true;
 			return;
@@ -187,6 +206,8 @@ internal class NetworkTable : IDisposable
 
 		if ( entry.HashCodeValue == hashValue )
 			return;
+
+		OnValueChanging?.Invoke( entry, entry.GetValue(), value );
 
 		entry.HashCodeValue = hashValue;
 		entry.Serialized = null;
@@ -252,6 +273,10 @@ internal class NetworkTable : IDisposable
 
 			entry.Initialized = false;
 			UpdateSlotHash( slot, value );
+
+			if ( Frozen )
+				return;
+
 			entry.SetValue( value );
 		}
 		catch ( Exception e )

@@ -798,7 +798,8 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 			snapshot.TryGetValue<bool>( SnapshotInterpolationSlot, out var clearInterpolation );
 
 			var didTransformChange = false;
-			var transform = GameObject.Transform.TargetLocal;
+			var oldTransform = GameObject.Transform.TargetLocal;
+			var transform = oldTransform;
 
 			if ( snapshot.TryGetValue<Vector3>( SnapshotPositionSlot, out var position ) )
 			{
@@ -820,9 +821,12 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 
 			if ( didTransformChange )
 			{
-				GameObject.Transform.FromNetwork( transform, clearInterpolation );
+				NetworkTimelineRecorder.Current?.RecordTransformChange( GameObject, oldTransform, transform );
+
+				if ( !dataTable.Frozen )
+					GameObject.Transform.FromNetwork( transform, clearInterpolation );
 			}
-			else if ( clearInterpolation )
+			else if ( clearInterpolation && !dataTable.Frozen )
 			{
 				GameObject.Transform.ClearLocalInterpolation();
 			}

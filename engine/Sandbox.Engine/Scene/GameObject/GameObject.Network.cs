@@ -423,13 +423,23 @@ public partial class GameObject
 
 		if ( !net.dataTable.HasControl( slot ) )
 		{
-			if ( NetworkTable.IsReadingChanges )
-				p.Setter( p.Value );
+			if ( NetworkTable.IsReadingChanges || NetworkTimelineRecorder.IsApplyingScrub )
+			{
+				if ( !net.dataTable.Frozen || NetworkTimelineRecorder.IsApplyingScrub )
+					p.Setter( p.Value );
+			}
 
 			return;
 		}
 
 		net.dataTable.UpdateSlotHash( slot, p.Value );
+
+		// While a network timeline debugger is scrubbing this object's history, don't let its own
+		// running logic (e.g. a locally-owned property write) overwrite the historical value we
+		// applied - unless this *is* the debugger applying that historical value.
+		if ( net.dataTable.Frozen && !NetworkTimelineRecorder.IsApplyingScrub )
+			return;
+
 		p.Setter( p.Value );
 	}
 

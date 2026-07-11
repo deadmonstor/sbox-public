@@ -173,6 +173,7 @@ public static partial class Rpc
 		using var profiler = _ph.Start( rpcName );
 
 		NetworkDebugSystem.Current?.Track( rpcName, rpc, outbound: false, source );
+		NetworkTimelineRecorder.Current?.RecordRpc( rpc.Guid, rpc.ComponentId, rpcName, rpc.Arguments, outbound: false, source );
 
 		using ( WithCaller( source ) )
 		{
@@ -392,6 +393,7 @@ public static partial class Rpc
 		if ( attribute.Mode == RpcMode.Broadcast )
 		{
 			NetworkDebugSystem.Current?.Track( $"{m.TypeName}.{m.MethodName}", msg, outbound: true );
+			NetworkTimelineRecorder.Current?.RecordRpc( go.Id, component?.Id ?? Guid.Empty, $"{m.TypeName}.{m.MethodName}", argumentList, outbound: true, Connection.Local );
 			networkSystem.Broadcast( msg, Filter, attribute.Flags );
 			return;
 		}
@@ -407,6 +409,7 @@ public static partial class Rpc
 			if ( targetId == Guid.Empty ) return; // don't send to no-one
 
 			NetworkDebugSystem.Current?.Track( $"{m.TypeName}.{m.MethodName}", msg, outbound: true );
+			NetworkTimelineRecorder.Current?.RecordRpc( go.Id, component?.Id ?? Guid.Empty, $"{m.TypeName}.{m.MethodName}", argumentList, outbound: true, Connection.Local );
 			networkSystem.Send( targetId, msg, attribute.Flags );
 			return;
 		}
@@ -421,6 +424,7 @@ public static partial class Rpc
 			if ( targetId == Guid.Empty ) return; // don't send to no-one
 
 			NetworkDebugSystem.Current?.Track( $"{m.TypeName}.{m.MethodName}", msg, outbound: true );
+			NetworkTimelineRecorder.Current?.RecordRpc( go.Id, component?.Id ?? Guid.Empty, $"{m.TypeName}.{m.MethodName}", argumentList, outbound: true, Connection.Local );
 			networkSystem.Send( targetId, msg, attribute.Flags );
 		}
 	}

@@ -23,6 +23,9 @@ internal sealed partial class NetworkObject
 		dataTable?.Dispose();
 		dataTable = new();
 
+		dataTable.OnValueChanging = ( entry, oldValue, newValue ) =>
+			NetworkTimelineRecorder.Current?.RecordSyncVarChange( GameObject, entry, oldValue, newValue );
+
 		RegisterPropertiesRecursive( GameObject );
 	}
 
@@ -76,7 +79,8 @@ internal sealed partial class NetworkObject
 					GetValue = () => propertyAndAttribute.Property.GetValue( instance ),
 					SetValue = ( v ) => propertyAndAttribute.Property?.SetValue( instance, v ),
 					NeedsQuery = isQuery,
-					DebugName = $"{originType.Name}.{propertyAndAttribute.Property.Name}"
+					DebugName = $"{originType.Name}.{propertyAndAttribute.Property.Name}",
+					TargetGuid = guid
 				};
 
 				dataTable.Register( identity, entry );

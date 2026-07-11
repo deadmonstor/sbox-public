@@ -63,7 +63,10 @@ public abstract partial class Component
 
 			if ( !net.dataTable.HasControl( slot ) )
 			{
-				if ( !NetworkTable.IsReadingChanges )
+				if ( !NetworkTable.IsReadingChanges && !NetworkTimelineRecorder.IsApplyingScrub )
+					return;
+
+				if ( net.dataTable.Frozen && !NetworkTimelineRecorder.IsApplyingScrub )
 					return;
 
 				var attribute = p.GetAttribute<SyncAttribute>();
@@ -80,6 +83,13 @@ public abstract partial class Component
 			}
 
 			net.dataTable.UpdateSlotHash( slot, p.Value );
+
+			// While a network timeline debugger is scrubbing this object's history, don't let its own
+			// running logic (e.g. a locally-owned property write) overwrite the historical value we
+			// applied - unless this *is* the debugger applying that historical value.
+			if ( net.dataTable.Frozen && !NetworkTimelineRecorder.IsApplyingScrub )
+				return;
+
 			p.Setter?.Invoke( p.Value );
 		}
 		catch ( Exception e )
