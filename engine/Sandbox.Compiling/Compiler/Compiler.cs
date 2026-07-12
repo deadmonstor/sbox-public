@@ -83,6 +83,21 @@ public sealed partial class Compiler : IDisposable
 	internal IncrementalCompileState incrementalState = new IncrementalCompileState();
 
 	/// <summary>
+	/// When enabled (and <see cref="DiskCacheFileSystem"/> is set), a successful build is cached to disk
+	/// keyed by a hash of its source content, configuration, and dependencies. If a later build (e.g.
+	/// after a process restart, where <see cref="IncrementalCompileState"/> doesn't survive) produces
+	/// the same hash, the cached assembly is loaded instead of recompiling from scratch.
+	/// </summary>
+	public bool EnableDiskCache { get; set; }
+
+	/// <summary>
+	/// Filesystem the disk cache reads/writes through, e.g. the engine root so the cache lands under
+	/// <c>/.source2/cache/compiler/</c> alongside other engine caches. Set once by whoever creates
+	/// compilers; caching is a no-op while this is null even if <see cref="EnableDiskCache"/> is true.
+	/// </summary>
+	public static BaseFileSystem DiskCacheFileSystem { get; set; }
+
+	/// <summary>
 	/// The compiler's settings. 
 	/// </summary>
 	private Compiler.Configuration _config = new();

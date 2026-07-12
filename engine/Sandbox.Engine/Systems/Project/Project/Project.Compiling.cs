@@ -101,6 +101,9 @@ public partial class Project
 
 			Compiler = CompileGroup.CreateCompiler( compilerName, codePath, compilerSettings );
 
+			Sandbox.Compiler.DiskCacheFileSystem ??= EngineFileSystem.Root;
+			Compiler.EnableDiskCache = IsBuiltIn && !Application.IsUnitTest;
+
 			Compiler.GeneratedCode.AppendLine( $"global using Microsoft.AspNetCore.Components;" );
 			Compiler.GeneratedCode.AppendLine( $"global using Microsoft.AspNetCore.Components.Rendering;" );
 			Compiler.GeneratedCode.AppendLine( $"global using static Sandbox.Internal.GlobalGameNamespace;" );

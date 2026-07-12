@@ -2,12 +2,121 @@
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Emit;
 using System.Collections.Immutable;
+using System.IO;
+using System.Security.Cryptography;
 using System.Threading;
 
 namespace Sandbox;
 
 partial class Compiler
 {
+	const string DiskCacheFolder = "/.source2/cache/compiler";
+
+	string DiskCacheDir => $"{DiskCacheFolder}/{AssemblyName}";
+
+	/// <summary>
+	/// Hashes this compiler's source content, config, and (transitively) the content of any
+	/// referenced compilers in the same group - so the hash changes if a dependency's source changes,
+	/// even if this compiler's own files didn't.
+	/// </summary>
+	string ComputeDiskCacheHash( CodeArchive archive )
+	{
+		var sb = new StringBuilder();
+
+		sb.Append( AssemblyName ).Append( '|' );
+		sb.Append( System.Text.Json.JsonSerializer.Serialize( _config ) ).Append( '|' );
+
+		foreach ( var kv in archive.FileHashMap.OrderBy( x => x.Key, StringComparer.Ordinal ) )
+		{
+			sb.Append( kv.Key ).Append( ':' ).Append( kv.Value ).Append( ';' );
+		}
+
+		foreach ( var referenceName in archive.References.OrderBy( x => x, StringComparer.Ordinal ) )
+		{
+			var referencedCompiler = Group.FindCompilerByAssemblyName( referenceName );
+
+			if ( referencedCompiler?.Output?.Archive is { } refArchive )
+			{
+				sb.Append( "dep:" ).Append( referenceName ).Append( '=' );
+
+				foreach ( var kv in refArchive.FileHashMap.OrderBy( x => x.Key, StringComparer.Ordinal ) )
+				{
+					sb.Append( kv.Key ).Append( ':' ).Append( kv.Value ).Append( ';' );
+				}
+			}
+			else
+			{
+				sb.Append( "ref:" ).Append( referenceName ).Append( ';' );
+			}
+		}
+
+		return Convert.ToHexString( SHA256.HashData( Encoding.UTF8.GetBytes( sb.ToString() ) ) );
+	}
+
+	bool TryLoadFromDiskCache( CodeArchive archive, CompilerOutput output, out string hash )
+	{
+		hash = ComputeDiskCacheHash( archive );
+
+		var fs = DiskCacheFileSystem;
+		if ( fs is null )
+			return false;
+
+		try
+		{
+			var dllPath = $"{DiskCacheDir}/{hash}.dll";
+
+			if ( !fs.FileExists( dllPath ) )
+				return false;
+
+			var bytes = fs.ReadAllBytes( dllPath ).ToArray();
+
+			using ( var stream = new MemoryStream( bytes ) )
+			{
+				MetadataReference = Microsoft.CodeAnalysis.MetadataReference.CreateFromStream( stream );
+			}
+
+			output.AssemblyData = bytes;
+			output.Archive = archive;
+			output.MetadataReference = MetadataReference;
+			output.Successful = true;
+
+			return true;
+		}
+		catch ( System.Exception e )
+		{
+			log.Warning( e, $"Failed to load disk compile cache for {Name}: {e.Message}" );
+			return false;
+		}
+	}
+
+	void SaveToDiskCache( string hash, CompilerOutput output )
+	{
+		var fs = DiskCacheFileSystem;
+		if ( fs is null )
+			return;
+
+		try
+		{
+			fs.CreateDirectory( DiskCacheDir );
+
+			var dllPath = $"{DiskCacheDir}/{hash}.dll";
+			fs.WriteAllBytes( dllPath, output.AssemblyData );
+
+			// Only one entry is ever valid at a time for a given compiler, so prune the rest
+			foreach ( var old in fs.FindFile( DiskCacheDir, "*.dll" ) )
+			{
+				var oldPath = $"{DiskCacheDir}/{old}";
+				if ( !string.Equals( oldPath, dllPath, StringComparison.OrdinalIgnoreCase ) )
+				{
+					try { fs.DeleteFile( oldPath ); } catch { }
+				}
+			}
+		}
+		catch ( System.Exception e )
+		{
+			log.Warning( e, $"Failed to save disk compile cache for {Name}: {e.Message}" );
+		}
+	}
 	private static readonly DiagnosticDescriptor WhitelistRule = new DiagnosticDescriptor(
 		id: "SB1000",
 		title: "Whitelist Error",
@@ -94,9 +203,20 @@ partial class Compiler
 
 			var refs = await BuildReferencesAsync( archive );
 
-			// Actually compile, again on a worker thread since it's expensive
+			string diskCacheHash = null;
 
-			await Task.Run( () => BuildInternal( refs, output ) );
+			if ( !(EnableDiskCache && TryLoadFromDiskCache( archive, output, out diskCacheHash )) )
+			{
+				// Actually compile, again on a worker thread since it's expensive
+
+				await Task.Run( () => BuildInternal( refs, output ) );
+
+				if ( EnableDiskCache && output.Successful && output.AssemblyData is not null )
+				{
+					diskCacheHash ??= ComputeDiskCacheHash( archive );
+					SaveToDiskCache( diskCacheHash, output );
+				}
+			}
 		}
 		catch ( System.Exception e )
 		{
