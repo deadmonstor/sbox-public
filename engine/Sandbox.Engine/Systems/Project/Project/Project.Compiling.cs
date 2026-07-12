@@ -107,6 +107,9 @@ public partial class Project
 
 			Compiler = CompileGroup.CreateCompiler( compilerName, codePath, compilerSettings );
 
+			Sandbox.Compiler.DiskCacheFileSystem ??= EngineFileSystem.Root;
+			Compiler.EnableDiskCache = IsBuiltIn && !Application.IsUnitTest;
+
 			if ( BaseReferencingTypes.Contains( Config.Type ) && compilerName != "base" )
 			{
 				Compiler.AddBaseReference();
