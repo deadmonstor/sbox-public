@@ -15,6 +15,8 @@ internal class LargeNetworkFiles
 
 	HashSet<string> downloadQueue = new();
 
+	Dictionary<Guid, BatchState> pendingBatches = new();
+
 	public LargeNetworkFiles( string name )
 	{
 		StringTable = new( name, true );
@@ -137,85 +139,113 @@ internal class LargeNetworkFiles
 
 		Assert.NotNull( Connection.Host );
 
-		Log.Info( $"Downloading {downloadQueue.Count} files.." );
-		var currentCount = 0;
-		var sw = System.Diagnostics.Stopwatch.StartNew();
-
+		var toFetch = new List<string>();
 		foreach ( var file in downloadQueue )
 		{
-			if ( !StringTable.Entries.TryGetValue( file, out var entry ) )
+			if ( !StringTable.Entries.ContainsKey( file ) )
 				continue;
-
-			var info = entry.Read<LargeFileInfo>();
-
-			if ( AssetDownloadCache.DebugNetworkFiles )
-			{
-				Log.Info( $"Download file {file}" );
-			}
-
-			LoadingScreen.Title = $"Downloading Files ({currentCount + 1}/{downloadQueue.Count})";
-			LoadingScreen.Subtitle = file;
 
 			if ( RedirectFileSystem.FileExists( file.NormalizeFilename( true ) ) )
-			{
-				currentCount++;
 				continue;
-			}
 
-			token.ThrowIfCancellationRequested();
-
-			if ( Connection.Host is null )
-			{
-				throw new TaskCanceledException( "Connection became null" );
-			}
-
-			// download the file
-			var response = await Connection.Host.SendRequest( new RequestFile { filename = file } );
-
-			token.ThrowIfCancellationRequested();
-
-			if ( response is not byte[] data || data.Length == 0 )
-			{
-				Log.Warning( $"Failed to download file {file}! (response: {response})" );
-				currentCount++;
-				continue;
-			}
-
-			var fn = AssetDownloadCache.StoreFile( file, info.CRC, data );
-			if ( fn is not null )
-			{
-				RedirectFileSystem.AddAbsFile( file, fn );
-			}
-
-			currentCount++;
+			toFetch.Add( file );
 		}
 
+		if ( toFetch.Count == 0 )
+		{
+			downloadQueue.Clear();
+			return;
+		}
+
+		Log.Info( $"Downloading {toFetch.Count} files.." );
+		var sw = System.Diagnostics.Stopwatch.StartNew();
+
+		var batchId = Guid.NewGuid();
+		var state = new BatchState { Total = toFetch.Count };
+		pendingBatches[batchId] = state;
+
+		using ( token.Register( () => state.Tcs.TrySetCanceled() ) )
+		{
+			Connection.Host.SendMessage( new RequestFiles { batchId = batchId, filenames = toFetch.ToArray() }, NetFlags.Reliable );
+			LoadingScreen.Title = $"Downloading Files (0/{state.Total})";
+
+			await state.Tcs.Task;
+		}
+
+		pendingBatches.Remove( batchId );
+
 		LoadingScreen.Subtitle = null;
-		Log.Info( $"Download Complete ({currentCount} files total) ({sw.Elapsed.TotalSeconds:0.00}s)" );
+		Log.Info( $"Download Complete ({state.Received} files total) ({sw.Elapsed.TotalSeconds:0.00}s)" );
 
 		downloadQueue.Clear();
 	}
 
 	internal void NetworkInitialize( GameNetworkSystem instance )
 	{
-		instance.AddHandler<RequestFile>( OnRequestNetworkFile );
+		instance.AddHandler<FileChunk>( OnFileChunk );
+		instance.AddHandler<RequestFiles>( OnRequestNetworkFiles );
 	}
 
-	async Task OnRequestNetworkFile( RequestFile file, Connection connection, Guid msgGuid )
+	void OnFileChunk( FileChunk chunk, Connection connection, Guid msgGuid )
 	{
-		if ( !EngineFileSystem.Mounted.FileExists( file.filename ) )
-		{
-			Log.Warning( $"Client ({connection.Name}) requested missing file: {file.filename}" );
-			connection.SendResponse( msgGuid, Array.Empty<byte>() );
+		if ( Networking.IsHost || !pendingBatches.TryGetValue( chunk.batchId, out var state ) )
 			return;
+
+		state.Received++;
+		LoadingScreen.Title = $"Downloading Files ({state.Received}/{state.Total})";
+		LoadingScreen.Subtitle = chunk.filename;
+
+		if ( chunk.data is null || chunk.data.Length == 0 )
+		{
+			Log.Warning( $"Failed to download file {chunk.filename}!" );
+		}
+		else if ( StringTable.Entries.TryGetValue( chunk.filename, out var entry ) )
+		{
+			var info = entry.Read<LargeFileInfo>();
+			var fn = AssetDownloadCache.StoreFile( chunk.filename, info.CRC, chunk.data );
+			if ( fn is not null )
+				RedirectFileSystem.AddAbsFile( chunk.filename, fn );
 		}
 
-		var contents = await EngineFileSystem.Mounted.ReadAllBytesAsync( file.filename );
+		if ( state.Received >= state.Total )
+			state.Tcs.TrySetResult();
+	}
 
-		connection.SendResponse( msgGuid, contents );
+	async Task OnRequestNetworkFiles( RequestFiles request, Connection connection, Guid msgGuid )
+	{
+		if ( !Networking.IsHost )
+			return;
+
+		int total = request.filenames.Length;
+
+		var options = new ParallelOptions();
+
+		await Parallel.ForEachAsync( Enumerable.Range( 0, total ), options, async ( i, ct ) =>
+		{
+			var filename = request.filenames[i];
+			byte[] contents;
+
+			if ( !EngineFileSystem.Mounted.FileExists( filename ) )
+			{
+				Log.Warning( $"Client ({connection.Name}) requested missing file: {filename}" );
+				contents = [];
+			}
+			else
+			{
+				contents = await EngineFileSystem.Mounted.ReadAllBytesAsync( filename );
+			}
+
+			connection.SendMessage( new FileChunk( request.batchId, filename, contents, i, total ), NetFlags.Reliable );
+		} );
 	}
 
 	[Expose]
-	public record struct RequestFile( string filename );
+	public record struct RequestFiles( Guid batchId, string[] filenames );
 
+	[Expose]
+	public record struct FileChunk( Guid batchId, string filename, byte[] data, int index, int total );
+
+	public record struct BatchState( TaskCompletionSource Tcs, int Total, int Received )
+	{
+	}
 }
