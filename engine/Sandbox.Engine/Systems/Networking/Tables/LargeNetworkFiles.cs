@@ -137,6 +137,8 @@ internal class LargeNetworkFiles
 		if ( RedirectFileSystem is null )
 			return;
 
+		system.AddHandler<FileChunk>( OnFileChunk );
+
 		Assert.NotNull( Connection.Host );
 
 		var toFetch = new List<string>();
@@ -164,15 +166,20 @@ internal class LargeNetworkFiles
 		var state = new BatchState { Total = toFetch.Count };
 		pendingBatches[batchId] = state;
 
-		using ( token.Register( () => state.Tcs.TrySetCanceled() ) )
+		try
 		{
-			Connection.Host.SendMessage( new RequestFiles { batchId = batchId, filenames = toFetch.ToArray() }, NetFlags.Reliable );
-			LoadingScreen.Title = $"Downloading Files (0/{state.Total})";
+			using ( token.Register( () => state.Tcs.TrySetCanceled() ) )
+			{
+				Connection.Host.SendMessage( new RequestFiles { batchId = batchId, filenames = toFetch.ToArray() }, NetFlags.Reliable );
+				LoadingScreen.Title = $"Downloading Files (0/{state.Total})";
 
-			await state.Tcs.Task;
+				await state.Tcs.Task;
+			}
 		}
-
-		pendingBatches.Remove( batchId );
+		finally
+		{
+			pendingBatches.Remove( batchId );
+		}
 
 		LoadingScreen.Subtitle = null;
 		Log.Info( $"Download Complete ({state.Received} files total) ({sw.Elapsed.TotalSeconds:0.00}s)" );
@@ -182,13 +189,15 @@ internal class LargeNetworkFiles
 
 	internal void NetworkInitialize( GameNetworkSystem instance )
 	{
-		instance.AddHandler<FileChunk>( OnFileChunk );
 		instance.AddHandler<RequestFiles>( OnRequestNetworkFiles );
 	}
 
 	void OnFileChunk( FileChunk chunk, Connection connection, Guid msgGuid )
 	{
-		if ( Networking.IsHost || !pendingBatches.TryGetValue( chunk.batchId, out var state ) )
+		if ( Networking.IsHost )
+			return;
+
+		if ( !pendingBatches.TryGetValue( chunk.batchId, out var state ) )
 			return;
 
 		state.Received++;
@@ -218,9 +227,7 @@ internal class LargeNetworkFiles
 
 		int total = request.filenames.Length;
 
-		var options = new ParallelOptions();
-
-		await Parallel.ForEachAsync( Enumerable.Range( 0, total ), options, async ( i, ct ) =>
+		for ( int i = 0; i < total; i++ )
 		{
 			var filename = request.filenames[i];
 			byte[] contents;
@@ -236,7 +243,7 @@ internal class LargeNetworkFiles
 			}
 
 			connection.SendMessage( new FileChunk( request.batchId, filename, contents, i, total ), NetFlags.Reliable );
-		} );
+		}
 	}
 
 	[Expose]
@@ -245,7 +252,10 @@ internal class LargeNetworkFiles
 	[Expose]
 	public record struct FileChunk( Guid batchId, string filename, byte[] data, int index, int total );
 
-	public record struct BatchState( TaskCompletionSource Tcs, int Total, int Received )
+	class BatchState
 	{
+		public TaskCompletionSource Tcs { get; } = new();
+		public int Total;
+		public int Received;
 	}
 }
