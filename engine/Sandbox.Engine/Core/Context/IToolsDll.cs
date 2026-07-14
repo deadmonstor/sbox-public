@@ -36,6 +36,11 @@ internal unsafe interface IToolsDll
 	/// </summary>
 	public Task LoadProject();
 
+	/// <summary>
+	/// Recover the editor after a game load fails: reload the project and reopen the scenes from disk.
+	/// </summary>
+	public Task RecoverFromFailedGameLoad();
+
 	public object InspectedObject { get; set; }
 
 	/// <summary>

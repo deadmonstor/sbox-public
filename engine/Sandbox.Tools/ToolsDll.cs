@@ -207,6 +207,29 @@ internal class ToolsDll : IToolsDll
 		await StartupLoadProject.Run();
 	}
 
+	public async Task RecoverFromFailedGameLoad()
+	{
+		if ( Game.IsPlaying )
+			EditorScene.Stop();
+
+		try
+		{
+			await GameInstanceDll.Current.LoadGamePackageAsync( Project.Current.Package.FullIdent, GameLoadingFlags.Host | GameLoadingFlags.Reload, default );
+		}
+		catch ( Exception e )
+		{
+			Log.Warning( e, $"Failed to reload the project while recovering from a failed game load: {e.Message}" );
+			return;
+		}
+
+		SceneEditorSession.SaveOpenSessions();
+
+		foreach ( var session in SceneEditorSession.All.ToArray() )
+			session.Destroy();
+
+		SceneEditorSession.RestoreOpenSessions();
+	}
+
 	/// <summary>
 	/// Called from the code generator, the job of this function is:
 	/// 1. Make sure the package is downloaded and installed

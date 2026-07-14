@@ -75,11 +75,25 @@ internal partial class NetworkSystem
 			{
 				LaunchArguments.Map = msg.Map;
 
-				bool success = await IGameInstanceDll.Current.LoadGamePackageAsync( msg.GamePackage, flags, default );
+				bool success;
+				try
+				{
+					success = await IGameInstanceDll.Current.LoadGamePackageAsync( msg.GamePackage, flags, default );
+				}
+				catch ( Exception e )
+				{
+					log.Warning( e, $"Failed to load game package '{msg.GamePackage}': {e.Message}" );
+					success = false;
+				}
+
 				if ( !success )
 				{
 					// Failed to load the game package, we can't continue
 					Networking.Disconnect();
+
+					if ( Application.IsEditor )
+						await IToolsDll.Current.RecoverFromFailedGameLoad();
+
 					return;
 				}
 			}
