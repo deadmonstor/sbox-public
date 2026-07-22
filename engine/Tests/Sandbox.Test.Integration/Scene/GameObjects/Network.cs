@@ -920,6 +920,53 @@ public class NetworkTest
 	}
 
 	[TestMethod]
+	public void JoinSnapshotIncludesNetworkedAncestorsOfIncludedObject()
+	{
+		using var scope = new Scene().Push();
+		using var clientAndHost = new ClientAndHost( TypeLibrary );
+		clientAndHost.BecomeHost();
+
+		// A cullable parent the joining client can't see, with a child it can. The parent must still
+		// ride along in the snapshot, otherwise the child resolves a null parent and gets reparented
+		// to the scene root on the client.
+		var parent = SpawnNetworked( visible: false );
+		var child = SpawnNetworked( visible: true );
+		child.SetParent( parent );
+
+		var collection = new List<object>();
+		Game.ActiveScene.SerializeNetworkObjects( clientAndHost.Client, collection );
+
+		var guids = collection.OfType<ObjectCreateMsg>().Select( m => m.Guid ).ToList();
+
+		Assert.IsTrue( guids.Contains( child.Id ), "Visible child should be included" );
+		Assert.IsTrue( guids.Contains( parent.Id ), "Hidden parent must be pulled in so the child can resolve it" );
+		// The parent's create message carries the child's real parent id.
+		var childMsg = collection.OfType<ObjectCreateMsg>().Single( m => m.Guid == child.Id );
+		Assert.AreEqual( parent.Id, childMsg.Parent, "Child create message should reference the real parent" );
+	}
+
+	[TestMethod]
+	public void JoinSnapshotDoesNotDuplicateSharedAncestors()
+	{
+		using var scope = new Scene().Push();
+		using var clientAndHost = new ClientAndHost( TypeLibrary );
+		clientAndHost.BecomeHost();
+
+		// One hidden parent, two visible children - the parent must appear exactly once.
+		var parent = SpawnNetworked( visible: false );
+		var childA = SpawnNetworked( visible: true );
+		var childB = SpawnNetworked( visible: true );
+		childA.SetParent( parent );
+		childB.SetParent( parent );
+
+		var collection = new List<object>();
+		Game.ActiveScene.SerializeNetworkObjects( clientAndHost.Client, collection );
+
+		var parentCount = collection.OfType<ObjectCreateMsg>().Count( m => m.Guid == parent.Id );
+		Assert.AreEqual( 1, parentCount, "Shared ancestor should be emitted exactly once" );
+	}
+
+	[TestMethod]
 	public void EnsureCreateMessageSentIsIdempotent()
 	{
 		using var scope = new Scene().Push();
