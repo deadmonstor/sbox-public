@@ -185,15 +185,22 @@ internal class LargeNetworkFiles
 			pendingBatches.Remove( batchId );
 		}
 
+		var stores = new List<Task<(string filename, string absPath)>>();
 		while ( state.Chunks.TryDequeue( out var chunk ) )
 		{
 			if ( !StringTable.Entries.TryGetValue( chunk.filename, out var entry ) )
 				continue;
 
-			var info = entry.Read<LargeFileInfo>();
-			var fn = AssetDownloadCache.StoreFile( chunk.filename, info.CRC, chunk.data );
-			if ( fn is not null )
-				RedirectFileSystem.AddAbsFile( chunk.filename, fn );
+			var filename = chunk.filename;
+			var data = chunk.data;
+			var crc = entry.Read<LargeFileInfo>().CRC;
+			stores.Add( Task.Run( () => (filename, AssetDownloadCache.StoreFile( filename, crc, data )) ) );
+		}
+
+		foreach ( var (filename, absPath) in await Task.WhenAll( stores ) )
+		{
+			if ( absPath is not null )
+				RedirectFileSystem.AddAbsFile( filename, absPath );
 		}
 
 		LoadingScreen.Subtitle = null;
