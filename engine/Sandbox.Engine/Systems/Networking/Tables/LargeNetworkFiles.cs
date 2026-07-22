@@ -1,5 +1,6 @@
 ﻿using Sandbox.Internal;
 using Sandbox.Network;
+using System.Collections.Concurrent;
 using System.Threading;
 
 namespace Sandbox;
@@ -100,8 +101,6 @@ internal class LargeNetworkFiles
 
 	void AddFileToFileSystem( string fileName, LargeFileInfo contents )
 	{
-		// Can we find this file somewhere, or do we need to download it?
-
 		if ( EngineFileSystem.Mounted.FileExists( fileName ) )
 		{
 			var size = EngineFileSystem.Mounted.FileSize( fileName );
@@ -114,6 +113,7 @@ internal class LargeNetworkFiles
 					{
 						Log.Info( $"Skipping downloading {fileName} - we already have it" );
 					}
+
 					return;
 				}
 			}
@@ -129,6 +129,7 @@ internal class LargeNetworkFiles
 		{
 			Log.Info( $"Queued Network File: {fileName} / {contents.Size} / {contents.CRC}" );
 		}
+
 		downloadQueue.Add( fileName );
 	}
 
@@ -170,6 +171,9 @@ internal class LargeNetworkFiles
 		{
 			using ( token.Register( () => state.Tcs.TrySetCanceled() ) )
 			{
+				if ( Connection.Host is null )
+					throw new TaskCanceledException( "Connection became null" );
+
 				Connection.Host.SendMessage( new RequestFiles { batchId = batchId, filenames = toFetch.ToArray() }, NetFlags.Reliable );
 				LoadingScreen.Title = $"Downloading Files (0/{state.Total})";
 
@@ -179,6 +183,17 @@ internal class LargeNetworkFiles
 		finally
 		{
 			pendingBatches.Remove( batchId );
+		}
+
+		while ( state.Chunks.TryDequeue( out var chunk ) )
+		{
+			if ( !StringTable.Entries.TryGetValue( chunk.filename, out var entry ) )
+				continue;
+
+			var info = entry.Read<LargeFileInfo>();
+			var fn = AssetDownloadCache.StoreFile( chunk.filename, info.CRC, chunk.data );
+			if ( fn is not null )
+				RedirectFileSystem.AddAbsFile( chunk.filename, fn );
 		}
 
 		LoadingScreen.Subtitle = null;
@@ -205,16 +220,9 @@ internal class LargeNetworkFiles
 		LoadingScreen.Subtitle = chunk.filename;
 
 		if ( chunk.data is null || chunk.data.Length == 0 )
-		{
 			Log.Warning( $"Failed to download file {chunk.filename}!" );
-		}
-		else if ( StringTable.Entries.TryGetValue( chunk.filename, out var entry ) )
-		{
-			var info = entry.Read<LargeFileInfo>();
-			var fn = AssetDownloadCache.StoreFile( chunk.filename, info.CRC, chunk.data );
-			if ( fn is not null )
-				RedirectFileSystem.AddAbsFile( chunk.filename, fn );
-		}
+		else
+			state.Chunks.Enqueue( chunk );
 
 		if ( state.Received >= state.Total )
 			state.Tcs.TrySetResult();
@@ -232,17 +240,25 @@ internal class LargeNetworkFiles
 			var filename = request.filenames[i];
 			byte[] contents;
 
-			if ( !EngineFileSystem.Mounted.FileExists( filename ) )
+			try
 			{
-				Log.Warning( $"Client ({connection.Name}) requested missing file: {filename}" );
+				if ( !EngineFileSystem.Mounted.FileExists( filename ) )
+				{
+					Log.Warning( $"Client ({connection.Name}) requested missing file: {filename}" );
+					contents = [];
+				}
+				else
+				{
+					contents = await EngineFileSystem.Mounted.ReadAllBytesAsync( filename );
+				}
+			}
+			catch ( Exception e )
+			{
+				Log.Warning( $"Failed to read requested file {filename} for client ({connection.Name}): {e.Message}" );
 				contents = [];
 			}
-			else
-			{
-				contents = await EngineFileSystem.Mounted.ReadAllBytesAsync( filename );
-			}
 
-			connection.SendMessage( new FileChunk( request.batchId, filename, contents, i, total ), NetFlags.Reliable );
+			connection.SendMessage( new FileChunk( request.batchId, filename, contents ), NetFlags.Reliable );
 		}
 	}
 
@@ -250,12 +266,13 @@ internal class LargeNetworkFiles
 	public record struct RequestFiles( Guid batchId, string[] filenames );
 
 	[Expose]
-	public record struct FileChunk( Guid batchId, string filename, byte[] data, int index, int total );
+	public record struct FileChunk( Guid batchId, string filename, byte[] data );
 
 	class BatchState
 	{
-		public TaskCompletionSource Tcs { get; } = new();
+		public TaskCompletionSource Tcs { get; } = new( TaskCreationOptions.RunContinuationsAsynchronously );
 		public int Total;
 		public int Received;
+		public ConcurrentQueue<FileChunk> Chunks { get; } = new();
 	}
 }
