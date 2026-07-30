@@ -759,13 +759,20 @@ internal class DeltaSnapshotSystem
 			// Don't send updates about objects we don't own. The host can always send updates though
 			// because there may be FromHost sync vars.
 			if ( nwo.IsProxy && !Networking.IsHost )
+			{
+				nwo.IsFullyUpdated = true;
 				continue;
+			}
 
 			var isAnyVisible = nwo.UpdateTransmitState( connections );
 
 			// No point doing anything else if no connections can even see this object.
 			if ( !isAnyVisible )
 			{
+				// We haven't written a snapshot, so don't let a stale value from a previous
+				// frame make us look acknowledged.
+				nwo.IsFullyUpdated = false;
+
 				nwo.SendNetworkUpdate( true );
 				continue;
 			}
@@ -786,7 +793,8 @@ internal class DeltaSnapshotSystem
 				break;
 			}
 
-			// Do we even need to send this to anybody?
+			nwo.IsFullyUpdated = allConnectionsAreUpdated;
+
 			if ( allConnectionsAreUpdated )
 				continue;
 

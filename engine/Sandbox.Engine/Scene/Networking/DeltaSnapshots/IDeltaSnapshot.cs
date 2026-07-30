@@ -12,6 +12,8 @@ internal interface IDeltaSnapshot
 	/// </summary>
 	bool IsProxy { get; }
 
+	bool IsFullyUpdated { get; set; }
+
 	/// <summary>
 	/// Current snapshot version for this object.
 	/// </summary>

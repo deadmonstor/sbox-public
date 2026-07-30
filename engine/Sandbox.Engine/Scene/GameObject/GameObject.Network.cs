@@ -430,6 +430,7 @@ public partial class GameObject
 		}
 
 		net.dataTable.UpdateSlotHash( slot, p.Value );
+		net.MarkDirty();
 		p.Setter( p.Value );
 	}
 
