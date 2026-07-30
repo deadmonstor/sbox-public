@@ -771,6 +771,9 @@ internal class DeltaSnapshotSystem
 			{
 				// We haven't written a snapshot, so don't let a stale value from a previous
 				// frame make us look acknowledged.
+				if ( nwo?.IsDeltaDormant == true )
+					continue;
+
 				nwo.IsFullyUpdated = false;
 
 				nwo.SendNetworkUpdate( true );
@@ -793,6 +796,7 @@ internal class DeltaSnapshotSystem
 				break;
 			}
 
+			// Do we even need to send this to anybody?
 			nwo.IsFullyUpdated = allConnectionsAreUpdated;
 
 			if ( allConnectionsAreUpdated )

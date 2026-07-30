@@ -13,6 +13,16 @@ public partial class Scene : GameObject
 	/// </summary>
 	public float NetworkRate => 1.0f / ProjectSettings.Networking.UpdateRate.Clamp( 1, 500 );
 
+	/// <summary>
+	/// The total number of networked objects in this scene.
+	/// </summary>
+	public int NetworkObjectCount => networkedObjects.Count;
+
+	/// <summary>
+	/// The number of networked objects that are dormant and not being transmitted.
+	/// </summary>
+	public int NetworkDormantObjectCount => networkedObjects.Count( x => x.IsDeltaDormant );
+
 	internal readonly HashSet<NetworkObject> networkedObjects = new();
 	readonly HashSet<NetworkObject> _dirtyNetworkObjects = new();
 
@@ -49,6 +59,7 @@ public partial class Scene : GameObject
 	}
 
 	RealTimeSince _timeSinceNetworkUpdate = 0f;
+	RealTimeSince _timeSinceDormancyProbe = 0f;
 	readonly HashSet<Guid> _lastConnectionIds = new();
 	readonly List<NetworkObject> _pollBuffer = new();
 
@@ -74,6 +85,7 @@ public partial class Scene : GameObject
 
 		var connections = system.GetFilteredConnections( Connection.ChannelState.Connected );
 		var connectionsArray = connections as Connection[] ?? connections.ToArray();
+		var shouldProbeDormancy = _timeSinceDormancyProbe >= 0.2f;
 
 		var hasNewConnection = false;
 		foreach ( var c in connectionsArray )
@@ -101,10 +113,13 @@ public partial class Scene : GameObject
 			}
 		}
 
-		// Polling runs game code (property getters), which is free to spawn or destroy networked
-		// objects, so work from a copy instead of enumerating the live set.
+		if ( shouldProbeDormancy )
+			_timeSinceDormancyProbe = 0f;
+
 		_pollBuffer.Clear();
 
+		// Polling runs game code (property getters), which is free to spawn or destroy networked
+		// objects, so work from a copy instead of enumerating the live set.
 		foreach ( var n in networkedObjects )
 		{
 			if ( n.IsDirty )
@@ -117,7 +132,11 @@ public partial class Scene : GameObject
 		// while an object is being sent - so a clean object has to be polled here to wake back up.
 		foreach ( var n in _pollBuffer )
 		{
-			n.PollQueryValues();
+			if ( n.PollQueryValues() )
+				continue;
+
+			if ( shouldProbeDormancy )
+				n.ProbeVisibility( connectionsArray );
 		}
 
 		_pollBuffer.Clear();
@@ -146,7 +165,7 @@ public partial class Scene : GameObject
 
 		_dirtyNetworkObjects.RemoveWhere( n =>
 		{
-			if ( n.IsFullyUpdated )
+			if ( n.IsFullyUpdated || n.IsDeltaDormant )
 			{
 				n.IsDirty = false;
 				return true;

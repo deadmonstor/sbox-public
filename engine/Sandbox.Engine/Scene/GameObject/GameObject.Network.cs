@@ -623,6 +623,11 @@ public partial class GameObject
 		internal ushort SnapshotVersion => go._net?.SnapshotVersion ?? 0;
 
 		/// <summary>
+		/// Whether this networked object is delta-dormant (not being transmitted).
+		/// </summary>
+		public bool IsDeltaDormant => go._net?.IsDeltaDormant ?? false;
+
+		/// <summary>
 		/// Network flags which describe the behavior of this networked object.
 		/// <b>Can only be changed by the host after the networked object has been spawned.</b>
 		/// </summary>
