@@ -206,6 +206,8 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 
 	internal void Dispose()
 	{
+		dataTable?.ClearPendingReferences();
+
 		GameObject.Scene.UnregisterNetworkObject( this );
 		GameObject = default;
 	}

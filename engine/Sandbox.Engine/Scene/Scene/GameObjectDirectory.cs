@@ -1,4 +1,5 @@
-﻿using System.ComponentModel;
+﻿using Sandbox.Network;
+using System.ComponentModel;
 
 namespace Sandbox;
 
@@ -60,6 +61,8 @@ public sealed class GameObjectDirectory
 
 		componentsById[component.Id] = component;
 		OnComponentAdded?.Invoke( component );
+
+		NetworkReferenceResolver.Resolve( component );
 	}
 
 	internal void Add( GameObject go )
@@ -78,6 +81,8 @@ public sealed class GameObjectDirectory
 
 		objectsById[go.Id] = go;
 		OnGameObjectAdded?.Invoke( go );
+
+		NetworkReferenceResolver.Resolve( go );
 	}
 
 	internal void Add( GameObjectSystem system, Guid previouslyKnownAs )

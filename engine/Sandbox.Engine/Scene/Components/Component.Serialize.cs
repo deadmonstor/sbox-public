@@ -1,4 +1,5 @@
 ﻿using Facepunch.ActionGraphs;
+using Sandbox.Network;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -323,8 +324,15 @@ public abstract partial class Component : BytePack.ISerializer
 	{
 		var id = bs.Read<Guid>();
 
+		if ( id == Guid.Empty ) return default;
 		if ( !Game.ActiveScene.IsValid() ) return default;
-		return Game.ActiveScene.Directory.FindComponentByGuid( id );
+
+		var component = Game.ActiveScene.Directory.FindComponentByGuid( id );
+
+		if ( component is null )
+			NetworkReferenceResolver.NotifyUnresolved( id );
+
+		return component;
 	}
 
 	static void BytePack.ISerializer.BytePackWrite( object value, ref ByteStream bs )
