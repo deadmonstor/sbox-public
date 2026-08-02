@@ -1,5 +1,6 @@
 ﻿using Facepunch.ActionGraphs;
 using Sandbox.ActionGraphs;
+using Sandbox.Network;
 using System.Buffers;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -1010,9 +1011,16 @@ public partial class GameObject
 			case NetworkReferenceType.Invalid:
 				return default;
 			case NetworkReferenceType.GameObject:
-				if ( !Game.ActiveScene.IsValid() ) return default;
 				var id = bs.Read<Guid>();
-				return Game.ActiveScene.Directory.FindByGuid( id );
+
+				if ( !Game.ActiveScene.IsValid() ) return default;
+
+				var go = Game.ActiveScene.Directory.FindByGuid( id );
+
+				if ( go is null )
+					NetworkReferenceResolver.NotifyUnresolved( id );
+
+				return go;
 			case NetworkReferenceType.Prefab:
 				var resourceId = bs.Read<ulong>();
 				var prefabFile = Game.Resources.GetByIdLong<PrefabFile>( resourceId );

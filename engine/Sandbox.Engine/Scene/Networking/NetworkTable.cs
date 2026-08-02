@@ -71,6 +71,11 @@ internal class NetworkTable : IDisposable
 	private readonly List<Entry> _queryEntries = [];
 
 	/// <summary>
+	/// Slots waiting on a guid to exist. See <see cref="NetworkReferenceResolver"/>.
+	/// </summary>
+	private Dictionary<int, Guid> _pendingReferences;
+
+	/// <summary>
 	/// Do we have any pending changes for entries we control?
 	/// </summary>
 	public bool HasAnyChanges => _entries.Values.Any( entry => entry.HasControl() && entry.IsDirty );
@@ -96,6 +101,8 @@ internal class NetworkTable : IDisposable
 
 	public void Dispose()
 	{
+		ClearPendingReferences();
+
 		_reliableEntries.Clear();
 		_snapshotEntries.Clear();
 		_queryEntries.Clear();
@@ -108,6 +115,8 @@ internal class NetworkTable : IDisposable
 	/// <param name="slot"></param>
 	public void Unregister( int slot )
 	{
+		ClearPendingReference( slot );
+
 		_snapshotEntries.RemoveAll( e => e.Slot == slot );
 		_reliableEntries.RemoveAll( e => e.Slot == slot );
 		_queryEntries.RemoveAll( e => e.Slot == slot );
@@ -656,6 +665,89 @@ internal class NetworkTable : IDisposable
 		container.Dispose();
 	}
 
+	internal void SetPendingReference( int slot, Guid id )
+	{
+		_pendingReferences ??= new();
+		_pendingReferences[slot] = id;
+	}
+
+	internal void ClearPendingReference( int slot )
+	{
+		if ( _pendingReferences is null )
+			return;
+
+		if ( !_pendingReferences.Remove( slot, out var id ) )
+			return;
+
+		NetworkReferenceResolver.StopWaiting( id, this );
+	}
+
+	internal void ClearPendingReferences()
+	{
+		if ( _pendingReferences is null )
+			return;
+
+		foreach ( var (_, id) in _pendingReferences )
+		{
+			NetworkReferenceResolver.StopWaiting( id, this );
+		}
+
+		_pendingReferences.Clear();
+	}
+
+	internal void ResolvePendingReferences( Guid id, object value )
+	{
+		if ( _pendingReferences is null || _pendingReferences.Count == 0 )
+			return;
+
+		List<int> slots = null;
+
+		foreach ( var (slot, pendingId) in _pendingReferences )
+		{
+			if ( pendingId != id )
+				continue;
+
+			slots ??= new List<int>();
+			slots.Add( slot );
+		}
+
+		if ( slots is null )
+			return;
+
+		foreach ( var slot in slots )
+		{
+			_pendingReferences.Remove( slot );
+			ApplyResolvedReference( slot, value );
+		}
+	}
+
+	private void ApplyResolvedReference( int slot, object value )
+	{
+		if ( !_entries.TryGetValue( slot, out var entry ) )
+			return;
+
+		if ( entry.TargetType is null || !entry.TargetType.IsInstanceOfType( value ) )
+			return;
+
+		try
+		{
+			if ( entry.GetValue() is not null )
+				return;
+
+			IsReadingChanges = true;
+			SetValue( slot, value );
+		}
+		catch ( Exception e )
+		{
+			Log.Warning( e, $"Error when resolving deferred reference {entry.DebugName} - {e.Message}" );
+		}
+		finally
+		{
+			IsReadingChanges = false;
+			entry.IsDirty = false;
+		}
+	}
+
 	private void ReadEntryFromStream( int slot, Entry entry, ref ByteStream bs )
 	{
 		if ( entry.IsSerializerType )
@@ -681,7 +773,19 @@ internal class NetworkTable : IDisposable
 		}
 		else
 		{
-			var value = Game.TypeLibrary.FromBytes<object>( ref bs );
+			object value;
+
+			NetworkReferenceResolver.BeginRead();
+
+			try
+			{
+				value = Game.TypeLibrary.FromBytes<object>( ref bs );
+			}
+			finally
+			{
+				NetworkReferenceResolver.EndRead( this, slot );
+			}
+
 			SetValue( slot, value );
 		}
 	}

@@ -484,6 +484,8 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 	{
 		base.Dispose();
 
+		NetworkReferenceResolver.Clear();
+
 		MountedVPKs?.Dispose();
 		MountedVPKs = null;
 
