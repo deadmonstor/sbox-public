@@ -33,6 +33,7 @@ public static class Protocol
 // Network Versions
 // 1105. 27th September 2026 - Voice is captured with SDL and encoded with Opus instead of Steam voice
 // 1104. 04th September 2026 - Host migration handoff messages, HostMigration in ServerInfo
+// Unversioned branch change: 16th August 2026 - Fix sync var retry when snapshot arrives before network object
 // 1103. 29th June 2026 - Failed attempt to switch xxhash3 to System.IO.Hashing
 // 1102. 14th May 2026 - Connection display names are resolved locally
 // 1101. 04th May 2026 - TargetedInternalMessage uses ISerializer (wire format change)

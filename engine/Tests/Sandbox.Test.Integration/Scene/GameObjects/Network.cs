@@ -93,6 +93,59 @@ public class NetworkTest
 	}
 
 	[TestMethod]
+	public void SnapshotClusterRejectsOnlyTheMissingNetworkObject()
+	{
+		using var scope = new Scene().Push();
+		using var clientAndHost = new ClientAndHost( TypeLibrary );
+
+		clientAndHost.BecomeClient();
+
+		var missingObjectId = Guid.NewGuid();
+		var objectId = Guid.NewGuid();
+		var componentId = Guid.NewGuid();
+		var property = Game.TypeLibrary.GetType<NetworkTestComponent>().GetProperty( nameof( NetworkTestComponent.SyncInt ) );
+		var slot = NetworkObject.GetPropertySlot( property.Identity, componentId );
+
+		var go = new GameObject();
+		go.SetDeterministicId( objectId );
+		var component = go.Components.Create<NetworkTestComponent>();
+		component.SetDeterministicId( componentId );
+		go.NetworkSpawn( clientAndHost.Host );
+
+		using var writer = ByteStream.Create( 256 );
+		writer.Write( (ushort)1 ); // cluster id
+		writer.Write( (ushort)2 ); // snapshot count
+		writer.Write( (ushort)0 ); // snapshot version
+		writer.Write( (ushort)1 ); // snapshot id
+		writer.Write( missingObjectId );
+		writer.Write( (ushort)1 ); // data count
+		writer.Write( slot );
+		writer.WriteArray( Game.TypeLibrary.ToBytes( 42 ) );
+
+		writer.Write( (ushort)0 ); // snapshot version
+		writer.Write( (ushort)1 ); // snapshot id
+		writer.Write( objectId );
+		writer.Write( (ushort)1 ); // data count
+		writer.Write( slot );
+		writer.WriteArray( Game.TypeLibrary.ToBytes( 42 ) );
+
+		using ( var reader = ByteStream.CreateReader( writer.ToArray() ) )
+		{
+			SceneNetworkSystem.Instance.DeltaSnapshots.OnDeltaSnapshotCluster( clientAndHost.Host, reader );
+		}
+
+		Assert.AreEqual( 42, component.SyncInt );
+
+		var ack = clientAndHost.Host.Messages.Last( x => x.Type == InternalMessageType.DeltaSnapshotClusterAck );
+		using var ackReader = ByteStream.CreateReader( (byte[])ack.Payload );
+		Assert.AreEqual( 22, ackReader.Read<int>() );
+		Assert.AreEqual( (ushort)1, ackReader.Read<ushort>() );
+		Assert.AreEqual( (ushort)1, ackReader.Read<ushort>() );
+		Assert.AreEqual( (ushort)1, ackReader.Read<ushort>() );
+		Assert.AreEqual( missingObjectId, ackReader.Read<Guid>() );
+	}
+
+	[TestMethod]
 	[DataRow( NetworkFlags.None )]
 	[DataRow( NetworkFlags.NoPositionSync )]
 	[DataRow( NetworkFlags.NoRotationSync )]
