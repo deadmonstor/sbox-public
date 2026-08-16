@@ -401,7 +401,7 @@ internal class DeltaSnapshotSystem
 		snapshot.AddReference();
 	}
 
-	private readonly HashSet<ushort> _invalidSnapshotIds = new( 32 );
+	private readonly HashSet<(ushort SnapshotId, Guid ObjectId)> _invalidSnapshots = new( 32 );
 
 	public void OnDeltaSnapshotClusterAck( Connection source, ByteStream message )
 	{
@@ -421,11 +421,11 @@ internal class DeltaSnapshotSystem
 		var invalidSnapshotCount = message.Read<ushort>();
 		var connectionId = source.Id;
 
-		_invalidSnapshotIds.Clear();
+		_invalidSnapshots.Clear();
 
 		for ( var i = 0; i < invalidSnapshotCount; i++ )
 		{
-			_invalidSnapshotIds.Add( message.Read<ushort>() );
+			_invalidSnapshots.Add( (message.Read<ushort>(), message.Read<Guid>()) );
 		}
 
 		foreach ( var snapshot in cluster.Snapshots )
@@ -435,7 +435,7 @@ internal class DeltaSnapshotSystem
 				continue;
 
 			// Did the client reject this particular snapshot? Maybe the game object didn't exist yet.
-			if ( _invalidSnapshotIds.Contains( snapshot.SnapshotId ) )
+			if ( _invalidSnapshots.Contains( (snapshot.SnapshotId, snapshot.ObjectId) ) )
 				continue;
 
 			IDeltaSnapshot snapshotter = scene.Directory.FindSystemByGuid( snapshot.ObjectId );
@@ -485,7 +485,7 @@ internal class DeltaSnapshotSystem
 		var connectionData = GetConnection( source );
 		var count = (int)reader.Read<ushort>();
 
-		_invalidSnapshotIds.Clear();
+		_invalidSnapshots.Clear();
 
 		for ( var i = 0; i < count; i++ )
 		{
@@ -512,7 +512,7 @@ internal class DeltaSnapshotSystem
 
 			if ( snapshotter is null || snapshotter.SnapshotVersion != version )
 			{
-				_invalidSnapshotIds.Add( snapshotId );
+				_invalidSnapshots.Add( (snapshotId, objectId) );
 				continue;
 			}
 
@@ -537,7 +537,7 @@ internal class DeltaSnapshotSystem
 
 			if ( !snapshotter.OnSnapshot( source, finalSnapshot ) )
 			{
-				_invalidSnapshotIds.Add( snapshotId );
+				_invalidSnapshots.Add( (snapshotId, objectId) );
 			}
 
 			finalSnapshot.Release();
@@ -546,11 +546,12 @@ internal class DeltaSnapshotSystem
 
 		var ackBs = ByteStream.Create( 1024 );
 		ackBs.Write( clusterId );
-		ackBs.Write( (ushort)_invalidSnapshotIds.Count );
+		ackBs.Write( (ushort)_invalidSnapshots.Count );
 
-		foreach ( var invalidSnapshotId in _invalidSnapshotIds )
+		foreach ( var (invalidSnapshotId, invalidObjectId) in _invalidSnapshots )
 		{
 			ackBs.Write( invalidSnapshotId );
+			ackBs.Write( invalidObjectId );
 		}
 
 		System.Send( source, InternalMessageType.DeltaSnapshotClusterAck, ackBs.ToArray(),

@@ -13,7 +13,7 @@ public static class Protocol
 	/// <summary>
 	/// We cannot talk to servers or clients with a network protocol different to this.
 	/// </summary>
-	public static int Network => 1103;
+	public static int Network => 1104;
 }
 
 // Api Versions
@@ -29,6 +29,7 @@ public static class Protocol
 
 
 // Network Versions
+// 1104. 16th August 2026 - Fix sync var retry when snapshot arrives before network object
 // 1103. 29th June 2026 - Failed attempt to switch xxhash3 to System.IO.Hashing
 // 1102. 14th May 2026 - Connection display names are resolved locally
 // 1101. 04th May 2026 - TargetedInternalMessage uses ISerializer (wire format change)
