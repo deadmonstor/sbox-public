@@ -5,13 +5,20 @@ namespace Sandbox.Network;
 
 internal class NetworkTable : IDisposable
 {
+	private readonly INetworkWakeable _wakeParent;
+
+	public NetworkTable( INetworkWakeable wakeParent = null )
+	{
+		_wakeParent = wakeParent;
+	}
+
 	/// <summary>
 	/// Internal flag set while reading changes. Useful when you want to force
 	/// something to be set when we otherwise wouldn't have permission to.
 	/// </summary>
 	internal static bool IsReadingChanges { get; private set; }
 
-	public class Entry : INetworkProxy
+	public class Entry : INetworkProxy, INetworkWakeable
 	{
 		// We're making all of these fields because they're accessed on an extremely hot path.
 		// Being properties, the extra method call stacks up a lot when you have thousands and
@@ -30,6 +37,7 @@ internal class NetworkTable : IDisposable
 		public byte[] Serialized;
 		public bool Initialized;
 		public int Slot;
+		private INetworkWakeable Parent;
 
 		bool INetworkProxy.IsProxy => !HasControl( Connection.Local );
 
@@ -50,9 +58,10 @@ internal class NetworkTable : IDisposable
 			return HasControl( Connection.Local );
 		}
 
-		internal void Init( int slot )
+		internal void Init( int slot, INetworkWakeable parent )
 		{
 			if ( TargetType is null ) return;
+			Parent = parent;
 
 			var isListType = TargetType.IsAssignableTo( typeof( IList ) );
 			var isDictionaryType = TargetType.IsAssignableTo( typeof( IDictionary ) );
@@ -62,6 +71,11 @@ internal class NetworkTable : IDisposable
 			IsSerializerType = TargetType.IsAssignableTo( typeof( INetworkSerializer ) );
 			NeedsQuery |= (isListType || isDictionaryType || IsSerializerType);
 			Slot = slot;
+		}
+
+		void INetworkWakeable.MarkDirty()
+		{
+			Parent?.MarkDirty();
 		}
 	}
 
@@ -126,7 +140,7 @@ internal class NetworkTable : IDisposable
 		var value = GetValue( slot );
 		UpdateSlotHash( slot, value );
 
-		entry.Init( slot );
+		entry.Init( slot, _wakeParent );
 		entry.IsDirty = true;
 
 		if ( entry.IsReliableType )
@@ -687,11 +701,18 @@ internal class NetworkTable : IDisposable
 	}
 
 	/// <summary>
-	/// If any properties are "query" types, we'll copy the new values to ourselves
-	/// and mark as changed, if changed.
+	/// Do we have any entries whose changes can only be detected by polling them?
 	/// </summary>
-	public void QueryValues( bool onlyReliableEntries = false )
+	public bool HasQueryEntries => _queryEntries.Count > 0;
+
+	/// <summary>
+	/// If any properties are "query" types, we'll copy the new values to ourselves
+	/// and mark as changed, if changed. Returns true if any entry became dirty.
+	/// </summary>
+	public bool QueryValues( bool onlyReliableEntries = false )
 	{
+		var anyChanged = false;
+
 		for ( var i = 0; i < _queryEntries.Count; i++ )
 		{
 			var entry = _queryEntries[i];
@@ -704,12 +725,19 @@ internal class NetworkTable : IDisposable
 
 			try
 			{
+				var wasDirty = entry.IsDirty;
+
 				UpdateSlotHash( entry, entry.GetValue() );
+
+				if ( !wasDirty && entry.IsDirty )
+					anyChanged = true;
 			}
 			catch ( Exception e )
 			{
 				Log.Warning( e, $"Error when getting value {entry.DebugName} - {e.Message}" );
 			}
 		}
+
+		return anyChanged;
 	}
 }

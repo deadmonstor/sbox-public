@@ -1,4 +1,5 @@
 ﻿using Sandbox.Network;
+using System.Linq;
 
 namespace Sandbox;
 
@@ -12,11 +13,35 @@ public partial class Scene : GameObject
 	/// </summary>
 	public float NetworkRate => 1.0f / ProjectSettings.Networking.UpdateRate.Clamp( 1, 500 );
 
+	/// <summary>
+	/// The total number of networked objects in this scene.
+	/// </summary>
+	public int NetworkObjectCount => networkedObjects.Count;
+
+	/// <summary>
+	/// The number of networked objects that are dormant and not being transmitted.
+	/// </summary>
+	public int NetworkDormantObjectCount => networkedObjects.Count( x => x.IsDeltaDormant );
+
 	internal readonly HashSet<NetworkObject> networkedObjects = new();
+	readonly HashSet<NetworkObject> _dirtyNetworkObjects = new();
+
+	internal void MarkNetworkObjectDirty( NetworkObject obj )
+	{
+		if ( obj.IsDirty ) return;
+		obj.IsDirty = true;
+		_dirtyNetworkObjects.Add( obj );
+	}
 
 	internal void RegisterNetworkedObject( NetworkObject obj )
 	{
 		networkedObjects.Add( obj );
+
+		if ( !obj.IsDirty )
+		{
+			obj.IsDirty = true;
+			_dirtyNetworkObjects.Add( obj );
+		}
 	}
 
 	internal void UnregisterNetworkObject( NetworkObject obj )
@@ -26,9 +51,17 @@ public partial class Scene : GameObject
 		system?.DeltaSnapshots?.ClearNetworkObject( obj );
 
 		networkedObjects.Remove( obj );
+
+		if ( _dirtyNetworkObjects.Remove( obj ) )
+		{
+			obj.IsDirty = false;
+		}
 	}
 
 	RealTimeSince _timeSinceNetworkUpdate = 0f;
+	RealTimeSince _timeSinceDormancyProbe = 0f;
+	readonly HashSet<Guid> _lastConnectionIds = new();
+	readonly List<NetworkObject> _pollBuffer = new();
 
 	/// <summary>
 	/// Send any pending network updates at our desired <see cref="NetworkRate"/>.
@@ -52,6 +85,61 @@ public partial class Scene : GameObject
 
 		var connections = system.GetFilteredConnections( Connection.ChannelState.Connected );
 		var connectionsArray = connections as Connection[] ?? connections.ToArray();
+		var shouldProbeDormancy = _timeSinceDormancyProbe >= 0.2f;
+
+		var hasNewConnection = false;
+		foreach ( var c in connectionsArray )
+		{
+			if ( !_lastConnectionIds.Contains( c.Id ) )
+				hasNewConnection = true;
+		}
+
+		if ( hasNewConnection || _lastConnectionIds.Count != connectionsArray.Length )
+		{
+			_lastConnectionIds.Clear();
+			foreach ( var c in connectionsArray )
+			{
+				_lastConnectionIds.Add( c.Id );
+			}
+		}
+
+		if ( hasNewConnection )
+		{
+			foreach ( var n in networkedObjects )
+			{
+				if ( n.IsDirty ) continue;
+				n.IsDirty = true;
+				_dirtyNetworkObjects.Add( n );
+			}
+		}
+
+		if ( shouldProbeDormancy )
+			_timeSinceDormancyProbe = 0f;
+
+		_pollBuffer.Clear();
+
+		// Polling runs game code (property getters), which is free to spawn or destroy networked
+		// objects, so work from a copy instead of enumerating the live set.
+		foreach ( var n in networkedObjects )
+		{
+			if ( n.IsDirty )
+				continue;
+
+			_pollBuffer.Add( n );
+		}
+
+		// Some sync vars can only be change-detected by polling them, and polling only happens
+		// while an object is being sent - so a clean object has to be polled here to wake back up.
+		foreach ( var n in _pollBuffer )
+		{
+			if ( n.PollQueryValues() )
+				continue;
+
+			if ( shouldProbeDormancy )
+				n.ProbeVisibility( connectionsArray );
+		}
+
+		_pollBuffer.Clear();
 
 		// Partition objects into dirty (pending changes) and clean (fully ACK'd).
 		// Dirty objects are processed first so they end up in earlier clusters,
@@ -59,7 +147,7 @@ public partial class Scene : GameObject
 		_dirtySnapshotObjects.Clear();
 		_cleanSnapshotObjects.Clear();
 
-		foreach ( var n in networkedObjects )
+		foreach ( var n in _dirtyNetworkObjects )
 		{
 			if ( n.LocalSnapshotState.UpdatedConnections.Count == 0 )
 				_dirtySnapshotObjects.Add( n );
@@ -74,6 +162,17 @@ public partial class Scene : GameObject
 			objects = objects.Concat( systems.Values );
 
 		system.DeltaSnapshots.Send( objects, connectionsArray );
+
+		_dirtyNetworkObjects.RemoveWhere( n =>
+		{
+			if ( n.IsFullyUpdated || n.IsDeltaDormant )
+			{
+				n.IsDirty = false;
+				return true;
+			}
+
+			return false;
+		} );
 
 		system.DeltaSnapshots.Tick();
 	}

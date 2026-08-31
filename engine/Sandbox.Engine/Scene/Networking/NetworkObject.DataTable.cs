@@ -21,7 +21,7 @@ internal sealed partial class NetworkObject
 	void CreateDataTable()
 	{
 		dataTable?.Dispose();
-		dataTable = new();
+		dataTable = new( this );
 
 		RegisterPropertiesRecursive( GameObject );
 	}

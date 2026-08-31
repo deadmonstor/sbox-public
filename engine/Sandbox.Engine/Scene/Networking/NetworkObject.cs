@@ -5,7 +5,7 @@ using System.Text.Json.Nodes;
 
 namespace Sandbox;
 
-internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
+internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWakeable
 {
 	internal NetworkObject RootNetworkObject => GameObject.RootNetwork.RootGameObject._net;
 	internal GameObject GameObject { get; set; }
@@ -72,8 +72,20 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 	/// </summary>
 	public bool IsProxy { get; private set; }
 
+	/// <summary>
+	/// If true, then this networked object is dormant and will skip delta snapshot updates until it becomes visible again.
+	/// </summary>
+	public bool IsDeltaDormant { get; set; }
+
+	/// <summary>
+	/// If true, then this object has been fully acknowledged by all active connections.
+	/// </summary>
+	public bool IsFullyUpdated { get; set; }
+
 	private void UpdateIsProxy()
 	{
+		MarkDirty();
+
 		if ( _isNetworkSpawning || IsOwner || (IsUnowned && Networking.IsHost) )
 		{
 			IsProxy = false;
@@ -85,6 +97,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 
 	private void UpdateIsOwner()
 	{
+		MarkDirty();
 		IsUnowned = Owner == Guid.Empty;
 		IsOwner = Owner == Connection.Local.Id;
 	}
@@ -94,6 +107,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 	/// </summary>
 	public ushort SnapshotVersion => LocalSnapshotState.Version;
 
+	uint _lastTransformRevision = uint.MaxValue;
 	bool _clearInterpolationFlag;
 	bool _hasNetworkDestroyed;
 	bool _initialized;
@@ -102,6 +116,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 	{
 		// Build the network table again as properties may have changed.
 		CreateDataTable();
+		MarkDirty();
 	}
 
 	internal NetworkObject( GameObject source )
@@ -120,6 +135,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 		using var _ = PerformanceStats.Timings.Network.Scope();
 
 		_initialized = true;
+		MarkDirty();
 
 		if ( owner is not null )
 		{
@@ -214,6 +230,29 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 	{
 		if ( IsProxy ) return;
 		_clearInterpolationFlag = true;
+	}
+
+	/// <summary>
+	/// Mark this networked object as dirty, ensuring it's included in the next network update.
+	/// </summary>
+	internal bool IsDirty { get; set; }
+
+	/// <summary>
+	/// Mark this object as dirty, ensuring it's included in the next network update.
+	/// </summary>
+	public void MarkDirty()
+	{
+		// We may still be referenced by network containers after being disposed.
+		if ( !GameObject.IsValid() ) return;
+
+		_nextDormancyProbe = 0f;
+		SetDeltaDormant( false );
+		GameObject.Scene.MarkNetworkObjectDirty( this );
+		IsDirty = true;
+
+		// We might be dirtied part way through a send, after we've already been considered
+		// fully updated this frame. Don't let that stale value drop us from the dirty set.
+		IsFullyUpdated = false;
 	}
 
 	internal bool CanDropOwnership( Connection source )
@@ -396,12 +435,83 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 	private readonly Dictionary<Guid, CullState> _cullStates = new();
 	private readonly SnapshotValueCache _snapshotCache = new();
 	private TimeUntil _nextUpdateCachedBounds;
+	private TimeUntil _nextDormancyProbe;
 	private BBox _cachedLocalBounds;
 
 	/// <summary>
 	/// Only cull this object if we've been invisible for this long.
 	/// </summary>
-	private const float CullDelay = 2f;
+	private const float CullThreshold = 2f;
+
+	/// <summary>
+	/// Enter delta dormancy (skip transmit checks) if invisible for this duration.
+	/// Must be >= CullThreshold to allow time for culling first.
+	/// </summary>
+	private const float DormancyThreshold = 3f;
+
+	/// <summary>
+	/// While dormant, probe for visibility changes every this often.
+	/// </summary>
+	private const float DormancyProbeInterval = 0.2f;
+
+	internal bool ShouldSkipDeltaSnapshotUpdate( Connection[] targets )
+	{
+		if ( targets.Length == 0 )
+		{
+			SetDeltaDormant( false );
+			return true;
+		}
+
+		var timeNow = Time.Now;
+
+		for ( var i = 0; i < targets.Length; i++ )
+		{
+			var target = targets[i];
+
+			if ( !_cullStates.TryGetValue( target.Id, out var state ) )
+			{
+				_nextDormancyProbe = 0f;
+				return false;
+			}
+
+			if ( !state.Culled )
+			{
+				_nextDormancyProbe = 0f;
+				SetDeltaDormant( false );
+				return false;
+			}
+
+			if ( (timeNow - state.LastVisibleAt) < DormancyThreshold )
+			{
+				_nextDormancyProbe = 0f;
+				SetDeltaDormant( false );
+				return false;
+			}
+		}
+
+		if ( _nextDormancyProbe )
+		{
+			_nextDormancyProbe = DormancyProbeInterval;
+			return false;
+		}
+
+		SetDeltaDormant( true );
+		return true;
+	}
+
+	private void SetDeltaDormant( bool dormant )
+	{
+		if ( IsDeltaDormant == dormant )
+		{
+			if ( dormant && _nextDormancyProbe )
+				_nextDormancyProbe = DormancyProbeInterval;
+
+			return;
+		}
+
+		IsDeltaDormant = dormant;
+		_nextDormancyProbe = dormant ? DormancyProbeInterval : 0f;
+	}
 
 	/// <summary>
 	/// Remove a connection id from any internal data structures.
@@ -413,6 +523,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 		_culledConnections.Remove( id );
 		_createMessageConnections.Remove( id );
 		_cullStates.Remove( id );
+		SetDeltaDormant( false );
 	}
 
 	/// <summary>
@@ -431,6 +542,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 	{
 		LocalSnapshotState.ClearConnections();
 		_createMessageConnections.Clear();
+		SetDeltaDormant( false );
 	}
 
 	bool IDeltaSnapshot.ShouldTransmit( Connection target )
@@ -442,6 +554,8 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 	{
 		if ( GameObject.Network.AlwaysTransmit )
 		{
+			SetDeltaDormant( false );
+
 			for ( var i = 0; i < targets.Length; i++ )
 			{
 				var target = targets[i];
@@ -455,6 +569,9 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 
 			return true;
 		}
+
+		if ( ShouldSkipDeltaSnapshotUpdate( targets ) )
+			return false;
 
 		if ( _nextUpdateCachedBounds )
 		{
@@ -481,7 +598,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 				state = new CullState
 				{
 					Culled = false,
-					LastVisibleAt = timeNow
+					LastVisibleAt = timeNow - CullThreshold
 				};
 			}
 
@@ -503,6 +620,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 
 				LocalSnapshotState.RemoveConnection( target.Id );
 				GameObject.Network.SetCullState( target, false );
+				SetDeltaDormant( false );
 
 				shouldTransmitToAny = true;
 				state.Culled = false;
@@ -511,7 +629,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 			{
 				var timeSinceVisible = timeNow - state.LastVisibleAt;
 
-				if ( state.Culled || timeSinceVisible < CullDelay )
+				if ( state.Culled || timeSinceVisible < CullThreshold )
 					continue;
 
 				if ( !_culledConnections.Add( target.Id ) )
@@ -522,7 +640,43 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 			}
 		}
 
+		if ( shouldTransmitToAny )
+			SetDeltaDormant( false );
+
 		return shouldTransmitToAny;
+	}
+
+	/// <summary>
+	/// Poll any sync vars whose changes can't be intercepted on write (SyncFlags.Query, plain
+	/// lists and dictionaries) and wake this object up if any of them changed.
+	/// </summary>
+	internal bool PollQueryValues()
+	{
+		if ( dataTable is null || !dataTable.HasQueryEntries )
+			return false;
+
+		if ( IsProxy && !Networking.IsHost )
+			return false;
+
+		if ( !dataTable.QueryValues() )
+			return false;
+
+		MarkDirty();
+		return true;
+	}
+
+	internal bool ProbeVisibility( Connection[] targets )
+	{
+		if ( IsProxy && !Networking.IsHost )
+			return false;
+
+		if ( ((IDeltaSnapshot)this).UpdateTransmitState( targets ) )
+		{
+			MarkDirty();
+			return true;
+		}
+
+		return false;
 	}
 
 	/// <summary>
@@ -633,22 +787,31 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 
 		if ( !IsProxy )
 		{
-			var tx = GameObject.Transform.TargetLocal;
+			var tx = GameObject.Transform;
 
-			if ( (flags & NetworkFlags.NoPositionSync) == 0 )
-				LocalSnapshotState.AddCached( _snapshotCache, SnapshotPositionSlot, tx.Position, LocalSnapshotState.HashFlags.All );
-			else
-				LocalSnapshotState.Remove( SnapshotPositionSlot );
+			// The transform slots are hashed with the parent id and network flags as a salt, so a change
+			// to either has to re-evaluate them even if the transform itself hasn't moved.
+			if ( tx.Revision != _lastTransformRevision || LocalSnapshotState.IsHashInvalid )
+			{
+				var transform = tx.TargetLocal;
 
-			if ( (flags & NetworkFlags.NoRotationSync) == 0 )
-				LocalSnapshotState.AddCached( _snapshotCache, SnapshotRotationSlot, tx.Rotation, LocalSnapshotState.HashFlags.All );
-			else
-				LocalSnapshotState.Remove( SnapshotRotationSlot );
+				if ( (flags & NetworkFlags.NoPositionSync) == 0 )
+					LocalSnapshotState.AddCached( _snapshotCache, SnapshotPositionSlot, transform.Position, LocalSnapshotState.HashFlags.All );
+				else
+					LocalSnapshotState.Remove( SnapshotPositionSlot );
 
-			if ( (flags & NetworkFlags.NoScaleSync) == 0 )
-				LocalSnapshotState.AddCached( _snapshotCache, SnapshotScaleSlot, tx.Scale, LocalSnapshotState.HashFlags.All );
-			else
-				LocalSnapshotState.Remove( SnapshotScaleSlot );
+				if ( (flags & NetworkFlags.NoRotationSync) == 0 )
+					LocalSnapshotState.AddCached( _snapshotCache, SnapshotRotationSlot, transform.Rotation, LocalSnapshotState.HashFlags.All );
+				else
+					LocalSnapshotState.Remove( SnapshotRotationSlot );
+
+				if ( (flags & NetworkFlags.NoScaleSync) == 0 )
+					LocalSnapshotState.AddCached( _snapshotCache, SnapshotScaleSlot, transform.Scale, LocalSnapshotState.HashFlags.All );
+				else
+					LocalSnapshotState.Remove( SnapshotScaleSlot );
+
+				_lastTransformRevision = tx.Revision;
+			}
 
 			LocalSnapshotState.AddCached( _snapshotCache, SnapshotInterpolationSlot, _clearInterpolationFlag );
 			LocalSnapshotState.AddCached( _snapshotCache, SnapshotEnabledSlot, GameObject.Enabled );
@@ -684,6 +847,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 	internal void TransmitStateChanged()
 	{
 		LocalSnapshotState.ClearConnections();
+		MarkDirty();
 	}
 
 	private static readonly GameObject.SerializeOptions _createSerializeOptions = new() { SingleNetworkObject = true, SkipNulls = true };
@@ -923,6 +1087,8 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 		{
 			IGameObjectNetworkEvents.PostToGameObject( GameObject, x => x.StartControl() );
 		}
+
+		MarkDirty();
 
 		var system = SceneNetworkSystem.Instance;
 		system?.DeltaSnapshots.ClearNetworkObject( this );
