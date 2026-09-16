@@ -28,6 +28,12 @@ internal class LocalSnapshotState
 
 	private bool _isHashInvalid { get; set; }
 
+	/// <summary>
+	/// True when the parent id or network flags have changed since <see cref="Begin"/>, meaning any
+	/// value hashed with those as a salt must be re-serialized.
+	/// </summary>
+	public bool IsHashInvalid => _isHashInvalid;
+
 	[Flags]
 	public enum HashFlags
 	{

@@ -25,6 +25,8 @@ public partial class GameTransform
 
 		InsideChangeCallback = useTargetLocal;
 
+		Revision++;
+
 		try
 		{
 			OnTransformChanged?.Invoke();
@@ -37,6 +39,11 @@ public partial class GameTransform
 
 		var data = new TransformChangedData { Root = root };
 		GameObject.ForEachChildFast( "TransformChanged", true, &TransformChangedCallback, ref data );
+
+		if ( GameObject.RootNetwork.RootGameObject?._net is INetworkWakeable net )
+		{
+			net.MarkDirty();
+		}
 	}
 
 	// empty, no data to pass

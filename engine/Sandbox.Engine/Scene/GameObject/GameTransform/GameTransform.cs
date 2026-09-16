@@ -39,6 +39,12 @@ public partial class GameTransform
 	public TransformProxy Proxy { get; set; }
 
 	/// <summary>
+	/// The current revision of this transform. This is incremented whenever the transform
+	/// is changed, which helps us to keep track of network changes.
+	/// </summary>
+	public uint Revision { get; internal set; }
+
+	/// <summary>
 	/// Returns true if we're inside the transform changed callback.
 	/// </summary>
 	internal bool InsideChangeCallback { get; private set; }

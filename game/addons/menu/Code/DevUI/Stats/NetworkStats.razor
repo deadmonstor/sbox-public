@@ -38,6 +38,8 @@
 	}
 
 	<StatValue Value="@peerCount.ToString()" Title="Peers"></StatValue>
+	<StatValue Value="@Scene.All.Sum( x => x.NetworkObjectCount ).ToString()" Title="Network Objects"></StatValue>
+	<StatValue Value="@Scene.All.Sum( x => x.NetworkDormantObjectCount ).ToString()" Title="Dormant Objects"></StatValue>
 	<StatValue Value="@((totalBytesIn / 1024f).ToString( "0.00" ))" Title="KB In Per Second"></StatValue>
 	<StatValue Value="@((totalBytesOut / 1024f).ToString( "0.00" ))" Title="KB Out Per Second"></StatValue>
 	<StatValue Value="@totalPacketsIn.ToString( "0.00" )" Title="Packets In Per Second"></StatValue>

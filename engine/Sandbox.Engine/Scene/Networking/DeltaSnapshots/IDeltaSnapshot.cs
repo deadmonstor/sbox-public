@@ -12,6 +12,10 @@ internal interface IDeltaSnapshot
 	/// </summary>
 	bool IsProxy { get; }
 
+	bool IsDeltaDormant { get; set; }
+
+	bool IsFullyUpdated { get; set; }
+
 	/// <summary>
 	/// Current snapshot version for this object.
 	/// </summary>

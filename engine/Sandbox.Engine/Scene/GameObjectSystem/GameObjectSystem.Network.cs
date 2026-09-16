@@ -26,6 +26,8 @@ public abstract partial class GameObjectSystem : IDeltaSnapshot
 	}
 
 	bool IDeltaSnapshot.IsProxy => !Networking.IsHost;
+	bool IDeltaSnapshot.IsDeltaDormant { get; set; } = false;
+	bool IDeltaSnapshot.IsFullyUpdated { get; set; } = false;
 	bool IDeltaSnapshot.ShouldTransmit( Connection target ) => true;
 	bool IDeltaSnapshot.UpdateTransmitState( Connection[] targets ) => true;
 	ushort IDeltaSnapshot.SnapshotVersion => 0;
