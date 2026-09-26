@@ -7,6 +7,9 @@ internal static class LocalClients
 	[SkipHotload]
 	static readonly List<ClientInstanceWidget> _widgets = new();
 
+	static bool _wasPlaying;
+	static int _pendingOnPlay;
+
 	public static int Count => _widgets.Count;
 
 	public static void Add()
@@ -16,9 +19,47 @@ internal static class LocalClients
 
 		var world = LocalClientWorld.Create();
 		var widget = new ClientInstanceWidget( world );
+		var (area, relativeTo) = NextPlacement();
 		_widgets.Add( widget );
-		widget.Open();
+		widget.Open( area, relativeTo );
 		UpdateVolumes();
+	}
+
+	static (DockArea Area, DockWidget RelativeTo) NextPlacement()
+	{
+		var docks = _widgets.Select( x => x.Dock ).Where( x => x is not null ).ToList();
+		var gameDock = GameMode.PlayWidget is { } playWidget ? EditorWindow.DockManager.FindDockWidget( playWidget ) : null;
+
+		return docks.Count switch
+		{
+			0 => (DockArea.Right, gameDock),
+			1 => (DockArea.Bottom, gameDock),
+			2 => (DockArea.Bottom, docks[0]),
+			_ => (DockArea.Right, docks[docks.Count - 3]),
+		};
+	}
+
+	static void TickAutoSpawn()
+	{
+		if ( Game.IsPlaying != _wasPlaying )
+		{
+			_wasPlaying = Game.IsPlaying;
+			_pendingOnPlay = _wasPlaying ? EditorPreferences.InProcessClients : 0;
+		}
+
+		if ( _pendingOnPlay <= 0 )
+			return;
+
+		if ( !(Networking.System?.IsHost ?? false) || Networking.IsConnecting )
+			return;
+
+		var count = _pendingOnPlay;
+		_pendingOnPlay = 0;
+
+		for ( var i = 0; i < count; i++ )
+		{
+			Add();
+		}
 	}
 
 	public static void RemoveAll()
@@ -41,6 +82,8 @@ internal static class LocalClients
 
 	internal static void Tick()
 	{
+		TickAutoSpawn();
+
 		if ( _widgets.Count == 0 && LocalClientWorld.All.Count == 0 )
 			return;
 

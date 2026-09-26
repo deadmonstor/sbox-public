@@ -36,6 +36,14 @@ partial class ViewportTools
 			get => ConsoleSystem.GetValueFloat( "net_fakepacketloss" );
 			set => ConsoleSystem.SetValue( "net_fakepacketloss", value.ToString() );
 		}
+
+		[Description( "In-process clients that join when you press play." )]
+		[Range( 0, 8 ), Step( 1 )]
+		public int InProcessClients
+		{
+			get => EditorPreferences.InProcessClients;
+			set => EditorPreferences.InProcessClients = value;
+		}
 	}
 
 	private void OpenNetworkSettings()
@@ -58,6 +66,7 @@ partial class ViewportTools
 			cs.AddRow( settingsSo.GetProperty( nameof( LobbySettings.LobbyPrivacy ) ) );
 			cs.AddRow( settingsSo.GetProperty( nameof( LobbySettings.SimulateLag ) ) );
 			cs.AddRow( settingsSo.GetProperty( nameof( LobbySettings.SimulatePacketLoss ) ) );
+			cs.AddRow( settingsSo.GetProperty( nameof( LobbySettings.InProcessClients ) ) );
 
 			widget.Layout = cs;
 			widget.Layout.Margin = 8;

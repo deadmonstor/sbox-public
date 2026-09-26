@@ -27,11 +27,15 @@ internal sealed class ClientInstanceWidget : Widget
 		Layout.Add( _view );
 	}
 
-	public void Open()
+	public void Open( DockArea area, DockWidget relativeTo )
 	{
 		_dock = EditorWindow.DockManager.CreateDockWidget( World.PlayerName, "person", this );
-		EditorWindow.DockManager.AddDockFloating( _dock );
+		_dock._nativeDockWidget.setFeature( DockManager.DockWidgetFeature.Floatable, false );
+
+		EditorWindow.DockManager.AddDock( _dock, relativeTo is null ? DockArea.Center : area, relativeTo );
 	}
+
+	public DockWidget Dock => _dock is not null && !_dock.IsClosed ? _dock : null;
 
 	public void FocusView() => _view.Focus();
 
