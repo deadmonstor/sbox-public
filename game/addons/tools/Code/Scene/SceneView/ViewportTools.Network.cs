@@ -73,6 +73,8 @@ partial class ViewportTools
 
 		menu.AddSeparator();
 		menu.AddOption( new( "Join via new instance", "connected_tv", SpawnProcess ) { Enabled = EditorUtility.Network.Hosting } );
+		menu.AddOption( new( "Add in-process client", "person_add", EditorUtility.Network.AddInProcessClient ) { Enabled = EditorUtility.Network.Hosting } );
+		menu.AddOption( new( "Remove in-process clients", "person_remove", EditorUtility.Network.RemoveInProcessClients ) { Enabled = EditorUtility.Network.InProcessClientCount > 0 } );
 		menu.AddOption( new( "Migrate host to new instance", "swap_horiz", MigrateHostToNewInstance ) { Enabled = EditorUtility.Network.Hosting } );
 		menu.AddOption( new( "Start dedicated server", "terminal", SpawnDedicatedServer ) );
 		menu.AddSeparator();
