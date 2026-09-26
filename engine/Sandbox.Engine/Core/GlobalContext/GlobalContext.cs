@@ -19,6 +19,8 @@ internal partial class GlobalContext
 	/// </summary>
 	public InputContext InputContext { get; set; }
 
+	public Sandbox.Network.NetworkWorld Network { get; set; } = new();
+
 	/// <summary>
 	/// The active scene for this game instance.
 	/// </summary>
