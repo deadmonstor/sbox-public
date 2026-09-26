@@ -94,7 +94,7 @@ public sealed class MeshComponent : Collider, ExecuteInEditor, ITintable, IMater
 			}
 			else if ( !_sceneObject.IsValid() && Model is not null )
 			{
-				_sceneObject = new SceneObject( Scene.SceneWorld, Model, WorldTransform );
+				_sceneObject = new SceneObject( Scene.SceneWorld, Model, Transform.InterpolatedWorld );
 				UpdateSceneObject();
 			}
 		}
@@ -218,7 +218,7 @@ public sealed class MeshComponent : Collider, ExecuteInEditor, ITintable, IMater
 	{
 		if ( _sceneObject.IsValid() )
 		{
-			_sceneObject.Transform = WorldTransform;
+			_sceneObject.Transform = Transform.InterpolatedWorld;
 		}
 
 		if ( Mesh is not null && Scene.IsEditor )
@@ -317,12 +317,12 @@ public sealed class MeshComponent : Collider, ExecuteInEditor, ITintable, IMater
 
 		if ( !_sceneObject.IsValid() )
 		{
-			_sceneObject = new SceneObject( Scene.SceneWorld, Model, WorldTransform );
+			_sceneObject = new SceneObject( Scene.SceneWorld, Model, Transform.InterpolatedWorld );
 		}
 		else
 		{
 			_sceneObject.Model = Model;
-			_sceneObject.Transform = WorldTransform;
+			_sceneObject.Transform = Transform.InterpolatedWorld;
 
 			// We manually set the model, sceneobject needs to update based on any new materials in it
 			_sceneObject.UpdateFlagsBasedOnMaterial();
