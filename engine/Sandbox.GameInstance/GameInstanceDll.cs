@@ -517,7 +517,7 @@ internal partial class GameInstanceDll : Engine.IGameInstanceDll
 		using ( Game.ActiveScene?.Push() )
 		{
 			Game.Language?.Tick();
-			GlobalContext.Current.UISystem.Simulate( mouseIsAllowed );
+			GlobalContext.Current.UISystem.Simulate( mouseIsAllowed && InputRouter.FocusedWorld is null );
 
 			Game.ActiveScene?.ProcessDeletes();
 		}

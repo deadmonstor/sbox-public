@@ -21,6 +21,14 @@ internal partial class GlobalContext
 
 	public Sandbox.Network.NetworkWorld Network { get; set; } = new();
 
+	public bool IsSecondaryWorld { get; init; }
+
+	public MouseVisibility MouseVisibility { get; set; } = MouseVisibility.Auto;
+
+	public GameSurface? Surface { get; set; }
+
+	public Sandbox.Audio.Mixer AudioRoot { get; set; }
+
 	/// <summary>
 	/// The active scene for this game instance.
 	/// </summary>
