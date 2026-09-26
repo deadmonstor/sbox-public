@@ -12,7 +12,11 @@ namespace Sandbox;
 [Expose]
 public partial class SceneNetworkSystem : GameNetworkSystem
 {
-	internal static SceneNetworkSystem Instance { get; set; }
+	internal static SceneNetworkSystem Instance
+	{
+		get => GlobalContext.Current.Network.SceneSystem;
+		set => GlobalContext.Current.Network.SceneSystem = value;
+	}
 	internal DeltaSnapshotSystem DeltaSnapshots { get; private set; }
 
 	private List<NetworkObject> BatchSpawnList { get; set; } = [];
