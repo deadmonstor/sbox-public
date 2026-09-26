@@ -977,6 +977,7 @@ internal partial class GameInstanceDll : Engine.IGameInstanceDll
 
 		if ( !Networking.IsActive ) return false;
 		if ( Networking.IsHost ) return false;
+		if ( !Networking.System.Environment.ReadsReplicatedConVars ) return false;
 
 		return ReplicatedConvars.TryGetValue( name, out value );
 	}
