@@ -942,6 +942,8 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 		{
 			go._net?.ReapplyCreateTable( msg );
 		}
+
+		ChangeCallback.FlushDeferred();
 	}
 
 	private void ResetForNewHost( Connection previousHost, Connection newHost )
@@ -1307,6 +1309,7 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 		}
 
 		go._net?.ReapplyCreateTable( message );
+		ChangeCallback.FlushDeferred();
 	}
 
 	private void OnNetworkTableChanges( SceneNetworkTableMsg message, Connection source, Guid msgId )
