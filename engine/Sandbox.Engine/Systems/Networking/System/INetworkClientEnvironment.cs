@@ -6,6 +6,7 @@ internal interface INetworkClientEnvironment
 
 	Task<bool> LoadGamePackageAsync( NetworkSystem system, ServerInfo msg );
 	Task<bool> MountMapAsync( NetworkSystem system, ServerInfo msg );
+	void InstallNetworkTables( NetworkSystem system );
 	Task<bool> LoadNetworkTablesAsync( NetworkSystem system );
 	Task InitializeGameSystemAsync( NetworkSystem system );
 	void SetLoadingTitle( string title );

@@ -65,6 +65,11 @@ internal sealed class ProcessClientEnvironment : INetworkClientEnvironment
 		return true;
 	}
 
+	public void InstallNetworkTables( NetworkSystem system )
+	{
+		IGameInstanceDll.Current?.InstallNetworkTables( system );
+	}
+
 	public async Task<bool> LoadNetworkTablesAsync( NetworkSystem system )
 	{
 		if ( !await IGameInstanceDll.Current?.LoadNetworkTables( system ) )
