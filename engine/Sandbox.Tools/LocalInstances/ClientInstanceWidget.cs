@@ -9,7 +9,7 @@ internal sealed class ClientInstanceWidget : Widget
 	DockWidget _dock;
 	bool _closing;
 
-	public LocalClientWorld World { get; }
+	public LocalClientWorld World { get; private set; }
 
 	public bool IsFocusedWorld => InputRouter.FocusedWorld == World.Context;
 
@@ -34,6 +34,21 @@ internal sealed class ClientInstanceWidget : Widget
 	}
 
 	public void FocusView() => _view.Focus();
+
+	public bool IsStale => World.CodeVersion != (IGameInstanceDll.Current?.CodeVersion ?? 0);
+
+	public void Rebuild()
+	{
+		var focused = IsFocusedWorld;
+		var name = World.PlayerName;
+
+		_view.Scene = null;
+		World.Dispose();
+		World = LocalClientWorld.Create( name );
+
+		if ( focused )
+			LocalClients.Focus( this );
+	}
 
 	public void Frame()
 	{
