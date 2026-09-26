@@ -1,5 +1,8 @@
+using Facepunch.ActionGraphs;
+using Sandbox.ActionGraphs;
 using Sandbox.Audio;
 using Sandbox.Engine;
+using Sandbox.Internal;
 using Sandbox.Network;
 using Sandbox.Utility;
 
@@ -9,7 +12,11 @@ internal sealed class LocalClientWorld : IDisposable
 {
 	const ulong FakeSteamIdOffset = 1000;
 
+	[SkipHotload]
 	static readonly List<LocalClientWorld> _all = new();
+
+	[ConVar( "net_local_client_isolation", ConVarFlags.Protected )]
+	internal static bool IsolationEnabled { get; set; } = true;
 
 	public static IReadOnlyList<LocalClientWorld> All => _all;
 
@@ -19,6 +26,8 @@ internal sealed class LocalClientWorld : IDisposable
 	public NetworkSystem System => Context.Network.System;
 	public Scene Scene => Context.ActiveScene;
 	public Mixer Mixer { get; private set; }
+	public int CodeVersion { get; }
+	public bool IsIsolated => _assemblies is not null;
 
 	public bool IsConnected => !_disposed && Context.Network.LocalConnection?.State == Connection.ChannelState.Connected;
 	public bool IsDefunct => _disposed || System is null || System.IsDisconnected;
@@ -26,6 +35,7 @@ internal sealed class LocalClientWorld : IDisposable
 	readonly InProcessSocket _socket;
 	readonly InProcessConnection _hostSide;
 	readonly Input.Context _perFrameInput;
+	LocalClientAssemblies _assemblies;
 	bool _disposed;
 	bool _inside;
 
@@ -64,18 +74,15 @@ internal sealed class LocalClientWorld : IDisposable
 		PlayerName = string.IsNullOrWhiteSpace( name ) ? $"Client {number}" : name;
 
 		var hostContext = GlobalContext.Current;
+		CodeVersion = IGameInstanceDll.Current?.CodeVersion ?? 0;
 
 		Context = new GlobalContext
 		{
 			IsSecondaryWorld = true,
 			LocalAssembly = hostContext.LocalAssembly,
-			TypeLibrary = hostContext.TypeLibrary,
-			NodeLibrary = hostContext.NodeLibrary,
-			ResourceSystem = hostContext.ResourceSystem,
 			FileMount = hostContext.FileMount,
 			FileData = hostContext.FileData,
 			FileOrg = hostContext.FileOrg,
-			JsonSerializerOptions = hostContext.JsonSerializerOptions,
 			Language = hostContext.Language,
 			Cookies = hostContext.Cookies,
 		};
@@ -83,6 +90,14 @@ internal sealed class LocalClientWorld : IDisposable
 		using ( new GlobalContext.GlobalContextScope( Context ) )
 		{
 			Context.TaskSource = new TaskSource( 1 );
+
+			if ( !TryInitializeIsolated( hostContext ) )
+			{
+				Context.TypeLibrary = hostContext.TypeLibrary;
+				Context.NodeLibrary = hostContext.NodeLibrary;
+				Context.ResourceSystem = hostContext.ResourceSystem;
+				Context.JsonSerializerOptions = hostContext.JsonSerializerOptions;
+			}
 
 			var uiSystem = new UISystem();
 			var input = new InputContext
@@ -118,6 +133,159 @@ internal sealed class LocalClientWorld : IDisposable
 			Networking.System = system;
 			system.Connect( clientSide );
 		}
+	}
+
+	bool TryInitializeIsolated( GlobalContext hostContext )
+	{
+		if ( !IsolationEnabled )
+			return false;
+
+		var source = IGameInstanceDll.Current?.GetGameAssemblies();
+		if ( source is null || source.Count == 0 )
+			return false;
+
+		try
+		{
+			_assemblies = LocalClientAssemblies.Load( source );
+
+			var typeLibrary = new TypeLibrary();
+			Context.TypeLibrary = typeLibrary;
+
+			typeLibrary.ShouldExposePrivateMember = m => m.HasAttribute( typeof( RpcAttribute ) );
+			typeLibrary.AddIntrinsicTypes();
+			typeLibrary.AddAssembly( typeof( Vector3 ).Assembly, false );
+
+			if ( Context.LocalAssembly is not null )
+				typeLibrary.AddAssembly( Context.LocalAssembly, false );
+
+			typeLibrary.AddAssembly( typeof( EngineLoop ).Assembly, false );
+			typeLibrary.AddAssembly( typeof( ActionGraph ).Assembly, false );
+
+			var nodeLibrary = new NodeLibrary( new TypeLoader( () => Context.TypeLibrary ), new GraphLoader() );
+			nodeLibrary.VoidTaskFaulted += ( _, e ) => Log.Error( e );
+			Context.NodeLibrary = nodeLibrary;
+
+			nodeLibrary.AddAssembly( typeof( Vector3 ).Assembly );
+			nodeLibrary.AddAssembly( typeof( LogNodes ).Assembly );
+
+			if ( Context.LocalAssembly is not null )
+				nodeLibrary.AddAssembly( Context.LocalAssembly );
+
+			foreach ( var assembly in _assemblies.Assemblies )
+			{
+				using ( Context.DisableTypelibraryScope( "Disabled during static constructors." ) )
+				{
+					try
+					{
+						ReflectionUtility.RunAllStaticConstructors( assembly );
+					}
+					catch ( Exception e )
+					{
+						Log.Warning( e, $"{PlayerName}: {e.GetType().Name} in static constructors for {assembly.GetName().Name}" );
+					}
+				}
+
+				typeLibrary.AddAssembly( assembly, true );
+				nodeLibrary.AddAssembly( assembly );
+			}
+
+			Json.Initialize( false );
+
+			Context.ResourceSystem = new ResourceSystem { Fallback = hostContext.ResourceSystem };
+			LoadGameResources();
+
+			return true;
+		}
+		catch ( Exception e )
+		{
+			Log.Warning( e, $"{PlayerName}: couldn't isolate game code, sharing the host's instead: {e.Message}" );
+			TearDownIsolated();
+			return false;
+		}
+	}
+
+	void LoadGameResources()
+	{
+		var fileSystem = Context.FileMount;
+		if ( fileSystem is null )
+			return;
+
+		var types = Context.TypeLibrary.GetAttributes<AssetTypeAttribute>()
+			.Where( x => x.TargetType is not null && _assemblies.Contains( x.TargetType.Assembly ) )
+			.DistinctBy( x => x.Extension )
+			.ToDictionary( x => $".{x.Extension}_c", StringComparer.OrdinalIgnoreCase );
+
+		if ( types.Count == 0 )
+			return;
+
+		var loaded = new List<GameResource>();
+
+		foreach ( var file in fileSystem.FindFile( "/", "*", true ) )
+		{
+			if ( !types.TryGetValue( global::System.IO.Path.GetExtension( file ), out var type ) )
+				continue;
+
+			try
+			{
+				var resource = Context.ResourceSystem.LoadGameResource( type, file, fileSystem, true );
+				if ( resource is not null )
+					loaded.Add( resource );
+			}
+			catch ( Exception e )
+			{
+				Log.Warning( e, $"{PlayerName}: couldn't load {file}: {e.Message}" );
+			}
+		}
+
+		foreach ( var resource in loaded )
+		{
+			resource.PostLoadInternal();
+		}
+	}
+
+	void TearDownIsolated()
+	{
+		if ( _assemblies is null )
+			return;
+
+		try
+		{
+			using ( new GlobalContext.GlobalContextScope( Context ) )
+			{
+				if ( Context.ResourceSystem?.Fallback is not null )
+					Context.ResourceSystem.Clear();
+
+				if ( Context.NodeLibrary is not null )
+				{
+					foreach ( var assembly in _assemblies.Assemblies )
+					{
+						Context.NodeLibrary.RemoveAssembly( assembly );
+					}
+				}
+
+				if ( Context.TypeLibrary is not null )
+				{
+					foreach ( var assembly in _assemblies.Assemblies )
+					{
+						Context.TypeLibrary.RemoveAssembly( assembly );
+					}
+
+					Context.TypeLibrary.ClearRemovedTypes();
+					Context.TypeLibrary.Dispose();
+				}
+			}
+		}
+		catch ( Exception e )
+		{
+			Log.Warning( e, $"{PlayerName}: error tearing down isolated code: {e.Message}" );
+		}
+
+		Context.TypeLibrary = null;
+		Context.NodeLibrary = null;
+		Context.JsonSerializerOptions = null;
+
+		_assemblies.Dispose();
+		_assemblies = null;
 	}
 
 	public IDisposable Push()
@@ -252,6 +420,8 @@ internal sealed class LocalClientWorld : IDisposable
 			Mixer.Destroy();
 			Mixer = null;
 		}
+
+		TearDownIsolated();
 	}
 
 	public static void DisposeAll()

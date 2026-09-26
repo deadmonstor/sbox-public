@@ -4,6 +4,7 @@ namespace Editor;
 
 internal static class LocalClients
 {
+	[SkipHotload]
 	static readonly List<ClientInstanceWidget> _widgets = new();
 
 	public static int Count => _widgets.Count;
@@ -57,6 +58,12 @@ internal static class LocalClients
 			{
 				Remove( widget );
 				continue;
+			}
+
+			if ( widget.IsStale )
+			{
+				widget.Rebuild();
+				UpdateVolumes();
 			}
 
 			widget.Frame();
