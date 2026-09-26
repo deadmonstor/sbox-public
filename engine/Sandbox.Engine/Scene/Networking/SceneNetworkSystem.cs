@@ -276,12 +276,7 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 		var loadedMsg = new SceneLoadedMsg { SceneId = msg.SceneId, Id = msg.Id };
 		connection.SendMessage( loadedMsg, NetFlags.Reliable );
 
-		if ( Application.IsEditor )
-		{
-			IToolsDll.Current?.SetPlaying();
-		}
-
-		LoadingScreen.IsVisible = false;
+		NetworkSystem.Environment.OnActivated( NetworkSystem );
 	}
 
 	/// <summary>
