@@ -651,19 +651,21 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 
 		LoadingScreen.Title = null;
 
+		var scene = Game.ActiveScene;
+
 		// Wait for loading to finish
-		if ( Game.ActiveScene is not null )
+		if ( scene is not null )
 		{
-			await Game.ActiveScene.WaitForLoading();
+			await scene.WaitForLoading();
 		}
 
 		ReapplyCreateTables( createdNetworkObjects );
 
-		if ( Game.ActiveScene.IsValid() )
+		if ( scene.IsValid() )
 		{
-			Game.ActiveScene.Signal( GameObjectSystem.Stage.SceneLoaded );
+			scene.Signal( GameObjectSystem.Stage.SceneLoaded );
 
-			Game.ActiveScene.RunEvent<ISceneStartup>( x => x.OnClientInitialize() );
+			scene.RunEvent<ISceneStartup>( x => x.OnClientInitialize() );
 		}
 
 		Game.IsPlaying = true;
@@ -942,6 +944,8 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 		{
 			go._net?.ReapplyCreateTable( msg );
 		}
+
+		ChangeCallback.FlushDeferred();
 	}
 
 	private void ResetForNewHost( Connection previousHost, Connection newHost )
@@ -1303,6 +1307,7 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 		}
 
 		go._net?.ReapplyCreateTable( message );
+		ChangeCallback.FlushDeferred();
 	}
 
 	private void OnNetworkTableChanges( SceneNetworkTableMsg message, Connection source, Guid msgId )
