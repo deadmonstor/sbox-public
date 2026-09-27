@@ -1,0 +1,144 @@
+{
+  "__guid": "89d9a1a6-4c2f-49b9-82e2-2ccf9d79e75f",
+  "GameObjects": [
+    {
+      "__guid": "8dc0fd72-5e09-4241-af59-564ca554c5d7",
+      "Flags": 0,
+      "Name": "Main Camera",
+      "Position": "-267.452,-379.653,297.7903",
+      "Rotation": "-0.1448582,0.2860239,0.4279631,0.8450171",
+      "Enabled": true,
+      "Components": [
+        {
+          "__type": "Sandbox.CameraComponent",
+          "__guid": "3971b552-20e9-4d4a-9be2-8ce431e5878f",
+          "BackgroundColor": "0.08,0.72,0.22,1",
+          "ClearFlags": "All",
+          "FieldOfView": 60,
+          "IsMainCamera": true,
+          "Orthographic": false,
+          "OrthographicHeight": 1204,
+          "Priority": 1,
+          "RenderExcludeTags": "other-camera-marker",
+          "RenderTags": "",
+          "TargetEye": "None",
+          "Viewport": "0,0,1,1",
+          "ZFar": 10000,
+          "ZNear": 10
+        }
+      ]
+    },
+    {
+      "__guid": "65599d02-9dbd-40b0-8737-30f486247b0c",
+      "Flags": 0,
+      "Name": "Other Camera",
+      "Position": "-267.452,-379.653,297.7903",
+      "Rotation": "-0.1448582,0.2860239,0.4279631,0.8450171",
+      "Enabled": true,
+      "Components": [
+        {
+          "__type": "Sandbox.CameraComponent",
+          "__guid": "724a35fd-ad47-470a-837f-e3215c1c686f",
+          "BackgroundColor": "0.8,0.08,0.08,1",
+          "ClearFlags": "All",
+          "FieldOfView": 60,
+          "IsMainCamera": false,
+          "Orthographic": false,
+          "OrthographicHeight": 1204,
+          "Priority": 1,
+          "RenderExcludeTags": "main-camera-marker",
+          "RenderTags": "",
+          "TargetEye": "None",
+          "Viewport": "0,0,1,1",
+          "ZFar": 10000,
+          "ZNear": 10
+        }
+      ]
+    },
+    {
+      "__guid": "c452b828-0d2a-430e-936f-0c5788c32f67",
+      "Flags": 0,
+      "Name": "Sun",
+      "Rotation": "-0.0729315,0.4822396,0.1305433,0.8631827",
+      "Tags": "light_directional,light",
+      "Enabled": true,
+      "Components": [
+        {
+          "__type": "Sandbox.DirectionalLight",
+          "__guid": "910fcc22-a6db-4ae0-85bd-609da60f3b22",
+          "FogMode": "Enabled",
+          "FogStrength": 1,
+          "LightColor": "1,1,1,1",
+          "Shadows": true,
+          "SkyColor": "0.8,0.8,0.8,1"
+        }
+      ]
+    },
+    {
+      "__guid": "d2b40f2f-0ab8-4584-a8ec-8997c971502b",
+      "Flags": 0,
+      "Name": "Main Camera Marker",
+      "Position": "21.41682,74.1244,14.40159",
+      "Scale": "8,8,8",
+      "Tags": "main-camera-marker",
+      "Enabled": true,
+      "Components": [
+        {
+          "__type": "Sandbox.ModelRenderer",
+          "__guid": "c6dc6955-7b36-4071-bbe3-2872e25832db",
+          "BodyGroups": 18446744073709551615,
+          "MaterialOverride": "materials/default.vmat",
+          "Model": "models/dev/box.vmdl",
+          "RenderType": "On",
+          "Tint": "0.1,1,0.2,1"
+        }
+      ]
+    },
+    {
+      "__guid": "e1008be7-548b-477e-8998-0c4d3c0f62ee",
+      "Flags": 0,
+      "Name": "Other Camera Marker",
+      "Position": "21.41682,74.1244,14.40159",
+      "Scale": "8,8,8",
+      "Tags": "other-camera-marker",
+      "Enabled": true,
+      "Components": [
+        {
+          "__type": "Sandbox.ModelRenderer",
+          "__guid": "4df2bb8c-b909-41c3-8073-92a11ea03d76",
+          "BodyGroups": 18446744073709551615,
+          "MaterialOverride": "materials/default.vmat",
+          "Model": "models/dev/box.vmdl",
+          "RenderType": "On",
+          "Tint": "1,0.05,0.05,1"
+        }
+      ]
+    }
+  ],
+  "SceneProperties": {
+    "FixedUpdateFrequency": 50,
+    "MaxFixedUpdates": 5,
+    "NetworkFrequency": 60,
+    "NetworkInterpolation": true,
+    "ThreadedAnimation": true,
+    "TimeScale": 1,
+    "UseFixedUpdate": true,
+    "NavMesh": {
+      "Enabled": false,
+      "IncludeStaticBodies": true,
+      "IncludeKeyframedBodies": true,
+      "EditorAutoUpdate": true,
+      "AgentHeight": 64,
+      "AgentRadius": 16,
+      "AgentStepSize": 18,
+      "AgentMaxSlope": 40,
+      "ExcludedBodies": "",
+      "IncludedBodies": ""
+    }
+  },
+  "Title": "main-camera-toggle",
+  "Description": "",
+  "ResourceVersion": 1,
+  "__references": [],
+  "__version": 1
+}
