@@ -1,0 +1,25 @@
+@using Sandbox;
+@using Sandbox.UI;
+@namespace ImageHotloadDemo
+@inherits PanelComponent
+
+<root>
+	<div class="comparison">
+		<Image class="image" Texture="@LiveTexture" />
+		<Image class="image" Texture="@AfterTexture" />
+	</div>
+</root>
+
+@code
+{
+	Texture LiveTexture { get; set; }
+	Texture AfterTexture { get; set; }
+
+	protected override void OnStart()
+	{
+		LiveTexture = Texture.Load( "textures/hotload.png" );
+		AfterTexture = Texture.Load( "textures/hotload-after.png" );
+		base.OnStart();
+		StateHasChanged();
+	}
+}

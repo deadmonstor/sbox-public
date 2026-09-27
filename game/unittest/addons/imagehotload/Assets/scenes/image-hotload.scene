@@ -1,0 +1,67 @@
+{
+  "__guid": "1f0f98b8-4477-4fb1-a6d4-060ab29073c4",
+  "GameObjects": [
+    {
+      "__guid": "6735a0c1-c65e-4e8e-8660-798bf5b1a6e3",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Hotload Demo UI",
+      "Position": "0,0,0",
+      "Rotation": "0,0,0,1",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "Sandbox.ScreenPanel",
+          "__guid": "aa403f7a-beb2-42b9-bf96-b237aa797d1d",
+          "__enabled": true,
+          "Flags": 0,
+          "AutoScreenScale": true,
+          "Opacity": 1,
+          "Scale": 1,
+          "ScaleStrategy": "ConsistentHeight",
+          "ZIndex": 100
+        },
+        {
+          "__type": "ImageHotloadDemo.ImageHotloadPanel",
+          "__guid": "13118f29-c2b4-4bcb-8bfb-ebee77c27f38",
+          "__enabled": true,
+          "Flags": 0
+        }
+      ],
+      "Children": []
+    },
+    {
+      "__guid": "dbfcad40-6f7a-43ec-a690-2152f0770737",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Camera",
+      "Position": "0,0,0",
+      "Rotation": "0,0,0,1",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "Sandbox.CameraComponent",
+          "__guid": "da9c4cb1-49df-4815-9ad0-b0ff422b5536",
+          "__enabled": true,
+          "Flags": 0,
+          "IsMainCamera": true
+        }
+      ],
+      "Children": []
+    }
+  ]
+}
