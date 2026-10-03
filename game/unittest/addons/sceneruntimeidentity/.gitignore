@@ -1,0 +1,4 @@
+!.sbproj
+!ProjectSettings/*.config
+!code/*.scss
+/Assets/scenes/*_scene_data/

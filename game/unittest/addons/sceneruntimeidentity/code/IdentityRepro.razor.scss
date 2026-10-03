@@ -1,0 +1,31 @@
+IdentityRepro {
+	position: absolute;
+	width: 100%;
+	height: 100%;
+	align-items: center;
+	justify-content: center;
+	font-family: Poppins;
+	font-size: 22px;
+	color: white;
+	pointer-events: all;
+
+	.card {
+		width: 1100px;
+		padding: 36px;
+		background-color: #182131;
+		border-radius: 12px;
+		flex-direction: column;
+		gap: 18px;
+	}
+
+	.title { font-size: 34px; font-weight: bold; }
+	.pass { color: #66e0a3; }
+	.fail { color: #ff7b7b; }
+
+	button {
+		padding: 18px;
+		background-color: #386fbd;
+		border-radius: 6px;
+		cursor: pointer;
+	}
+}

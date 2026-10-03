@@ -1,0 +1,22 @@
+{
+  "Title": "Scene Runtime Identity Repro",
+  "Type": "game",
+  "Org": "local",
+  "Ident": "sceneruntimeidentity",
+  "Schema": 1,
+  "IncludeSourceFiles": false,
+  "Resources": null,
+  "PackageReferences": [],
+  "EditorReferences": null,
+  "Mounts": null,
+  "IsStandaloneOnly": false,
+  "Metadata": {
+    "MaxPlayers": 1,
+    "MinPlayers": 1,
+    "TickRate": 50,
+    "GameNetworkType": "Multiplayer",
+    "MapSelect": "Unrestricted",
+    "CsProjName": "",
+    "StartupScene": "scenes/menu.scene"
+  }
+}

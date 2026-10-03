@@ -1,0 +1,74 @@
+@using Sandbox
+@using Sandbox.UI
+@inherits PanelComponent
+@namespace Sandbox
+
+<root>
+	<div class="card">
+		<div class="title">Scene Runtime Identity — #12018</div>
+		@if ( IsMenu )
+		{
+			<div>Open level.scene in another editor tab, then play this menu scene.</div>
+			<button onclick=@LoadLevel>Load level.scene</button>
+			<div>@LoadError</div>
+		}
+		else
+		{
+			<div class="@(IdentityMatches ? "pass" : "fail")">@(IdentityMatches ? "PASS: level identity preserved" : "FAIL: level identity lost")</div>
+			<div>Scene.Name: @Display( Scene.Name )</div>
+			<div>Source.ResourceName: @Display( Scene.Source?.ResourceName )</div>
+			<div>Source.ResourcePath: @Display( Scene.Source?.ResourcePath )</div>
+			<div>Expected name: level</div>
+			<div>Expected path: @LevelPath</div>
+			<div>Loaded asset reference: @SourceReference</div>
+			<div>Expected asset reference: @ExpectedReference</div>
+			<div>Marker: @Marker</div>
+			<div>Stop, close the level editor tab, and repeat from menu.scene for the control run.</div>
+		}
+	</div>
+</root>
+
+@code
+{
+	const string LevelPath = "scenes/level.scene";
+
+	[Property] public bool IsMenu { get; set; }
+	[Property] public string Marker { get; set; } = "saved";
+
+	string LoadError { get; set; }
+	string SourceReference => Json.Serialize( Scene.Source );
+	string ExpectedReference => Json.Serialize( SceneFile.Load( LevelPath ) );
+	bool IdentityMatches => Scene.Name == "level"
+		&& Scene.Source?.ResourceName == "level"
+		&& Scene.Source?.ResourcePath == LevelPath
+		&& SourceReference == ExpectedReference;
+
+	static string Display( string value ) => string.IsNullOrEmpty( value ) ? "<empty>" : value;
+
+	void LoadLevel()
+	{
+		var options = new SceneLoadOptions { ShowLoadingScreen = false };
+		if ( !options.SetScene( LevelPath ) )
+		{
+			LoadError = "Could not find level.scene. Check the asset compilation errors.";
+			Log.Error( LoadError );
+			return;
+		}
+
+		if ( !Game.ChangeScene( options ) )
+		{
+			LoadError = "Scene change failed. Check the console.";
+			Log.Error( LoadError );
+		}
+	}
+
+	protected override void OnStart()
+	{
+		base.OnStart();
+		if ( IsMenu ) return;
+
+		Log.Info( $"[Identity repro] {(IdentityMatches ? "PASS" : "FAIL")}: Scene.Name={Display( Scene.Name )}, Source.ResourceName={Display( Scene.Source?.ResourceName )}, Source.ResourcePath={Display( Scene.Source?.ResourcePath )}, Reference={SourceReference}, Expected={ExpectedReference}, Marker={Marker}" );
+	}
+
+	protected override int BuildHash() => System.HashCode.Combine( IsMenu, Marker, Scene.Name, Scene.Source?.ResourcePath, SourceReference, ExpectedReference, LoadError );
+}
