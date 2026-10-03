@@ -37,8 +37,15 @@ internal static class SceneSource
 		}
 	}
 
-	internal static SceneFile LoadForEditing( Asset asset )
+	internal static SceneFile LoadForEditing( Asset asset, SceneEditorSession editor = null )
 	{
+		if ( editor is not null )
+		{
+			var snapshot = editor.Scene.CreateSceneFile();
+			snapshot.InitializeSource( asset.Path, asset.Guid );
+			return snapshot;
+		}
+
 		var path = asset.GetSourceFile( true );
 		var json = ReadJson( path );
 		var blobPath = path + "_d";
