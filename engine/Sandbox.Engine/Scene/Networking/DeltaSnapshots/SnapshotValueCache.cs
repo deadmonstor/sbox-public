@@ -1,12 +1,10 @@
-using System.Runtime.InteropServices;
 using Sandbox.Engine;
 
 namespace Sandbox.Network;
 
 internal class SnapshotValueCache
 {
-	private readonly Dictionary<int, byte[]> _serialized = new();
-	private readonly Dictionary<int, int> _hashCache = new();
+	private readonly Dictionary<int, (int Hash, byte[] Bytes)> _cache = new();
 
 	/// <summary>
 	/// Get cached bytes from the specified value if they exist. If the value is different,
@@ -16,18 +14,15 @@ internal class SnapshotValueCache
 	{
 		var hash = value?.GetHashCode() ?? 0;
 
-		ref var cachedHash = ref CollectionsMarshal.GetValueRefOrAddDefault( _hashCache, slot, out bool exists );
-
-		if ( exists && cachedHash == hash )
+		if ( _cache.TryGetValue( slot, out var cached ) && cached.Hash == hash )
 		{
 			isEqual = true;
-			return _serialized[slot];
+			return cached.Bytes;
 		}
 
 		var bytes = GlobalContext.Current.TypeLibrary.ToBytes( value );
-		_serialized[slot] = bytes;
+		_cache[slot] = (hash, bytes);
 
-		cachedHash = hash;
 		isEqual = false;
 
 		return bytes;
@@ -35,13 +30,11 @@ internal class SnapshotValueCache
 
 	public void Remove( int slot )
 	{
-		_serialized.Remove( slot );
-		_hashCache.Remove( slot );
+		_cache.Remove( slot );
 	}
 
 	public void Clear()
 	{
-		_serialized.Clear();
-		_hashCache.Clear();
+		_cache.Clear();
 	}
 }
