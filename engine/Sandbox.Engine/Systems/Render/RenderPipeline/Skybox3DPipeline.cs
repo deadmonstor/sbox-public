@@ -33,8 +33,7 @@ internal class Skybox3DPipeline
 		if ( !Pool.TryDequeue( out var pipeline ) )
 			pipeline = new();
 
-		var pipelineAttributes = new RenderAttributes( pipelineAttrs );
-		pipeline.AddLayersToView( view, viewport, rtColor, rtDepth, pipelineAttributes );
+		pipeline.AddLayersToView( view, viewport, rtColor, rtDepth, pipelineAttrs );
 
 		// Return to pool
 		Pool.Enqueue( pipeline );
@@ -43,7 +42,7 @@ internal class Skybox3DPipeline
 	/// <summary>
 	/// Adds 3D skybox layers to the view.
 	/// </summary>
-	public void AddLayersToView( ISceneView view, RenderViewport viewport, SceneViewRenderTargetHandle rtColor, SceneViewRenderTargetHandle rtDepth, RenderAttributes pipelineAttributes )
+	public void AddLayersToView( ISceneView view, RenderViewport viewport, SceneViewRenderTargetHandle rtColor, SceneViewRenderTargetHandle rtDepth, CRenderAttributes pipelineAttributes )
 	{
 		view.GetRenderAttributesPtr().SetBoolValue( "IsSkybox", true );
 

@@ -1,6 +1,7 @@
 using NativeEngine;
 using Sandbox.Rendering;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace Sandbox;
 
@@ -284,7 +285,8 @@ public partial class RenderAttributes
 	public unsafe void SetData<T>( in StringToken k, List<T> value ) where T : unmanaged
 	{
 		if ( !attributes.IsValid ) return;
-		SetData( k, value.ToArray() );
+		ArgumentNullException.ThrowIfNull( value );
+		SetData( k, CollectionsMarshal.AsSpan( value ) );
 	}
 
 	/// <summary>

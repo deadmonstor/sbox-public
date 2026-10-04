@@ -64,19 +64,13 @@ struct Plane
     {
         Plane planeLocal = TransformToLocal( worldToLocal );
 
-        [unroll]
-        for ( int i = 0; i < 8; ++i )
-        {
-            float3 corner = float3(
-                ( i & 1 ) ? aabbMax.x : aabbMin.x,
-                ( i & 2 ) ? aabbMax.y : aabbMin.y,
-                ( i & 4 ) ? aabbMax.z : aabbMin.z );
+        // If the corner furthest along the normal is outside, every corner is outside.
+        float3 corner = float3(
+            planeLocal.Normal.x >= 0.0f ? aabbMax.x : aabbMin.x,
+            planeLocal.Normal.y >= 0.0f ? aabbMax.y : aabbMin.y,
+            planeLocal.Normal.z >= 0.0f ? aabbMax.z : aabbMin.z );
 
-            if ( !planeLocal.PointOutside( corner ) )
-                return false;
-        }
-
-        return true;
+        return planeLocal.PointOutside( corner );
     }
 
     bool ConeOutside( float3 apex, float3 direction, float3 up, float height, float outerConeCosine )

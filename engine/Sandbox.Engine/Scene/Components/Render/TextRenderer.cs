@@ -398,12 +398,37 @@ public sealed class TextRenderer : Renderer, Component.ExecuteInEditor
 
 	class TextSceneObject : SceneCustomObject
 	{
-		public TextFlag TextFlags { get; set; } = TextFlag.DontClip | TextFlag.Center;
+		public TextFlag TextFlags
+		{
+			get;
+			set
+			{
+				if ( field == value ) return;
+				field = value;
+				InvalidateText();
+			}
+		} = TextFlag.DontClip | TextFlag.Center;
 		public BlendMode BlendMode { get; set; } = BlendMode.Normal;
 		public float FogStrength { get; set; } = 1.0f;
 		public BillboardMode Billboard { get; set; }
 
 		private readonly CommandList _commandList = new( "TextRenderer" );
+		private TextRendering.TextBlock _textBlock;
+		private bool _commandsDirty = true;
+
+		void InvalidateText()
+		{
+			_textBlock = null;
+			_commandsDirty = true;
+		}
+
+		TextRendering.TextBlock GetTextBlock()
+		{
+			_textBlock ??= TextRendering.GetOrCreateTextBlock( TextScope, TextFlags );
+			// Retained blocks still need their preparation lifetime and current layout refreshed.
+			_textBlock?.EnsureLayout();
+			return _textBlock;
+		}
 
 		private TextRendering.Scope _textScope;
 		public TextRendering.Scope TextScope
@@ -412,6 +437,7 @@ public sealed class TextRenderer : Renderer, Component.ExecuteInEditor
 			set
 			{
 				_textScope = value;
+				InvalidateText();
 
 				var text = _textScope.Text;
 
@@ -439,14 +465,22 @@ public sealed class TextRenderer : Renderer, Component.ExecuteInEditor
 		public void BuildCommandList()
 		{
 			_commandList.Reset();
+			_commandsDirty = false;
 
 			if ( string.IsNullOrWhiteSpace( TextScope.Text ) )
 				return;
 
+			var block = GetTextBlock();
+			if ( block is null )
+			{
+				_commandsDirty = true;
+				return;
+			}
+
 			_commandList.Attributes.SetCombo( "D_WORLDPANEL", 1 );
 			_commandList.Attributes.SetCombo( "D_BLENDMODE", BlendMode );
 			_commandList.Attributes.Set( "g_FogStrength", FogStrength );
-			_commandList.DrawText( TextScope, new Rect( 0 ), TextFlags );
+			_commandList.DrawText( block, new Rect( 0 ), TextFlags );
 		}
 
 		public override void RenderSceneObject()
@@ -479,12 +513,14 @@ public sealed class TextRenderer : Renderer, Component.ExecuteInEditor
 			if ( string.IsNullOrWhiteSpace( TextScope.Text ) )
 			{
 				LocalBounds = BBox.FromPositionAndSize( 0, 1 );
+				if ( _commandsDirty ) BuildCommandList();
 				return;
 			}
 
 			var tx = Transform;
 			var scale = tx.Scale;
-			var x = Graphics.MeasureText( new Rect( 0 ), TextScope, TextFlags );
+			var size = GetTextBlock()?.Size ?? default;
+			var x = new Rect( Vector2.Zero, size );
 			var center = new Vector3( 0.0f,
 				TextFlags.Contains( TextFlag.Right ) ? x.Width * 0.5f :
 				TextFlags.Contains( TextFlag.Left ) ? -x.Width * 0.5f : 0.0f,
@@ -503,7 +539,7 @@ public sealed class TextRenderer : Renderer, Component.ExecuteInEditor
 				Bounds = bounds.Transform( tx.WithScale( 1 ) );
 			}
 
-			BuildCommandList();
+			if ( _commandsDirty ) BuildCommandList();
 		}
 	}
 }

@@ -20,6 +20,9 @@ COMMON
 
 CS
 {
+	DynamicCombo( D_SORTED, 0..1, Sys( ALL ) );
+	DynamicCombo( D_MOTION_BLUR, 0..1, Sys( ALL ) );
+
 	// Helper function to unpack RGBA8 uint to float4
 	float4 UnpackColor(uint packedColor)
 	{
@@ -158,13 +161,14 @@ CS
 
 		bool isValid = i < SpriteCount;
 
-		SpriteData sprite = SpriteBuffer[i];
+		SpriteData sprite = (SpriteData)0;
 		float3 cameraAxis = g_vCameraDirWs;
 		float3 cameraUp = g_vCameraUpDirWs;
 
 		// Transfer sprite to out buffer
 		if(isValid)
 		{
+			sprite = SpriteBuffer[i];
 			if ( sprite.RotationOffset > -1 )
 			{	
 				float4 ss = mul( g_matWorldToView, float4( sprite.Velocity, 0 ) );
@@ -174,14 +178,14 @@ CS
 			}
 
 
-			DistanceBuffer[i] = CalculateDistance(sprite.Position);
+			#if ( D_SORTED )
+				DistanceBuffer[i] = CalculateDistance(sprite.Position);
+			#endif
 			SpriteBufferOut[i] = sprite;
 		}
-		else
-		{
-			DistanceBuffer[i] = FLT_MAX;
-		}
 
+		// The sort clear pass initializes padding. Inactive lanes must not overwrite motion-blur entries.
+		#if ( D_MOTION_BLUR )
 		int writeSize = 0;
 		int splotCount = 0;
 		int leading = 1;
@@ -254,7 +258,9 @@ CS
 
 					b.Position = pos;
 					// We fill distance buffer for sorting
-					DistanceBuffer[writeLocation] = CalculateDistance(b.Position);
+					#if ( D_SORTED )
+						DistanceBuffer[writeLocation] = CalculateDistance(b.Position);
+					#endif
 					SpriteBufferOut[writeLocation] = b;
 
 					index++;
@@ -266,12 +272,15 @@ CS
 
 				// Fil distance buffer for sorting
 				writeLocation = writeOffset + index;
-				DistanceBuffer[writeLocation] = CalculateDistance(b.Position);
+				#if ( D_SORTED )
+					DistanceBuffer[writeLocation] = CalculateDistance(b.Position);
+				#endif
 
 				SpriteBufferOut[writeLocation] = b;
 
 				index++;
 			}
 		}
+		#endif
 	}
 }

@@ -28,21 +28,16 @@ internal partial class RenderPipeline
 	RefractionStencilLayer RefractionStencilLayer { get; } = new();
 	QuarterDepthDownsampleLayer QuarterDepthDownsampleLayer { get; } = new();
 
-	// Wraps the native pipeline attributes for one call - reused, since every view does this every frame.
-	// Pipelines are one per view at a time, so calls never overlap.
-	readonly RenderAttributes _pipelineAttributes = new( default( CRenderAttributes ) );
 
 	internal void AddLayersToView( ISceneView view, RenderViewport viewport, SceneViewRenderTargetHandle rtColor, SceneViewRenderTargetHandle rtDepth, RenderMultisampleType nMSAA, CRenderAttributes pipelineAttrs, RenderViewport screenSize )
 	{
 		var msaa = nMSAA.FromEngine();
-		var pipelineAttributes = _pipelineAttributes;
-		pipelineAttributes.Set( pipelineAttrs );
 
 		// renderingpipeline_standard.cpp:1786
 		// Already run: clear layer
 
 		{
-			LightbinnerLayer.Setup( pipelineAttributes );
+			LightbinnerLayer.Setup( pipelineAttrs );
 			LightbinnerLayer.AddToView( view, viewport );
 
 			ClusteredCullingLayer.Setup( view, viewport );
@@ -143,18 +138,17 @@ internal partial class RenderPipeline
 
 	internal void PipelineEnd( ISceneView view, RenderViewport viewport, SceneViewRenderTargetHandle rtColor, SceneViewRenderTargetHandle rtDepth, RenderMultisampleType nMSAA, CRenderAttributes pipelineAttrs, RenderViewport screenSize )
 	{
-		var pipelineAttributes = _pipelineAttributes;
-		pipelineAttributes.Set( pipelineAttrs );
+		var toolsVisMode = pipelineAttrs.IsValid ? pipelineAttrs.GetIntValue( "ToolsVisMode", 0 ) : 0;
 
 		// Motion vector debug visualization - blit to color buffer after scene is rendered
-		if ( pipelineAttributes.GetInt( "ToolsVisMode" ) == (int)SceneCameraDebugMode.MotionVectors )
+		if ( toolsVisMode == (int)SceneCameraDebugMode.MotionVectors )
 		{
 			MotionVectorDebugLayer.ColorAttachment = rtColor;
 			MotionVectorDebugLayer.AddToView( view, viewport );
 		}
 
 		// Reactive mask debug visualization
-		if ( pipelineAttributes.GetInt( "ToolsVisMode" ) == (int)SceneCameraDebugMode.ReactiveMask )
+		if ( toolsVisMode == (int)SceneCameraDebugMode.ReactiveMask )
 		{
 			ReactiveMaskDebugLayer.ColorAttachment = rtColor;
 			ReactiveMaskDebugLayer.AddToView( view, viewport );

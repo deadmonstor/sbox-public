@@ -65,14 +65,19 @@ CS
 
         GroupMemoryBarrierWithGroupSync();
 
+        bool hasReflection = false;
         if ( vDispatch.x < SSRSize.x && vDispatch.y < SSRSize.y )
         {
             float roughness = Roughness::Sample( vDispatch * ScaleInv );
             float depth = Depth::GetNormalized( vDispatch * ScaleInv );
-            if ( roughness < 0.5f && depth > 0.0001f )
-            {
-                InterlockedOr( groupHasReflection, 1u );
-            }
+            hasReflection = roughness < 0.5f && depth > 0.0001f;
+        }
+
+        // Combine each wave before updating the shared tile flag.
+        bool waveHasReflection = WaveActiveAnyTrue( hasReflection );
+        if ( WaveIsFirstLane() && waveHasReflection )
+        {
+            InterlockedOr( groupHasReflection, 1u );
         }
 
         GroupMemoryBarrierWithGroupSync();

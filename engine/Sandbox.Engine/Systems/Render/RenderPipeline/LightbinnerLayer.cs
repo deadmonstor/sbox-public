@@ -16,15 +16,16 @@ internal class LightbinnerLayer : RenderLayer
 	/// Configures the lightbinner to react to mat_fullbright and more
 	/// </summary>
 	/// <param name="pipelineAttributes"></param>
-	public void Setup( RenderAttributes pipelineAttributes )
+	public void Setup( NativeEngine.CRenderAttributes pipelineAttributes )
 	{
-		bool directLighting = pipelineAttributes.GetBool( "directLighting", true );
-		bool indirectLighting = pipelineAttributes.GetBool( "indirectLighting", true );
-		bool environmentMaps = pipelineAttributes.GetBool( "environmentMaps", true );
-		bool lightProbeVolumes = pipelineAttributes.GetBool( "lightProbeVolumes", true );
-		bool renderSun = pipelineAttributes.GetBool( "renderSun", true );
-
 		ObjectFlagsExcluded = SceneObjectFlags.None;
+		if ( !pipelineAttributes.IsValid ) return;
+
+		bool directLighting = pipelineAttributes.GetBoolValue( "directLighting", true );
+		bool indirectLighting = pipelineAttributes.GetBoolValue( "indirectLighting", true );
+		bool environmentMaps = pipelineAttributes.GetBoolValue( "environmentMaps", true );
+		bool lightProbeVolumes = pipelineAttributes.GetBoolValue( "lightProbeVolumes", true );
+		bool renderSun = pipelineAttributes.GetBoolValue( "renderSun", true );
 
 		if ( !directLighting )
 		{

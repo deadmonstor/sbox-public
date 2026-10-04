@@ -35,6 +35,7 @@ public sealed class SceneSpriteSystem : GameObjectSystem<SceneSpriteSystem>
 	private Guid[] _activeParticleEmitters = [];
 	private ParticleResult[] _particleProcessingResults = [];
 	private HashSet<Guid> _registeredSpriteRenderers = new();
+	private readonly Dictionary<Guid, ulong> _spriteRenderGroups = new();
 	private SpriteBatchSceneObject.SpriteData[] _sharedSprites;
 	private readonly List<SystemOffset> _systemOffsets = [];
 	private readonly List<SpriteRenderer> _allSprites = new();
@@ -307,15 +308,7 @@ public sealed class SceneSpriteSystem : GameObjectSystem<SceneSpriteSystem>
 	/// </summary>
 	private ulong? FindCurrentRenderGroup( Guid componentId )
 	{
-		foreach ( var rg in RenderGroups )
-		{
-			if ( rg.Value.ContainsSprite( componentId ) )
-			{
-				return rg.Key;
-			}
-		}
-
-		return null;
+		return _spriteRenderGroups.TryGetValue( componentId, out var group ) ? group : null;
 	}
 
 	private bool IsPresentInRenderGroup( Guid componentId, ulong renderGroup )
@@ -327,6 +320,7 @@ public sealed class SceneSpriteSystem : GameObjectSystem<SceneSpriteSystem>
 	{
 		Assert.True( RenderGroups.ContainsKey( renderGroup ) );
 		RenderGroups[renderGroup].RegisterSprite( componentId, component );
+		_spriteRenderGroups[componentId] = renderGroup;
 	}
 
 	private void RemoveFromRenderGroup( Guid componentId, ulong renderGroup )
@@ -335,6 +329,7 @@ public sealed class SceneSpriteSystem : GameObjectSystem<SceneSpriteSystem>
 
 		var group = RenderGroups[renderGroup];
 		group.UnregisterSprite( componentId );
+		_spriteRenderGroups.Remove( componentId );
 
 		if ( group.Components.Count > 0 || !_isolatedRenderGroups.Remove( renderGroup ) )
 			return;

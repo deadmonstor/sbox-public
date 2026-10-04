@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Runtime.InteropServices;
 
 namespace Sandbox;
 
@@ -216,7 +217,7 @@ public sealed class LineRenderer : Renderer, Component.ExecuteInEditor
 			if ( AutoCalculateNormals && Face != SceneLineObject.FaceMode.Camera )
 			{
 				rmfNormals = ArrayPool<Vector3>.Shared.Rent( _points.Count );
-				CalculateRMFNormals( _points.ToArray(), rmfNormals.AsSpan( 0, _points.Count ) );
+				CalculateRMFNormals( CollectionsMarshal.AsSpan( _points ), rmfNormals.AsSpan( 0, _points.Count ) );
 			}
 
 			int i = 0;
@@ -328,7 +329,7 @@ public sealed class LineRenderer : Renderer, Component.ExecuteInEditor
 	/// <summary>
 	/// Calculates Rotation Minimizing Frame normals for a sequence of points in a single pass
 	/// </summary>
-	private void CalculateRMFNormals( Span<Vector3> points, Span<Vector3> outNormals )
+	private void CalculateRMFNormals( ReadOnlySpan<Vector3> points, Span<Vector3> outNormals )
 	{
 		if ( points.Length < 2 )
 		{
