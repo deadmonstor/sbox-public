@@ -662,9 +662,28 @@ public partial class GameObject : IJsonConvert, IComponentLister, BytePack.ISeri
 
 		yield return this;
 
-		foreach ( var child in Children.OfType<GameObject>().SelectMany( x => x.GetAllObjects( enabled ) ).ToArray() )
+		if ( Children.Count == 0 )
+			yield break;
+
+		// Snapshot all descendants before yielding them, without copying every subtree.
+		var descendants = new List<GameObject>();
+		CollectDescendants( descendants, enabled );
+
+		foreach ( var child in descendants )
 		{
 			yield return child;
+		}
+	}
+
+	void CollectDescendants( List<GameObject> results, bool enabled )
+	{
+		foreach ( var child in Children )
+		{
+			if ( child is null || (enabled && !child.Enabled) )
+				continue;
+
+			results.Add( child );
+			child.CollectDescendants( results, enabled );
 		}
 	}
 
