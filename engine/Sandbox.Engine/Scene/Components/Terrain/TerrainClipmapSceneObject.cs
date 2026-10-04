@@ -141,7 +141,7 @@ internal sealed class TerrainClipmapSceneObject : SceneCustomObject
 
 	private void Cull( ref Tier tier )
 	{
-		var terrainTransform = Transform;
+		var boundsTransform = new MeshletBoundsTransform( Transform );
 
 		// Meshlets are level-ordered, so per-level constants only need recomputing when the level changes
 		int level = -1;
@@ -163,7 +163,7 @@ internal sealed class TerrainClipmapSceneObject : SceneCustomObject
 				center = _clipCameraLocal.SnapToGrid( increment );
 			}
 
-			if ( _cullFrustum.IsInside( GetMeshletAABB( in m, center, vertexStep, increment, terrainTransform ), partially: true ) )
+			if ( _cullFrustum.IsInside( GetMeshletAABB( in m, center, vertexStep, increment, boundsTransform ), partially: true ) )
 				tier.Visible[vis++] = m;
 		}
 
@@ -173,7 +173,7 @@ internal sealed class TerrainClipmapSceneObject : SceneCustomObject
 		tier.VisibleCount = vis;
 	}
 
-	private BBox GetMeshletAABB( in Meshlet m, Vector2 center, float vertexStep, float increment, in Transform terrainTransform )
+	private BBox GetMeshletAABB( in Meshlet m, Vector2 center, float vertexStep, float increment, in MeshletBoundsTransform boundsTransform )
 	{
 		float ox = center.x + m.BlockOffset.x * vertexStep;
 		float oy = center.y + m.BlockOffset.y * vertexStep;
@@ -184,7 +184,39 @@ internal sealed class TerrainClipmapSceneObject : SceneCustomObject
 			new Vector3( ox - increment, oy - increment, -increment ),
 			new Vector3( ox + ext + increment, oy + ext + increment, HeightScale + increment ) );
 
-		return localBox.Transform( terrainTransform );
+		return boundsTransform.Apply( localBox );
+	}
+
+	/// <summary>
+	/// The terrain transform is the same for every meshlet in a cull. Reuse its absolute scaled axes,
+	/// while retaining the center and extents arithmetic used by BBox.Transform.
+	/// </summary>
+	internal readonly struct MeshletBoundsTransform
+	{
+		private readonly Transform _transform;
+		private readonly Vector3 _absX;
+		private readonly Vector3 _absY;
+		private readonly Vector3 _absZ;
+
+		internal MeshletBoundsTransform( in Transform transform )
+		{
+			_transform = transform;
+			_absX = (transform.Rotation.Forward * transform.Scale.x).Abs();
+			_absY = (transform.Rotation.Right * transform.Scale.y).Abs();
+			_absZ = (transform.Rotation.Up * transform.Scale.z).Abs();
+		}
+
+		internal BBox Apply( in BBox box )
+		{
+			var center = _transform.PointToWorld( box.Center );
+			var extents = box.Extents;
+			var worldExtents = new Vector3(
+				_absX.x * extents.x + _absY.x * extents.y + _absZ.x * extents.z,
+				_absX.y * extents.x + _absY.y * extents.y + _absZ.y * extents.z,
+				_absX.z * extents.x + _absY.z * extents.y + _absZ.z * extents.z );
+
+			return new BBox( center - worldExtents, center + worldExtents );
+		}
 	}
 
 	private void DisposeBuffers()
