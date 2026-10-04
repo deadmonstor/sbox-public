@@ -197,8 +197,9 @@ public partial class Scene : GameObject
 	{
 		var sources = target.VisibilityOrigins;
 
-		foreach ( var pvs in _networkMapInstanceCache.Select( x => x.GetNetworkPvs() ) )
+		foreach ( var map in _networkMapInstanceCache )
 		{
+			var pvs = map.GetNetworkPvs();
 			if ( !pvs.IsValid || pvs.IsEmptyPVS() )
 				continue;
 
@@ -219,8 +220,9 @@ public partial class Scene : GameObject
 	{
 		var sources = target.VisibilityOrigins;
 
-		foreach ( var pvs in _networkMapInstanceCache.Select( x => x.GetNetworkPvs() ) )
+		foreach ( var map in _networkMapInstanceCache )
 		{
+			var pvs = map.GetNetworkPvs();
 			if ( !pvs.IsValid || pvs.IsEmptyPVS() )
 				continue;
 
