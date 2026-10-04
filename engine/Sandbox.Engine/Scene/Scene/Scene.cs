@@ -498,8 +498,8 @@ public partial class Scene : GameObject
 }
 
 /// <summary>
-/// Allocation-free scope returned by <see cref="Scene.Push"/>.
-/// Use with <c>using var</c> to keep it stack-allocated; storing as <c>IDisposable</c> will box it.
+/// Internal scene/time scope. Use the concrete value in engine code to avoid boxing.
+/// The public <see cref="Scene.Push"/> method returns <c>IDisposable</c> and boxes this scope.
 /// </summary>
 internal struct ScenePushScope : IDisposable
 {
