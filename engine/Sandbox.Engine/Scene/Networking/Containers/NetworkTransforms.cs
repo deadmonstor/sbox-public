@@ -10,18 +10,21 @@ internal class NetworkTransforms : NetworkTable<Transform>
 {
 	private Dictionary<int, (int Position, int Rotation, int Scale)> _componentHashes { get; set; } = new();
 
-	private void UpdateComponentHashes( int key )
+	private (int Position, int Rotation, int Scale) GetComponentHashes( int key )
 	{
-		if ( _componentHashes.ContainsKey( key ) )
-			return;
+		if ( _componentHashes.TryGetValue( key, out var hashes ) )
+			return hashes;
 
 		var subSlot = $"{_parentSlot}.{key}";
 
-		_componentHashes[key] = (
+		hashes = (
 			$"{subSlot}.position".FastHash(),
 			$"{subSlot}.rotation".FastHash(),
 			$"{subSlot}.scale".FastHash()
 		);
+
+		_componentHashes[key] = hashes;
+		return hashes;
 	}
 
 	private readonly SnapshotValueCache _snapshotCache = new();
@@ -30,9 +33,7 @@ internal class NetworkTransforms : NetworkTable<Transform>
 	{
 		foreach ( var (key, transform) in Table )
 		{
-			UpdateComponentHashes( key );
-
-			var hashes = _componentHashes[key];
+			var hashes = GetComponentHashes( key );
 
 			state.AddCached( _snapshotCache, hashes.Position, transform.Position, LocalSnapshotState.HashFlags.All );
 			state.AddCached( _snapshotCache, hashes.Rotation, transform.Rotation, LocalSnapshotState.HashFlags.All );
@@ -44,9 +45,7 @@ internal class NetworkTransforms : NetworkTable<Transform>
 	{
 		foreach ( var key in Keys )
 		{
-			UpdateComponentHashes( key );
-
-			var hashes = _componentHashes[key];
+			var hashes = GetComponentHashes( key );
 			var transform = Get( key );
 			var didTransformChange = false;
 
@@ -78,7 +77,7 @@ internal class NetworkTransforms : NetworkTable<Transform>
 
 	protected override void OnValueChanged( int slot, Transform value )
 	{
-		UpdateComponentHashes( slot );
+		GetComponentHashes( slot );
 	}
 
 	protected override void OnCleared()
@@ -89,14 +88,12 @@ internal class NetworkTransforms : NetworkTable<Transform>
 
 	protected override void OnKeyRemoved( int key )
 	{
-		if ( _componentHashes.TryGetValue( key, out var hashes ) )
+		if ( _componentHashes.Remove( key, out var hashes ) )
 		{
 			_snapshotCache.Remove( hashes.Position );
 			_snapshotCache.Remove( hashes.Rotation );
 			_snapshotCache.Remove( hashes.Scale );
 		}
-
-		_componentHashes.Remove( key );
 	}
 
 	protected override void OnInit( int slot )
@@ -107,7 +104,7 @@ internal class NetworkTransforms : NetworkTable<Transform>
 
 		foreach ( var key in Keys )
 		{
-			UpdateComponentHashes( key );
+			GetComponentHashes( key );
 		}
 	}
 }
