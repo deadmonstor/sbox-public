@@ -13,7 +13,18 @@ public partial class GameObject
 	/// True if this is a networked object and is owned by another client. This means that we're
 	/// not controlling this object, so shouldn't try to move it or anything.
 	/// </summary>
-	public bool IsProxy => Network.IsProxy;
+	public bool IsProxy
+	{
+		get
+		{
+			var root = NetworkRoot;
+
+			if ( root is not null && root != this )
+				return root.IsProxy;
+
+			return _net?.IsProxy ?? false;
+		}
+	}
 
 	/// <summary>
 	/// If true then this object is the root of a networked object.
