@@ -75,12 +75,13 @@ public partial class GameTransform
 		if ( Application.IsHeadless )
 			return false;
 
-		var isEnabled = GameObject?.Enabled ?? false;
-		var isFixedUpdate = GameObject?.Scene?.IsFixedUpdate ?? false;
-		var isStatic = GameObject?.IsStatic ?? false;
-		var isInterpolationDisabled = GameObject?.Flags.Contains( GameObjectFlags.NoInterpolation ) ?? false;
-
-		return FixedUpdateInterpolation && isFixedUpdate && isEnabled && !isInterpolationDisabled && !isStatic;
+		// Most transform writes happen outside fixed update. Avoid checking object
+		// state when this context cannot interpolate in the first place.
+		return FixedUpdateInterpolation
+			&& (GameObject?.Scene?.IsFixedUpdate ?? false)
+			&& (GameObject?.Enabled ?? false)
+			&& !(GameObject?.Flags.Contains( GameObjectFlags.NoInterpolation ) ?? false)
+			&& !(GameObject?.IsStatic ?? false);
 	}
 
 	void UpdateInterpolatedLocal( in Transform value )
