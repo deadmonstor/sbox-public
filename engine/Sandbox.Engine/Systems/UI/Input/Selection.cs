@@ -5,11 +5,14 @@ internal class Selection
 	Panel SelectionStart;
 	Vector2 SelectionStartPos;
 	Vector2 SelectionEndPos;
+	BaseVirtualPanel SelectionList;
 
 	public void UpdateSelection( Panel root, Panel hovered, bool dragging, bool started, bool ended, Vector2 pos )
 	{
 		if ( started )
 		{
+			SelectionList?.ResetSelection();
+			SelectionList = null;
 			SelectionStart = null;
 
 			if ( hovered == null )
@@ -18,6 +21,15 @@ internal class Selection
 			ClearSelection();
 
 			SelectionStart = hovered;
+			for ( var panel = hovered; panel != null; panel = panel.Parent )
+			{
+				if ( panel is BaseVirtualPanel list && list.AllowChildSelection )
+				{
+					SelectionList = list;
+					list.BeginSelection( hovered );
+					break;
+				}
+			}
 			SelectionStartPos = SelectionStart.ScreenPositionToPanelPosition( pos );
 			SelectionEndPos = SelectionStartPos;
 			return;

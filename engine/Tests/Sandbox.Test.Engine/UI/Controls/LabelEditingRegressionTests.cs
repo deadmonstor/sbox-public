@@ -31,6 +31,21 @@ public class LabelEditingRegressionTests
 	}
 
 	[TestMethod]
+	[DataRow( "12:34:56", false )]
+	[DataRow( "12:34:56", true )]
+	[DataRow( "😀e\u0301", false )]
+	[DataRow( "😀e\u0301", true )]
+	public void CopySelectionClampedToEndReturnsEmpty( string text, bool backwards )
+	{
+		var label = CreateLabel( text );
+		label.SelectionStart = backwards ? int.MaxValue : label.TextLength;
+		label.SelectionEnd = backwards ? label.TextLength : int.MaxValue;
+
+		Assert.AreEqual( "", label.GetSelectedText() );
+		label.FindRootPanel().Delete( true );
+	}
+
+	[TestMethod]
 	[DataRow( "ab\ncd", 4, true, 3 )]
 	[DataRow( "ab\r\ncd", 4, true, 3 )]
 	[DataRow( "ab\r\ncd\r\nef", 7, true, 6 )]
