@@ -330,7 +330,7 @@ public abstract partial class Component : IJsonConvert, IComponentLister, IValid
 			Scene.UnregisterComponent( this );
 		}
 
-		if ( GameObject?.RootNetwork.RootGameObject?._net is INetworkWakeable net )
+		if ( GameObject?.FindNetworkRoot()?._net is INetworkWakeable net )
 		{
 			net.MarkDirty();
 		}

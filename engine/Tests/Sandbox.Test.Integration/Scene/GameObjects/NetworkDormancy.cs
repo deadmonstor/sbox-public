@@ -712,6 +712,37 @@ public class NetworkDormancyTest
 			"A client never sends proxies, so they must not be kept in the dirty set forever" );
 	}
 
+	[DataTestMethod]
+	[DataRow( "Transform" )]
+	[DataRow( "Enabled" )]
+	[DataRow( "ComponentEnabled" )]
+	[DataRow( "Parent" )]
+	public void NestedNetworkObjectChangesWakeNearestOwner( string change )
+	{
+		using var scope = new Scene().Push();
+		using var clientAndHost = new ClientAndHost( TypeLibrary );
+		clientAndHost.BecomeHost();
+
+		var parent = new GameObject();
+		parent.NetworkSpawn();
+		var otherParent = new GameObject();
+		otherParent.NetworkSpawn();
+		var child = new GameObject( parent );
+		var component = child.Components.Create<DormancyTestComponent>();
+		child.NetworkSpawn();
+		child._net.IsDirty = false;
+
+		switch ( change )
+		{
+			case "Transform": child.LocalPosition = Vector3.Up; break;
+			case "Enabled": child.Enabled = false; break;
+			case "ComponentEnabled": component.Enabled = false; break;
+			case "Parent": child.Parent = otherParent; break;
+		}
+
+		Assert.IsTrue( child._net.IsDirty, "The child owns its snapshot and must be woken directly" );
+	}
+
 	private static void SetTime( float now )
 	{
 		Time.Now = now;
