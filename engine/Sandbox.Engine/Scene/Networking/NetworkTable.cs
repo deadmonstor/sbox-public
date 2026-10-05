@@ -179,7 +179,7 @@ internal class NetworkTable : IDisposable
 	/// <summary>
 	/// Update the hash for a specific entry.
 	/// </summary>
-	private void UpdateSlotHash( Entry entry, object value )
+	private bool UpdateSlotHash( Entry entry, object value )
 	{
 		if ( value is INetworkProperty property && !entry.Initialized )
 		{
@@ -190,21 +190,22 @@ internal class NetworkTable : IDisposable
 		if ( value is INetworkSerializer serializer )
 		{
 			if ( !serializer.HasChanges )
-				return;
+				return false;
 
 			entry.Serialized = null;
 			entry.IsDirty = true;
-			return;
+			return true;
 		}
 
 		var hashValue = ToHashCode( value );
 
 		if ( entry.HashCodeValue == hashValue )
-			return;
+			return false;
 
 		entry.HashCodeValue = hashValue;
 		entry.Serialized = null;
 		entry.IsDirty = true;
+		return true;
 	}
 
 	/// <summary>
@@ -707,7 +708,7 @@ internal class NetworkTable : IDisposable
 
 	/// <summary>
 	/// If any properties are "query" types, we'll copy the new values to ourselves
-	/// and mark as changed, if changed. Returns true if any entry became dirty.
+	/// and mark as changed, if changed. Returns true if any value changed.
 	/// </summary>
 	public bool QueryValues( bool onlyReliableEntries = false )
 	{
@@ -725,12 +726,7 @@ internal class NetworkTable : IDisposable
 
 			try
 			{
-				var wasDirty = entry.IsDirty;
-
-				UpdateSlotHash( entry, entry.GetValue() );
-
-				if ( !wasDirty && entry.IsDirty )
-					anyChanged = true;
+				anyChanged |= UpdateSlotHash( entry, entry.GetValue() );
 			}
 			catch ( Exception e )
 			{

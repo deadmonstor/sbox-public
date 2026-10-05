@@ -743,6 +743,48 @@ public class NetworkDormancyTest
 		Assert.IsTrue( child._net.IsDirty, "The child owns its snapshot and must be woken directly" );
 	}
 
+	[DataTestMethod]
+	[DataRow( "Query" )]
+	[DataRow( "List" )]
+	[DataRow( "Dictionary" )]
+	public void PollingDetectsRepeatedChangesToDirtySnapshotEntries( string kind )
+	{
+		using var scope = new Scene().Push();
+		using var clientAndHost = new ClientAndHost( TypeLibrary );
+		clientAndHost.BecomeHost();
+
+		object value = kind switch
+		{
+			"List" => new List<int>(),
+			"Dictionary" => new Dictionary<int, int>(),
+			_ => 0
+		};
+		using var table = new Sandbox.Network.NetworkTable();
+		var entry = new Sandbox.Network.NetworkTable.Entry
+		{
+			TargetType = value.GetType(),
+			NeedsQuery = true,
+			GetValue = () => value
+		};
+		table.Register( 100, entry );
+
+		for ( var i = 1; i <= 2; i++ )
+		{
+			table.WriteSnapshotState( new LocalSnapshotState() );
+			Assert.IsTrue( entry.IsDirty, "Snapshot entries retain their dirty flag after serialization" );
+			Assert.IsFalse( table.QueryValues(), "An unchanged value must not wake the object" );
+
+			switch ( value )
+			{
+				case List<int> list: list.Add( i ); break;
+				case Dictionary<int, int> dictionary: dictionary[i] = i; break;
+				default: value = i; break;
+			}
+
+			Assert.IsTrue( table.QueryValues(), "Each new value must be detected even when the entry was already dirty" );
+		}
+	}
+
 	private static void SetTime( float now )
 	{
 		Time.Now = now;
