@@ -1,0 +1,166 @@
+{
+  "__guid": "3b21fdae-29c8-432e-b311-4a1a390db4c6",
+  "GameObjects": [
+    {
+      "__guid": "2562cafa-c2f0-4dab-b6af-5b590aa00479",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Scenario Controller",
+      "Position": "0,0,0",
+      "Rotation": "0,0,0,1",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "DormancyLab.DormancyScenario",
+          "__guid": "22f7dd6d-8093-4592-bbd9-a0d49c87c1ec",
+          "__enabled": true,
+          "Flags": 0,
+          "Scenario": "NestedTransformAndParent",
+          "SettleSeconds": 6,
+          "ReplicationTimeout": 3,
+          "ConnectionTimeout": 120,
+          "AutoAdvance": true,
+          "NextScene": "scenes/04-enabled-state.scene",
+          "AdvanceDelay": 3
+        }
+      ],
+      "Children": []
+    },
+    {
+      "__guid": "c5a61958-b39c-4dbc-9328-b618e0a7067c",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Lobby",
+      "Position": "0,0,0",
+      "Rotation": "0,0,0,1",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "Sandbox.NetworkHelper",
+          "__guid": "150a6ba1-e295-47ea-b7e8-b9054884ff14",
+          "__enabled": true,
+          "Flags": 0,
+          "StartServer": true
+        }
+      ],
+      "Children": []
+    },
+    {
+      "__guid": "46fdd297-2415-4a14-bd1c-3bc4c8798dee",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Scenario HUD",
+      "Position": "0,0,0",
+      "Rotation": "0,0,0,1",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "Sandbox.ScreenPanel",
+          "__guid": "d6d9af71-e835-4e2f-8f48-14b410a83439",
+          "__enabled": true,
+          "Flags": 0
+        },
+        {
+          "__type": "DormancyLab.DormancyHud",
+          "__guid": "6f07164e-e7a8-406d-ab22-e2fc91e6c79d",
+          "__enabled": true,
+          "Flags": 0
+        }
+      ],
+      "Children": []
+    },
+    {
+      "__guid": "b6fe2ae2-e38f-4e40-801b-03389ae4d409",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Camera",
+      "Position": "-600,0,380",
+      "Rotation": "0,0.259,0,0.966",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "Sandbox.CameraComponent",
+          "__guid": "5bb605b1-3a2e-4310-8ff4-cb75c1de3b1a",
+          "__enabled": true,
+          "Flags": 0,
+          "IsMainCamera": true,
+          "FieldOfView": 60,
+          "ZNear": 1,
+          "ZFar": 4000,
+          "BackgroundColor": "0.025,0.035,0.06,1"
+        }
+      ],
+      "Children": []
+    },
+    {
+      "__guid": "f2cfb72d-6f0e-480f-a3d2-165f9d9d8b1f",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Light",
+      "Position": "0,0,0",
+      "Rotation": "0,0.259,0,0.966",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "Sandbox.DirectionalLight",
+          "__guid": "1d9e808d-7422-4586-98f6-773e6875541e",
+          "__enabled": true,
+          "Flags": 0,
+          "LightColor": "1,1,1,1",
+          "Shadows": false
+        }
+      ],
+      "Children": []
+    }
+  ],
+  "SceneProperties": {
+    "FixedUpdateFrequency": 50,
+    "MaxFixedUpdates": 5,
+    "TimeScale": 1,
+    "UseFixedUpdate": true,
+    "NetworkInterpolation": true,
+    "NavMesh": {
+      "Enabled": false
+    }
+  },
+  "Title": "03-nested-transform-parent",
+  "Description": "An independently networked child changes local position while acknowledged, then reparents between two networked roots.",
+  "ResourceVersion": 3,
+  "__references": [],
+  "__version": 3
+}

@@ -1,0 +1,166 @@
+{
+  "__guid": "8cfef715-c76d-468b-9e49-55c3a79d2ba7",
+  "GameObjects": [
+    {
+      "__guid": "0b035f7e-2b38-4b00-a9f8-29f68b9824fe",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Scenario Controller",
+      "Position": "0,0,0",
+      "Rotation": "0,0,0,1",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "DormancyLab.DormancyScenario",
+          "__guid": "1ad6a2e2-630b-4330-9019-ec5ab7fceb08",
+          "__enabled": true,
+          "Flags": 0,
+          "Scenario": "ScalarSync",
+          "SettleSeconds": 6,
+          "ReplicationTimeout": 3,
+          "ConnectionTimeout": 120,
+          "AutoAdvance": true,
+          "NextScene": "scenes/06-query-collections.scene",
+          "AdvanceDelay": 3
+        }
+      ],
+      "Children": []
+    },
+    {
+      "__guid": "169d754c-239a-4739-8de8-2e122c5fd551",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Lobby",
+      "Position": "0,0,0",
+      "Rotation": "0,0,0,1",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "Sandbox.NetworkHelper",
+          "__guid": "e208e3bf-d219-4cc1-860f-19b40c738801",
+          "__enabled": true,
+          "Flags": 0,
+          "StartServer": true
+        }
+      ],
+      "Children": []
+    },
+    {
+      "__guid": "e4860c33-d34a-4872-a347-b55888ea6fc5",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Scenario HUD",
+      "Position": "0,0,0",
+      "Rotation": "0,0,0,1",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "Sandbox.ScreenPanel",
+          "__guid": "9314b184-35d6-40a2-9297-e6c29d747cec",
+          "__enabled": true,
+          "Flags": 0
+        },
+        {
+          "__type": "DormancyLab.DormancyHud",
+          "__guid": "a8b78da1-31fd-4ec0-8851-00d05fe61dd4",
+          "__enabled": true,
+          "Flags": 0
+        }
+      ],
+      "Children": []
+    },
+    {
+      "__guid": "d68f3c35-d866-4117-815a-9f50304e71ec",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Camera",
+      "Position": "-600,0,380",
+      "Rotation": "0,0.259,0,0.966",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "Sandbox.CameraComponent",
+          "__guid": "e078a645-f8b0-4658-b62c-09aae2b9862f",
+          "__enabled": true,
+          "Flags": 0,
+          "IsMainCamera": true,
+          "FieldOfView": 60,
+          "ZNear": 1,
+          "ZFar": 4000,
+          "BackgroundColor": "0.025,0.035,0.06,1"
+        }
+      ],
+      "Children": []
+    },
+    {
+      "__guid": "328687c7-a47d-4cc8-81a8-56b8437aaafa",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Light",
+      "Position": "0,0,0",
+      "Rotation": "0,0.259,0,0.966",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "Sandbox.DirectionalLight",
+          "__guid": "157f18ba-f119-4e47-b575-1ffc3789707b",
+          "__enabled": true,
+          "Flags": 0,
+          "LightColor": "1,1,1,1",
+          "Shadows": false
+        }
+      ],
+      "Children": []
+    }
+  ],
+  "SceneProperties": {
+    "FixedUpdateFrequency": 50,
+    "MaxFixedUpdates": 5,
+    "TimeScale": 1,
+    "UseFixedUpdate": true,
+    "NetworkInterpolation": true,
+    "NavMesh": {
+      "Enabled": false
+    }
+  },
+  "Title": "05-scalar-sync",
+  "Description": "Two scalar sync writes after settling each produce an independent client checkpoint.",
+  "ResourceVersion": 3,
+  "__references": [],
+  "__version": 3
+}

@@ -1,0 +1,166 @@
+{
+  "__guid": "e8e6f372-d315-4d54-90b4-ee2996082e46",
+  "GameObjects": [
+    {
+      "__guid": "b054108a-8289-4333-8a98-b909c287337c",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Scenario Controller",
+      "Position": "0,0,0",
+      "Rotation": "0,0,0,1",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "DormancyLab.DormancyScenario",
+          "__guid": "d8a7a219-8a12-4af5-a1d2-a0b32f7fdc38",
+          "__enabled": true,
+          "Flags": 0,
+          "Scenario": "ReliableCollections",
+          "SettleSeconds": 6,
+          "ReplicationTimeout": 3,
+          "ConnectionTimeout": 120,
+          "AutoAdvance": true,
+          "NextScene": "scenes/08-late-join.scene",
+          "AdvanceDelay": 3
+        }
+      ],
+      "Children": []
+    },
+    {
+      "__guid": "d0de886c-9e23-41e8-9fde-9244e19e4802",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Lobby",
+      "Position": "0,0,0",
+      "Rotation": "0,0,0,1",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "Sandbox.NetworkHelper",
+          "__guid": "c8450961-be38-408c-95e2-b589b5102b74",
+          "__enabled": true,
+          "Flags": 0,
+          "StartServer": true
+        }
+      ],
+      "Children": []
+    },
+    {
+      "__guid": "2249e7ef-2920-4f93-8d2a-eed53c8d19d3",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Scenario HUD",
+      "Position": "0,0,0",
+      "Rotation": "0,0,0,1",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "Sandbox.ScreenPanel",
+          "__guid": "00718bf1-b935-4589-8247-5314d18d219a",
+          "__enabled": true,
+          "Flags": 0
+        },
+        {
+          "__type": "DormancyLab.DormancyHud",
+          "__guid": "d3ae4f7a-50a4-47ca-9984-146b3c6793ba",
+          "__enabled": true,
+          "Flags": 0
+        }
+      ],
+      "Children": []
+    },
+    {
+      "__guid": "a1d6f8ab-8f3e-42df-b00f-45f13ff8eef1",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Camera",
+      "Position": "-600,0,380",
+      "Rotation": "0,0.259,0,0.966",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "Sandbox.CameraComponent",
+          "__guid": "b4ec59e4-d717-412b-acbc-6de358e0cde7",
+          "__enabled": true,
+          "Flags": 0,
+          "IsMainCamera": true,
+          "FieldOfView": 60,
+          "ZNear": 1,
+          "ZFar": 4000,
+          "BackgroundColor": "0.025,0.035,0.06,1"
+        }
+      ],
+      "Children": []
+    },
+    {
+      "__guid": "041934f7-cca6-4d67-909e-5a05b09fe950",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Light",
+      "Position": "0,0,0",
+      "Rotation": "0,0.259,0,0.966",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "Sandbox.DirectionalLight",
+          "__guid": "40d5195b-2858-44af-b6ef-702876b86c72",
+          "__enabled": true,
+          "Flags": 0,
+          "LightColor": "1,1,1,1",
+          "Shadows": false
+        }
+      ],
+      "Children": []
+    }
+  ],
+  "SceneProperties": {
+    "FixedUpdateFrequency": 50,
+    "MaxFixedUpdates": 5,
+    "TimeScale": 1,
+    "UseFixedUpdate": true,
+    "NetworkInterpolation": true,
+    "NavMesh": {
+      "Enabled": false
+    }
+  },
+  "Title": "07-reliable-collections",
+  "Description": "NetList and NetDictionary additions, clear/removal and replacement replicate after settling.",
+  "ResourceVersion": 3,
+  "__references": [],
+  "__version": 3
+}

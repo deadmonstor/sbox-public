@@ -1,0 +1,166 @@
+{
+  "__guid": "6f4812e8-3ce6-4841-a476-d682c9e9e17a",
+  "GameObjects": [
+    {
+      "__guid": "3622fcd5-f777-4087-a40f-d0aad118aaf8",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Scenario Controller",
+      "Position": "0,0,0",
+      "Rotation": "0,0,0,1",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "DormancyLab.DormancyScenario",
+          "__guid": "eaa16aa4-4945-44fb-8ae5-6360e016d5b5",
+          "__enabled": true,
+          "Flags": 0,
+          "Scenario": "QueryCollections",
+          "SettleSeconds": 6,
+          "ReplicationTimeout": 3,
+          "ConnectionTimeout": 120,
+          "AutoAdvance": true,
+          "NextScene": "scenes/07-reliable-collections.scene",
+          "AdvanceDelay": 3
+        }
+      ],
+      "Children": []
+    },
+    {
+      "__guid": "44f52fd0-8c1d-48a8-9aae-f1be8e1ccb5c",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Lobby",
+      "Position": "0,0,0",
+      "Rotation": "0,0,0,1",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "Sandbox.NetworkHelper",
+          "__guid": "dde53579-6c96-4d8a-954e-7a8a5d549205",
+          "__enabled": true,
+          "Flags": 0,
+          "StartServer": true
+        }
+      ],
+      "Children": []
+    },
+    {
+      "__guid": "f6134149-359d-4a63-b817-74b56cff958b",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Scenario HUD",
+      "Position": "0,0,0",
+      "Rotation": "0,0,0,1",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "Sandbox.ScreenPanel",
+          "__guid": "a345267a-c1a3-44ba-a1d9-ddbe5f5275ea",
+          "__enabled": true,
+          "Flags": 0
+        },
+        {
+          "__type": "DormancyLab.DormancyHud",
+          "__guid": "74eeeacb-6904-4001-bc3d-407fd76765f1",
+          "__enabled": true,
+          "Flags": 0
+        }
+      ],
+      "Children": []
+    },
+    {
+      "__guid": "2d34f57b-deb4-4b81-8fb1-aab9f15047c6",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Camera",
+      "Position": "-600,0,380",
+      "Rotation": "0,0.259,0,0.966",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "Sandbox.CameraComponent",
+          "__guid": "4410dcf8-5c48-407c-9eb8-4777cabe387e",
+          "__enabled": true,
+          "Flags": 0,
+          "IsMainCamera": true,
+          "FieldOfView": 60,
+          "ZNear": 1,
+          "ZFar": 4000,
+          "BackgroundColor": "0.025,0.035,0.06,1"
+        }
+      ],
+      "Children": []
+    },
+    {
+      "__guid": "c8f10310-4aec-485b-b0d1-4682d0163fdf",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Light",
+      "Position": "0,0,0",
+      "Rotation": "0,0.259,0,0.966",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "Sandbox.DirectionalLight",
+          "__guid": "c7bd30e0-118e-4d92-b32f-88b8cd19e922",
+          "__enabled": true,
+          "Flags": 0,
+          "LightColor": "1,1,1,1",
+          "Shadows": false
+        }
+      ],
+      "Children": []
+    }
+  ],
+  "SceneProperties": {
+    "FixedUpdateFrequency": 50,
+    "MaxFixedUpdates": 5,
+    "TimeScale": 1,
+    "UseFixedUpdate": true,
+    "NetworkInterpolation": true,
+    "NavMesh": {
+      "Enabled": false
+    }
+  },
+  "Title": "06-query-collections",
+  "Description": "Backing-field query changes and in-place ordinary list/dictionary edits are detected twice without a wrapped property assignment.",
+  "ResourceVersion": 3,
+  "__references": [],
+  "__version": 3
+}

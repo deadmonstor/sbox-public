@@ -1,0 +1,15 @@
+!.sbproj
+!*.config
+!*.scss
+.sbox/
+obj/
+bin/
+.verification/
+.vscode/
+*.meta
+*_c
+*_d
+Code/*.csproj
+Code/*.csproj.user
+Code/Properties/launchSettings.json
+*.slnx

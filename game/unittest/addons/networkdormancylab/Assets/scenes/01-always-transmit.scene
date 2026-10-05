@@ -1,0 +1,166 @@
+{
+  "__guid": "c5997d0a-e365-4c7f-a0c6-b6af0f3a9510",
+  "GameObjects": [
+    {
+      "__guid": "fcd10f97-e678-4608-ac3d-502621653cd1",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Scenario Controller",
+      "Position": "0,0,0",
+      "Rotation": "0,0,0,1",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "DormancyLab.DormancyScenario",
+          "__guid": "2722e00e-b531-4f85-9a65-1982fee3c2af",
+          "__enabled": true,
+          "Flags": 0,
+          "Scenario": "AlwaysTransmit",
+          "SettleSeconds": 6,
+          "ReplicationTimeout": 3,
+          "ConnectionTimeout": 120,
+          "AutoAdvance": true,
+          "NextScene": "scenes/02-visibility-wake.scene",
+          "AdvanceDelay": 3
+        }
+      ],
+      "Children": []
+    },
+    {
+      "__guid": "c72eb71e-efe7-46e7-9104-15739bb4e4fe",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Lobby",
+      "Position": "0,0,0",
+      "Rotation": "0,0,0,1",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "Sandbox.NetworkHelper",
+          "__guid": "d7f13074-ac90-4282-8b75-51558fd8c4bd",
+          "__enabled": true,
+          "Flags": 0,
+          "StartServer": true
+        }
+      ],
+      "Children": []
+    },
+    {
+      "__guid": "2b64a427-6217-4f6c-abed-b540e40543f1",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Scenario HUD",
+      "Position": "0,0,0",
+      "Rotation": "0,0,0,1",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "Sandbox.ScreenPanel",
+          "__guid": "632e0bef-92d2-4d40-8854-01b6b0dc9c65",
+          "__enabled": true,
+          "Flags": 0
+        },
+        {
+          "__type": "DormancyLab.DormancyHud",
+          "__guid": "bb9fead4-521d-4ed7-bd67-9b3d2a2afb38",
+          "__enabled": true,
+          "Flags": 0
+        }
+      ],
+      "Children": []
+    },
+    {
+      "__guid": "83897a35-c14b-43e8-a277-1b7687e7a358",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Camera",
+      "Position": "-600,0,380",
+      "Rotation": "0,0.259,0,0.966",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "Sandbox.CameraComponent",
+          "__guid": "c76d4215-a944-490f-9f93-027553e8e85c",
+          "__enabled": true,
+          "Flags": 0,
+          "IsMainCamera": true,
+          "FieldOfView": 60,
+          "ZNear": 1,
+          "ZFar": 4000,
+          "BackgroundColor": "0.025,0.035,0.06,1"
+        }
+      ],
+      "Children": []
+    },
+    {
+      "__guid": "8f4bc6f7-3b99-4478-937c-8f2a5310f68c",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Light",
+      "Position": "0,0,0",
+      "Rotation": "0,0.259,0,0.966",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "Sandbox.DirectionalLight",
+          "__guid": "87e3920f-c61f-4971-b836-c172df06234f",
+          "__enabled": true,
+          "Flags": 0,
+          "LightColor": "1,1,1,1",
+          "Shadows": false
+        }
+      ],
+      "Children": []
+    }
+  ],
+  "SceneProperties": {
+    "FixedUpdateFrequency": 50,
+    "MaxFixedUpdates": 5,
+    "TimeScale": 1,
+    "UseFixedUpdate": true,
+    "NetworkInterpolation": true,
+    "NavMesh": {
+      "Enabled": false
+    }
+  },
+  "Title": "01-always-transmit",
+  "Description": "AlwaysTransmit remains awake and sends two transform changes even when its visibility controller rejects the peer.",
+  "ResourceVersion": 3,
+  "__references": [],
+  "__version": 3
+}

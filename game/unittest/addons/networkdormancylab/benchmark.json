@@ -1,0 +1,104 @@
+{
+  "schemaVersion": 1,
+  "slug": "network-dormancy-lab",
+  "purpose": "Correctness scenarios for the delta-snapshots-dorment-objects branch; performance measurement deferred",
+  "engineBranch": "delta-snapshots-dorment-objects",
+  "seed": 0,
+  "hostInstances": 1,
+  "clientInstances": {
+    "default": 1,
+    "LateJoin": 2
+  },
+  "latency": "local editor/normal transport; no artificial delay",
+  "population": {
+    "default": 1,
+    "NestedTransformAndParent": 3,
+    "QueryDestruction": 2
+  },
+  "timingSeconds": {
+    "initialSettle": 6,
+    "dormancySettle": 6,
+    "replicationSettle": 3,
+    "reportTimeout": 3,
+    "connectionTimeout": 120
+  },
+  "performanceEnabled": false,
+  "scenarios": [
+    {
+      "id": "01-always-transmit",
+      "case": "AlwaysTransmit",
+      "scene": "Assets/scenes/01-always-transmit.scene",
+      "passCondition": "AlwaysTransmit remains awake and sends two transform changes even when its visibility controller rejects the peer."
+    },
+    {
+      "id": "02-visibility-wake",
+      "case": "VisibilityWake",
+      "scene": "Assets/scenes/02-visibility-wake.scene",
+      "passCondition": "After initially replicating, the subject becomes invisible, reaches delta dormancy, then becomes visible and sends its new transform."
+    },
+    {
+      "id": "03-nested-transform-parent",
+      "case": "NestedTransformAndParent",
+      "scene": "Assets/scenes/03-nested-transform-parent.scene",
+      "passCondition": "An independently networked child changes local position while acknowledged, then reparents between two networked roots."
+    },
+    {
+      "id": "04-enabled-state",
+      "case": "EnabledState",
+      "scene": "Assets/scenes/04-enabled-state.scene",
+      "passCondition": "A fully acknowledged AlwaysTransmit object disables and re-enables, with both states observed by clients."
+    },
+    {
+      "id": "05-scalar-sync",
+      "case": "ScalarSync",
+      "scene": "Assets/scenes/05-scalar-sync.scene",
+      "passCondition": "Two scalar sync writes after settling each produce an independent client checkpoint."
+    },
+    {
+      "id": "06-query-collections",
+      "case": "QueryCollections",
+      "scene": "Assets/scenes/06-query-collections.scene",
+      "passCondition": "Backing-field query changes and in-place ordinary list/dictionary edits are detected twice without a wrapped property assignment."
+    },
+    {
+      "id": "07-reliable-collections",
+      "case": "ReliableCollections",
+      "scene": "Assets/scenes/07-reliable-collections.scene",
+      "passCondition": "NetList and NetDictionary additions, clear/removal and replacement replicate after settling."
+    },
+    {
+      "id": "08-late-join",
+      "case": "LateJoin",
+      "scene": "Assets/scenes/08-late-join.scene",
+      "passCondition": "Hide a subject from the first client until dormant; start a second client later and verify its snapshot before revealing a second mutation to both."
+    },
+    {
+      "id": "09-ownership-transfer",
+      "case": "OwnershipTransfer",
+      "scene": "Assets/scenes/09-ownership-transfer.scene",
+      "passCondition": "Transfer an acknowledged object to a client and back; each new owner writes its scalar and transform."
+    },
+    {
+      "id": "10-query-destruction",
+      "case": "QueryDestruction",
+      "scene": "Assets/scenes/10-query-destruction.scene",
+      "passCondition": "A clean object query destroys a second queued object, then itself; scene networking must continue without exceptions."
+    }
+  ],
+  "validation": {
+    "sceneJson": "passed: 10 scenes, 123 unique scene/settings GUIDs",
+    "apiCompile": "passed: net10.0 against existing local managed assemblies, zero warnings/errors",
+    "editorSandboxCompile": "project executed in Josh's multiplayer run",
+    "multiplayerRun": "passed in Josh-provided host log, 2026-10-05: all ten scenarios; two clients for scenes 8-10; no query-destruction exception in host log",
+    "benchmarked": false
+  },
+  "engineCommit": "0dc3b690707d8000b1a539ef4f5fc5fbfe353498",
+  "sequence": {
+    "enabledByDefault": true,
+    "advanceDelaySeconds": 3,
+    "networkSceneChange": "Game.ChangeScene",
+    "stopOnFailure": true,
+    "lateJoin": "A second client must join at the scene 8 prompt; it stays connected for scenes 9 and 10."
+  },
+  "enginePatch": "Snapshot-send destruction fix applied locally on top of engineCommit during the successful run"
+}
