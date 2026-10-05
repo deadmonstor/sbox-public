@@ -1,4 +1,4 @@
-using System.Runtime.CompilerServices;
+﻿using System.Runtime.CompilerServices;
 using Sandbox.Network;
 using System.Runtime.InteropServices;
 using System.Text.Json.Nodes;
@@ -532,6 +532,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 	internal void OnHostChanged( Connection previousHost, Connection newHost )
 	{
 		ClearConnections();
+		UpdateIsOwner();
 		UpdateIsProxy();
 	}
 
@@ -851,8 +852,9 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 	}
 
 	private static readonly GameObject.SerializeOptions _createSerializeOptions = new() { SingleNetworkObject = true, SkipNulls = true };
+	private static readonly GameObject.SerializeOptions _handoffSerializeOptions = new() { SingleNetworkObject = true, SkipNulls = true, IncludeLocalObjects = true };
 
-	internal ObjectCreateMsg GetCreateMessage()
+	internal ObjectCreateMsg GetCreateMessage( bool includeLocalObjects = false, SnapshotCapture capture = null )
 	{
 		if ( GameObject.Parent is null )
 		{
@@ -860,19 +862,20 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 		}
 
 		using var blobs = BlobDataSerializer.Capture();
-		var jsonData = GameObject.Serialize( _createSerializeOptions );
+		var jsonData = GameObject.Serialize( includeLocalObjects ? _handoffSerializeOptions : _createSerializeOptions );
 		if ( jsonData is null )
 		{
 			throw new( $"Unable to serialize {GameObject.Id} ({GameObject.Name})" );
 		}
 
+		capture?.AddObject( jsonData, blobs );
 		var create = new ObjectCreateMsg
 		{
 			Guid = GameObject.Id,
 			SnapshotVersion = GameObject._net.LocalSnapshotState.Version,
 			Transform = GameObject.Transform.TargetLocal,
-			JsonData = jsonData.ToJsonString(),
-			BlobData = blobs.ToByteArray(),
+			JsonData = capture is null ? jsonData.ToJsonString() : null,
+			BlobData = capture is null ? blobs.ToByteArray() : null,
 			Creator = Creator,
 			Parent = GameObject.Parent.Id,
 			Owner = Owner,
@@ -881,6 +884,15 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 		};
 
 		return create;
+	}
+
+	/// <summary>
+	/// Re-apply the sync table after lifecycle callbacks, which may have overwritten it.
+	/// </summary>
+	internal void ReapplyCreateTable( ObjectCreateMsg msg )
+	{
+		if ( GameObject.IsValid() )
+			ReadDataTable( msg.TableData );
 	}
 
 	internal void DoOrphanedAction()

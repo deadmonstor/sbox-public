@@ -39,6 +39,7 @@ CS
 
 	#include "instancing.fxc"
 	#include "morph.fxc"
+	#include "common/classes/Deformation.hlsl"
 
 	DynamicCombo( D_MORPH, 0..1, Sys( ALL ) );
 
@@ -53,7 +54,6 @@ CS
 	uint g_nNormalOffset < Attribute( "NormalOffset" ); >; 				// 8 bit
 	uint g_nTangentSpaceOffset < Attribute( "TangentSpaceOffset" ); >; 	// 8 bit
 	uint g_nInstanceCount < Attribute( "InstanceCount" ); >;
-	bool g_bHasPackedNormal < Attribute( "HasPackedNormal" ); >;
 
 	struct InstanceParams_t
 	{
@@ -61,6 +61,10 @@ CS
 		uint nDestBufferOffset;
 		uint nTransformBufferOffset_BlendWeightCount;
 		uint nMorphOffset;
+		uint nVolumeOffset;
+		uint nVolumeCount;
+		uint nAnchorOffset;		// Rigidly deformed: its anchors, per bone, in g_deformationAnchors. 0 deforms as usual
+		uint padding;
 	};
 
 	cbuffer Instances_t
@@ -99,16 +103,16 @@ CS
 
 	void CS_DecodeObjectSpaceNormalAndTangent( uint nBaseVertexOffset, out float3 vNormalOs, out float4 vTangentUOs_flTangentVSign )
 	{
-		if ( g_nTangentSpaceOffset == 0xFFFFFFFF && g_bHasPackedNormal )
+		if ( g_nTangentSpaceOffset == 0xFFFFFFFF && !g_bUncompressedTangentFrame )
 		{
 			uint nPacked = g_inputVB.Load( nBaseVertexOffset + g_nNormalOffset );
-			float4 vCompressedNormalOs = float4( 
-				( nPacked >> 0 ) & 0xFF, 
-				( nPacked >> 8 ) & 0xFF,
-				( nPacked >> 16 ) & 0xFF, 
-				( nPacked >> 24 ) & 0xFF );
+			float4 vCompressedNormalOs = float4(
+				( nPacked >> 0 )  & 0x3FF,
+				( nPacked >> 10 ) & 0x3FF,
+				( nPacked >> 20 ) & 0x3FF,
+				( nPacked >> 30 ) & 0x3 );
 
-			_DecompressUByte4NormalTangent( vCompressedNormalOs, vNormalOs, vTangentUOs_flTangentVSign );
+			_DecompressNormalTangent( vCompressedNormalOs, vNormalOs, vTangentUOs_flTangentVSign );
 		}
 		else
 		{
@@ -232,10 +236,18 @@ CS
 			vBoneWeights *= 1.0f/255.0f;
 		}
 
+		uint nBlendWeightCount = inst.nTransformBufferOffset_BlendWeightCount & 0xF;
+
+		#if D_DEFORMATION_VOLUME
+		if ( inst.nAnchorOffset != 0 && nBlendWeightCount > 0 )
+			Deformation::ApplyRigid( inst.nVolumeOffset, inst.nVolumeCount, inst.nAnchorOffset, nBoneIndices, vBoneWeights, nBlendWeightCount, vPosOs );
+		else
+			Deformation::Apply( inst.nVolumeOffset, inst.nVolumeCount, vPosOs, vNormalOs, vTangentUOs_flTangentVSign );
+		#endif
+
 		CachedAnimatedVertex_t vert;
 
 		// Fetch transforms & apply
-		uint nBlendWeightCount = inst.nTransformBufferOffset_BlendWeightCount & 0xF;
 		float3x4 mObjToWorld = CalculateInstancingObjectToWorldMatrix( nTransformBufferOffset, nBlendWeightCount, vBoneWeights, nBoneIndices );
 		
 		vert.vPosWs = mul( mObjToWorld, float4( vPosOs, 1.0f ) );

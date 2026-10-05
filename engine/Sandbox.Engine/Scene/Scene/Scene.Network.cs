@@ -177,7 +177,10 @@ public partial class Scene : GameObject
 		system.DeltaSnapshots.Tick();
 	}
 
-	internal void SerializeNetworkObjects( Connection source, List<object> collection )
+	/// <summary>
+	/// Create messages for what <paramref name="source"/> should see; null source means everything.
+	/// </summary>
+	internal void SerializeNetworkObjects( Connection source, List<object> collection, bool includeLocalObjects = false, SnapshotCapture capture = null )
 	{
 		var included = new HashSet<NetworkObject>();
 
@@ -191,7 +194,7 @@ public partial class Scene : GameObject
 			if ( source is null || target.ShouldIncludeInSnapshot( source )
 				|| (root != target && (root?.ShouldIncludeInSnapshot( source ) ?? false)) )
 			{
-				AddWithAncestors( source, target, included, collection );
+				AddWithAncestors( source, target, included, collection, includeLocalObjects, capture );
 			}
 		}
 	}
@@ -200,7 +203,7 @@ public partial class Scene : GameObject
 	/// Emit the create message for <paramref name="target"/> and every networked ancestor above it,
 	/// each at most once. A networked child must never be sent without its parent chain.
 	/// </summary>
-	internal void AddWithAncestors( Connection source, NetworkObject target, HashSet<NetworkObject> included, List<object> collection )
+	internal void AddWithAncestors( Connection source, NetworkObject target, HashSet<NetworkObject> included, List<object> collection, bool includeLocalObjects, SnapshotCapture capture = null )
 	{
 		var current = target;
 		while ( current is not null )
@@ -211,7 +214,7 @@ public partial class Scene : GameObject
 			if ( !included.Add( current ) )
 				break;
 
-			collection.Add( current.GetCreateMessage() );
+			collection.Add( current.GetCreateMessage( includeLocalObjects, capture ) );
 
 			if ( source is not null )
 				current.MarkCreateMessageSent( source );
