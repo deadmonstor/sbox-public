@@ -734,10 +734,18 @@ public class NetworkDormancyTest
 
 		switch ( change )
 		{
-			case "Transform": child.LocalPosition = Vector3.Up; break;
-			case "Enabled": child.Enabled = false; break;
-			case "ComponentEnabled": component.Enabled = false; break;
-			case "Parent": child.Parent = otherParent; break;
+			case "Transform":
+				child.LocalPosition = Vector3.Up;
+				break;
+			case "Enabled":
+				child.Enabled = false;
+				break;
+			case "ComponentEnabled":
+				component.Enabled = false;
+				break;
+			case "Parent":
+				child.Parent = otherParent;
+				break;
 		}
 
 		Assert.IsTrue( child._net.IsDirty, "The child owns its snapshot and must be woken directly" );
@@ -776,9 +784,15 @@ public class NetworkDormancyTest
 
 			switch ( value )
 			{
-				case List<int> list: list.Add( i ); break;
-				case Dictionary<int, int> dictionary: dictionary[i] = i; break;
-				default: value = i; break;
+				case List<int> list:
+					list.Add( i );
+					break;
+				case Dictionary<int, int> dictionary:
+					dictionary[i] = i;
+					break;
+				default:
+					value = i;
+					break;
 			}
 
 			Assert.IsTrue( table.QueryValues(), "Each new value must be detected even when the entry was already dirty" );

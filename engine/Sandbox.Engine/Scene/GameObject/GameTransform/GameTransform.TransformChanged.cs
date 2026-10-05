@@ -40,10 +40,7 @@ public partial class GameTransform
 		var data = new TransformChangedData { Root = root };
 		GameObject.ForEachChildFast( "TransformChanged", true, &TransformChangedCallback, ref data );
 
-		if ( GameObject.FindNetworkRoot()?._net is INetworkWakeable net )
-		{
-			net.MarkDirty();
-		}
+		GameObject.FindNetworkRoot()?._net?.MarkDirty();
 	}
 
 	// empty, no data to pass

@@ -370,8 +370,7 @@ public static partial class Rpc
 	{
 		if ( !go.IsValid() ) return;
 
-		if ( go.FindNetworkRoot()?._net is INetworkWakeable wakeable )
-			wakeable.MarkDirty();
+		go.FindNetworkRoot()?._net?.MarkDirty();
 
 		var networkSystem = SceneNetworkSystem.Instance;
 		if ( networkSystem is null )

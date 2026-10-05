@@ -73,7 +73,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 	public bool IsProxy { get; private set; }
 
 	/// <summary>
-	/// If true, then this networked object is dormant and will skip delta snapshot updates until it becomes visible again.
+	/// Whether delta snapshot updates are suspended until a state change or visibility probe wakes this object.
 	/// </summary>
 	public bool IsDeltaDormant { get; set; }
 
@@ -233,7 +233,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 	}
 
 	/// <summary>
-	/// Mark this networked object as dirty, ensuring it's included in the next network update.
+	/// Whether this object is in the scene's pending network update set.
 	/// </summary>
 	internal bool IsDirty { get; set; }
 
@@ -248,7 +248,6 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 		_nextDormancyProbe = 0f;
 		SetDeltaDormant( false );
 		GameObject.Scene.MarkNetworkObjectDirty( this );
-		IsDirty = true;
 
 		// We might be dirtied part way through a send, after we've already been considered
 		// fully updated this frame. Don't let that stale value drop us from the dirty set.
@@ -452,7 +451,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 	/// <summary>
 	/// While dormant, probe for visibility changes every this often.
 	/// </summary>
-	private const float DormancyProbeInterval = 0.2f;
+	internal const float DormancyProbeInterval = 0.2f;
 
 	internal bool ShouldSkipDeltaSnapshotUpdate( Connection[] targets )
 	{
@@ -474,14 +473,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 				return false;
 			}
 
-			if ( !state.Culled )
-			{
-				_nextDormancyProbe = 0f;
-				SetDeltaDormant( false );
-				return false;
-			}
-
-			if ( (timeNow - state.LastVisibleAt) < DormancyThreshold )
+			if ( !state.Culled || (timeNow - state.LastVisibleAt) < DormancyThreshold )
 			{
 				_nextDormancyProbe = 0f;
 				SetDeltaDormant( false );

@@ -37,11 +37,7 @@ public partial class Scene : GameObject
 	{
 		networkedObjects.Add( obj );
 
-		if ( !obj.IsDirty )
-		{
-			obj.IsDirty = true;
-			_dirtyNetworkObjects.Add( obj );
-		}
+		MarkNetworkObjectDirty( obj );
 	}
 
 	internal void UnregisterNetworkObject( NetworkObject obj )
@@ -85,19 +81,59 @@ public partial class Scene : GameObject
 
 		var connections = system.GetFilteredConnections( Connection.ChannelState.Connected );
 		var connectionsArray = connections as Connection[] ?? connections.ToArray();
-		var shouldProbeDormancy = _timeSinceDormancyProbe >= 0.2f;
+		UpdateNetworkConnections( connectionsArray );
+		PollCleanNetworkObjects( connectionsArray );
 
-		var hasNewConnection = false;
-		foreach ( var c in connectionsArray )
+		// Partition objects into dirty (pending changes) and clean (fully ACK'd).
+		// Dirty objects are processed first so they end up in earlier clusters,
+		// which are less likely to be delayed under network congestion.
+		_dirtySnapshotObjects.Clear();
+		_cleanSnapshotObjects.Clear();
+
+		foreach ( var n in _dirtyNetworkObjects )
 		{
-			if ( !_lastConnectionIds.Contains( c.Id ) )
-				hasNewConnection = true;
+			if ( n.LocalSnapshotState.UpdatedConnections.Count == 0 )
+				_dirtySnapshotObjects.Add( n );
+			else
+				_cleanSnapshotObjects.Add( n );
 		}
 
-		if ( hasNewConnection || _lastConnectionIds.Count != connectionsArray.Length )
+		IEnumerable<IDeltaSnapshot> objects = _dirtySnapshotObjects.Concat( _cleanSnapshotObjects );
+
+		// If we're the host, include any GameObjectSystems.
+		if ( Networking.IsHost )
+			objects = objects.Concat( systems.Values );
+
+		system.DeltaSnapshots.Send( objects, connectionsArray );
+
+		_dirtyNetworkObjects.RemoveWhere( n =>
+		{
+			if ( !n.IsFullyUpdated && !n.IsDeltaDormant )
+				return false;
+
+			n.IsDirty = false;
+			return true;
+		} );
+
+		system.DeltaSnapshots.Tick();
+	}
+
+	private void UpdateNetworkConnections( Connection[] connections )
+	{
+		var hasNewConnection = false;
+		foreach ( var c in connections )
+		{
+			if ( _lastConnectionIds.Contains( c.Id ) )
+				continue;
+
+			hasNewConnection = true;
+			break;
+		}
+
+		if ( hasNewConnection || _lastConnectionIds.Count != connections.Length )
 		{
 			_lastConnectionIds.Clear();
-			foreach ( var c in connectionsArray )
+			foreach ( var c in connections )
 			{
 				_lastConnectionIds.Add( c.Id );
 			}
@@ -107,11 +143,14 @@ public partial class Scene : GameObject
 		{
 			foreach ( var n in networkedObjects )
 			{
-				if ( n.IsDirty ) continue;
-				n.IsDirty = true;
-				_dirtyNetworkObjects.Add( n );
+				MarkNetworkObjectDirty( n );
 			}
 		}
+	}
+
+	private void PollCleanNetworkObjects( Connection[] connections )
+	{
+		var shouldProbeDormancy = _timeSinceDormancyProbe >= NetworkObject.DormancyProbeInterval;
 
 		if ( shouldProbeDormancy )
 			_timeSinceDormancyProbe = 0f;
@@ -140,45 +179,10 @@ public partial class Scene : GameObject
 
 			// A getter may have destroyed this object while it was being polled.
 			if ( shouldProbeDormancy && n.IsValid )
-				n.ProbeVisibility( connectionsArray );
+				n.ProbeVisibility( connections );
 		}
 
 		_pollBuffer.Clear();
-
-		// Partition objects into dirty (pending changes) and clean (fully ACK'd).
-		// Dirty objects are processed first so they end up in earlier clusters,
-		// which are less likely to be delayed under network congestion.
-		_dirtySnapshotObjects.Clear();
-		_cleanSnapshotObjects.Clear();
-
-		foreach ( var n in _dirtyNetworkObjects )
-		{
-			if ( n.LocalSnapshotState.UpdatedConnections.Count == 0 )
-				_dirtySnapshotObjects.Add( n );
-			else
-				_cleanSnapshotObjects.Add( n );
-		}
-
-		IEnumerable<IDeltaSnapshot> objects = _dirtySnapshotObjects.Concat( _cleanSnapshotObjects );
-
-		// If we're the host, include any GameObjectSystems.
-		if ( Networking.IsHost )
-			objects = objects.Concat( systems.Values );
-
-		system.DeltaSnapshots.Send( objects, connectionsArray );
-
-		_dirtyNetworkObjects.RemoveWhere( n =>
-		{
-			if ( n.IsFullyUpdated || n.IsDeltaDormant )
-			{
-				n.IsDirty = false;
-				return true;
-			}
-
-			return false;
-		} );
-
-		system.DeltaSnapshots.Tick();
 	}
 
 	/// <summary>

@@ -771,7 +771,7 @@ internal class DeltaSnapshotSystem
 			{
 				// We haven't written a snapshot, so don't let a stale value from a previous
 				// frame make us look acknowledged.
-				if ( nwo?.IsDeltaDormant == true )
+				if ( nwo.IsDeltaDormant )
 					continue;
 
 				nwo.IsFullyUpdated = false;
