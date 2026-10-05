@@ -756,6 +756,10 @@ internal class DeltaSnapshotSystem
 
 		foreach ( var nwo in objects )
 		{
+			// A getter on an earlier object can destroy an object in this copied send list.
+			if ( !nwo.IsValid )
+				continue;
+
 			// Don't send updates about objects we don't own. The host can always send updates though
 			// because there may be FromHost sync vars.
 			if ( nwo.IsProxy && !Networking.IsHost )
@@ -765,6 +769,8 @@ internal class DeltaSnapshotSystem
 			}
 
 			var isAnyVisible = nwo.UpdateTransmitState( connections );
+			if ( !nwo.IsValid )
+				continue;
 
 			// No point doing anything else if no connections can even see this object.
 			if ( !isAnyVisible )
@@ -781,7 +787,11 @@ internal class DeltaSnapshotSystem
 			}
 
 			var localSnapshotState = nwo.WriteSnapshotState();
+			if ( !nwo.IsValid || localSnapshotState is null )
+				continue;
 			nwo.SendNetworkUpdate();
+			if ( !nwo.IsValid )
+				continue;
 
 			ClearRemovedSlots( localSnapshotState );
 
@@ -850,10 +860,12 @@ internal class DeltaSnapshotSystem
 	public void Send( IDeltaSnapshot snapshotter, NetFlags flags = NetFlags.UnreliableNoDelay,
 		bool sendFullUpdate = false )
 	{
-		if ( snapshotter is null ) return;
+		if ( snapshotter is null || !snapshotter.IsValid ) return;
 
 		var localSnapshotState = snapshotter.WriteSnapshotState();
+		if ( !snapshotter.IsValid || localSnapshotState is null ) return;
 		snapshotter.SendNetworkUpdate();
+		if ( !snapshotter.IsValid ) return;
 
 		ClearRemovedSlots( localSnapshotState );
 

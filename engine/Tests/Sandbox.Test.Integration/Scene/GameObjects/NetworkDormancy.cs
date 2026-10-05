@@ -846,6 +846,47 @@ public class NetworkDormancyTest
 		Assert.AreEqual( 1, scene.NetworkObjectCount );
 	}
 
+	[TestMethod]
+	[DataRow( false, false )]
+	[DataRow( true, false )]
+	[DataRow( true, true )]
+	public void SnapshotSendingToleratesObjectsDestroyedByGetters( bool destroySelf, bool singleObject )
+	{
+		var scene = new Scene();
+		using var scope = scene.Push();
+		using var clientAndHost = new ClientAndHost( TypeLibrary );
+		clientAndHost.BecomeHost();
+
+		var subject = new GameObject();
+		var victim = new GameObject();
+		subject.NetworkSpawn();
+		victim.NetworkSpawn();
+		subject.Network.AlwaysTransmit = true;
+		victim.Network.AlwaysTransmit = true;
+		var snapshots = new IDeltaSnapshot[] { subject._net, victim._net };
+		var destroyed = false;
+		subject._net.dataTable.Register( 100, new Sandbox.Network.NetworkTable.Entry
+		{
+			TargetType = typeof( int ),
+			NeedsQuery = true,
+			GetValue = () =>
+			{
+				destroyed = true;
+				(destroySelf ? subject : victim).DestroyImmediate();
+				return 1;
+			}
+		} );
+
+		if ( singleObject )
+			SceneNetworkSystem.Instance.DeltaSnapshots.Send( snapshots[0] );
+		else
+			SceneNetworkSystem.Instance.DeltaSnapshots.Send( snapshots, Array.Empty<Connection>() );
+
+		Assert.IsTrue( destroyed, "The getter must run while writing the snapshot" );
+		Assert.AreEqual( 1, scene.NetworkObjectCount );
+		Assert.IsFalse( snapshots[destroySelf ? 0 : 1].IsValid );
+	}
+
 	private static void ForceSceneNetworkUpdate( Scene scene )
 	{
 		const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;

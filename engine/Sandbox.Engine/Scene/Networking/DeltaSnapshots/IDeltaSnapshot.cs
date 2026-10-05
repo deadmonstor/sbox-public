@@ -3,6 +3,11 @@ namespace Sandbox.Network;
 internal interface IDeltaSnapshot
 {
 	/// <summary>
+	/// Whether this object is still available for snapshot updates.
+	/// </summary>
+	bool IsValid => true;
+
+	/// <summary>
 	/// Unique identifier for this object.
 	/// </summary>
 	Guid Id { get; }

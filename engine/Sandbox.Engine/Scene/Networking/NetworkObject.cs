@@ -811,6 +811,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 		}
 
 		dataTable.QueryValues();
+		if ( !IsValid ) return null;
 		dataTable.WriteSnapshotState( LocalSnapshotState );
 
 		_clearInterpolationFlag = false;
@@ -822,6 +823,8 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 	{
 		if ( queryValues )
 			dataTable.QueryValues( true );
+
+		if ( !IsValid ) return;
 
 		if ( !dataTable.HasReliableChanges() )
 			return;
