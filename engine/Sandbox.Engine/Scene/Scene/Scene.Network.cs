@@ -132,10 +132,14 @@ public partial class Scene : GameObject
 		// while an object is being sent - so a clean object has to be polled here to wake back up.
 		foreach ( var n in _pollBuffer )
 		{
+			if ( !n.IsValid )
+				continue;
+
 			if ( n.PollQueryValues() )
 				continue;
 
-			if ( shouldProbeDormancy )
+			// A getter may have destroyed this object while it was being polled.
+			if ( shouldProbeDormancy && n.IsValid )
 				n.ProbeVisibility( connectionsArray );
 		}
 

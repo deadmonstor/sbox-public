@@ -785,6 +785,61 @@ public class NetworkDormancyTest
 		}
 	}
 
+	[DataTestMethod]
+	[DataRow( false )]
+	[DataRow( true )]
+	public void ScenePollingToleratesObjectsDestroyedByGetters( bool destroySelf )
+	{
+		var scene = new Scene();
+		using var scope = scene.Push();
+		using var clientAndHost = new ClientAndHost( TypeLibrary );
+		clientAndHost.BecomeHost();
+
+		// Establish the connection set before arranging clean objects for polling.
+		ForceSceneNetworkUpdate( scene );
+		var objects = new[] { new GameObject(), new GameObject() };
+		var shouldDestroy = false;
+		var destroyed = false;
+		foreach ( var go in objects )
+		{
+			go.NetworkSpawn();
+			go._net.dataTable.Register( 100, new Sandbox.Network.NetworkTable.Entry
+			{
+				TargetType = typeof( int ),
+				NeedsQuery = true,
+				GetValue = () =>
+				{
+					if ( shouldDestroy && !destroyed )
+					{
+						destroyed = true;
+						var target = destroySelf ? go : objects.First( x => x != go );
+						target.DestroyImmediate();
+					}
+					return 0;
+				}
+			} );
+			go._net.IsDirty = false;
+		}
+
+		var dirtySet = (HashSet<NetworkObject>)typeof( Scene ).GetField( "_dirtyNetworkObjects",
+			System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic ).GetValue( scene );
+		dirtySet.Clear();
+		shouldDestroy = true;
+
+		ForceSceneNetworkUpdate( scene );
+
+		Assert.IsTrue( destroyed, "The getter must have run during polling" );
+		Assert.AreEqual( 1, scene.NetworkObjectCount );
+	}
+
+	private static void ForceSceneNetworkUpdate( Scene scene )
+	{
+		const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+		typeof( Scene ).GetField( "_timeSinceNetworkUpdate", flags ).SetValue( scene, (RealTimeSince)1f );
+		typeof( Scene ).GetField( "_timeSinceDormancyProbe", flags ).SetValue( scene, (RealTimeSince)1f );
+		scene.SceneNetworkUpdate();
+	}
+
 	private static void SetTime( float now )
 	{
 		Time.Now = now;
