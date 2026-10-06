@@ -1,0 +1,22 @@
+{
+  "Title": "Clientside Prediction Test",
+  "Type": "game",
+  "Org": "local",
+  "Ident": "clientsideprediction",
+  "Schema": 1,
+  "IncludeSourceFiles": false,
+  "Resources": null,
+  "PackageReferences": [],
+  "EditorReferences": null,
+  "Mounts": null,
+  "IsStandaloneOnly": false,
+  "Metadata": {
+    "MaxPlayers": 8,
+    "MinPlayers": 1,
+    "TickRate": 50,
+    "GameNetworkType": "Multiplayer",
+    "MapSelect": "Unrestricted",
+    "CsProjName": "",
+    "StartupScene": "scenes/prediction-test.scene"
+  }
+}
