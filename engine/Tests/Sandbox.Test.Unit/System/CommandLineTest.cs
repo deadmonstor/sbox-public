@@ -1,4 +1,5 @@
 using Sandbox.Utility;
+using System.Collections.Generic;
 
 namespace SystemTests;
 
@@ -6,6 +7,24 @@ namespace SystemTests;
 [DoNotParallelize]
 public class CommandLineTest
 {
+	[TestMethod]
+	public void ParseLaunchArgumentsWithoutChangingStartupArguments()
+	{
+		var startupArguments = new Dictionary<string, string>( CommandLine.GetSwitches() );
+		var startupCommandLine = CommandLine.Full;
+		var arguments = CommandLine.Parse( "-RUNGAME \"facepunch.walker\" -webreferrer sbox.game" );
+
+		Assert.AreEqual( "\"facepunch.walker\"", arguments["rungame"] );
+		Assert.AreEqual( "sbox.game", arguments["webreferrer"] );
+		Assert.AreEqual( startupCommandLine, CommandLine.Full );
+		CollectionAssert.AreEquivalent( startupArguments.ToArray(), CommandLine.GetSwitches().ToArray() );
+
+		var nextArguments = CommandLine.Parse( "-rungame facepunch.other" );
+		Assert.AreEqual( "facepunch.other", nextArguments["rungame"] );
+		Assert.IsFalse( nextArguments.ContainsKey( "webreferrer" ) );
+		Assert.AreEqual( 0, CommandLine.Parse( "" ).Count );
+	}
+
 	/// <summary>
 	/// The parser should split switches on +/- prefixes, keep quoted strings
 	/// intact, and tolerate switch-name lookups with or without the prefix.

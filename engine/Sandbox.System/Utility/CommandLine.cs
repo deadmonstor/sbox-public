@@ -33,7 +33,21 @@ internal static class CommandLine
 	public static void Parse()
 	{
 		commandLine = CommandLineString ?? Environment.CommandLine;
+		ParseInto( commandLine, switches );
+	}
 
+	/// <summary>
+	/// Parses launch arguments without changing the process command line.
+	/// </summary>
+	internal static Dictionary<string, string> Parse( string commandLine )
+	{
+		var result = new Dictionary<string, string>( StringComparer.OrdinalIgnoreCase );
+		ParseInto( commandLine, result );
+		return result;
+	}
+
+	private static void ParseInto( string commandLine, Dictionary<string, string> switches )
+	{
 		if ( string.IsNullOrEmpty( commandLine ) )
 			return;
 
