@@ -286,15 +286,28 @@ public sealed partial class CameraComponent : Component, Component.ExecuteInEdit
 	/// </summary>
 	public void ComposeView()
 	{
-		ComposeView( Scene.IsEditor ? null : GatherModifiers( Scene ) );
+		ComposeView( Scene.IsEditor ? null : GatherModifiers( Scene, new() ) );
 	}
 
 	// The scene-wide modifier set, sorted - gathered once per tick and shared by every camera
 	// composing that tick (see Scene.UpdateCameraViews). Null when modifiers don't apply (editor).
-	internal static ICameraModifier[] GatherModifiers( Scene scene )
-		=> scene.GetAll<ICameraModifier>().OrderBy( x => x.CameraOrder ).ToArray();
+	// Equal orders keep scene order, like OrderBy.
+	internal static List<ICameraModifier> GatherModifiers( Scene scene, List<ICameraModifier> modifiers )
+	{
+		modifiers.Clear();
 
-	internal void ComposeView( ICameraModifier[] modifiers )
+		foreach ( var modifier in scene.Query<ICameraModifier>() )
+		{
+			var order = modifier.CameraOrder;
+			int i = modifiers.Count;
+			while ( i > 0 && modifiers[i - 1].CameraOrder > order ) i--;
+			modifiers.Insert( i, modifier );
+		}
+
+		return modifiers;
+	}
+
+	internal void ComposeView( List<ICameraModifier> modifiers )
 	{
 		var view = RawView;
 
@@ -488,9 +501,25 @@ public sealed partial class CameraComponent : Component, Component.ExecuteInEdit
 		if ( Scene is null )
 			return;
 
-		camera.OnRenderUI = () => OnCameraRenderUI( camera, ScreenPanel.RenderTiming.AfterPostProcess );
-		camera.OnRenderUIBeforePostProcess = () => OnCameraRenderUI( camera, ScreenPanel.RenderTiming.BeforePostProcess );
+		// This runs every frame, so make the callbacks once per scene camera
+		if ( _renderUICamera != camera )
+			CreateRenderUICallbacks( camera );
+
+		camera.OnRenderUI = _renderUI;
+		camera.OnRenderUIBeforePostProcess = _renderUIBeforePostProcess;
 	}
+
+	// Separate so the closure is only allocated here, not on every UpdateSceneCameraUI
+	void CreateRenderUICallbacks( SceneCamera camera )
+	{
+		_renderUICamera = camera;
+		_renderUI = () => OnCameraRenderUI( camera, ScreenPanel.RenderTiming.AfterPostProcess );
+		_renderUIBeforePostProcess = () => OnCameraRenderUI( camera, ScreenPanel.RenderTiming.BeforePostProcess );
+	}
+
+	SceneCamera _renderUICamera;
+	Action _renderUI;
+	Action _renderUIBeforePostProcess;
 
 	[Obsolete( "Use CommandList" )]
 	public IDisposable AddHookAfterOpaque( string debugName, int order, Action<SceneCamera> renderEffect ) => null;
@@ -556,7 +585,7 @@ public sealed partial class CameraComponent : Component, Component.ExecuteInEdit
 
 	internal void InitializeRendering( bool renderUI = true )
 	{
-		using ( Scene.Push() )
+		using ( Scene.PushScope() )
 		{
 			EnsureSceneCameraCreated();
 
@@ -589,7 +618,7 @@ public sealed partial class CameraComponent : Component, Component.ExecuteInEdit
 		if ( Viewport.z <= 0 ) return;
 		if ( Viewport.w <= 0 ) return;
 
-		using ( Scene.Push() )
+		using ( Scene.PushScope() )
 		{
 			InitializeRendering();
 
@@ -899,7 +928,7 @@ public sealed partial class CameraComponent : Component, Component.ExecuteInEdit
 		if ( !this.IsValid() )
 			return;
 
-		using ( Scene.Push() )
+		using ( Scene.PushScope() )
 		{
 			Scene.PreCameraRender();
 			InitializeRendering( renderUI );
