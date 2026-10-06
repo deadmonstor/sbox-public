@@ -14,6 +14,331 @@ using static GlobalGameNamespace;
 [TestClass]
 public class NetworkTest
 {
+	[Expose]
+	public sealed class PredictionEventCounter : Component, PlayerController.IEvents
+	{
+		public int Jumps { get; private set; }
+		public void OnJumped() => Jumps++;
+	}
+
+	[Expose]
+	public sealed class PredictionPushSource : Component, IScenePhysicsEvents
+	{
+		void IScenePhysicsEvents.PrePhysicsStep()
+		{
+			var controller = GetComponent<PlayerController>();
+			if ( controller.HasPredictionPhysicsAuthority ) controller.Body.PhysicsBody.Velocity = Vector3.Right * 60;
+		}
+	}
+	[TestMethod]
+	[DataRow( false, false, false )]
+	[DataRow( true, false, false )]
+	[DataRow( true, true, false )]
+	[DataRow( false, true, false )]
+	[DataRow( false, true, true )]
+	public void PredictedMovementDoesNotCorrectEveryTick( bool pushing, bool moving, bool landing )
+	{
+		var hostScene = new Scene();
+		var clientScene = new Scene();
+		using var peers = new ClientAndHost( TypeLibrary );
+		peers.Host.Messages.Clear();
+		peers.Client.Messages.Clear();
+		var oldMove = Input.AnalogMove;
+		Input.AnalogMove = Vector3.Zero;
+		try
+		{
+			GameObject hostPlatform;
+			PlayerController hostPlayer;
+			using ( hostScene.Push() )
+			{
+				peers.BecomeHost();
+				hostPlatform = new GameObject();
+				hostPlatform.WorldPosition = Vector3.Up * 12;
+				var collider = hostPlatform.Components.Create<BoxCollider>();
+				collider.Scale = new Vector3( 600, 600, 24 );
+				hostPlatform.NetworkSpawn();
+				var player = new GameObject();
+				player.WorldPosition = new Vector3( 40, 20, landing ? 250 : 25 );
+				hostPlayer = player.Components.Create<PlayerController>();
+				hostPlayer.UseClientPrediction = true;
+				hostPlayer.EnableFootstepSounds = false;
+				if ( pushing ) player.Components.Create<PredictionPushSource>();
+				player.NetworkSpawn( peers.Client );
+				using ( Time.PushScope( 0.02, 0.02 ) ) hostScene.InternalFixedUpdate();
+			}
+			PlayerController clientPlayer;
+			GameObject clientPlatform;
+			using ( clientScene.Push() )
+			{
+				peers.BecomeClient();
+				peers.ProcessMessages();
+				peers.Client.Messages.Clear();
+				clientPlayer = clientScene.GetComponentInChildren<PlayerController>();
+				clientPlatform = clientScene.Directory.FindByGuid( hostPlatform.Id );
+			}
+			static DeltaSnapshot Snapshot( GameObject go )
+			{
+				IDeltaSnapshot source = go._net;
+				var result = new DeltaSnapshot();
+				result.CopyFrom( source, source.WriteSnapshotState(), 2 );
+				return result;
+			}
+			static Transform Pose( int tick ) => new( new Vector3( tick * 2, tick, 12 ), Rotation.FromYaw( tick * 0.5f ) );
+			DeltaSnapshot snapshot;
+			using ( hostScene.Push() )
+			{
+				peers.BecomeHost();
+				snapshot = Snapshot( hostPlayer.GameObject );
+			}
+			var delayedSnapshots = new Queue<DeltaSnapshot>();
+			int warmCorrections = 0;
+			for ( int tick = 2; tick <= 100; tick++ )
+			{
+				using ( clientScene.Push() )
+				{
+					peers.BecomeClient();
+					Input.AnalogMove = moving && tick >= 25 && tick < 50 ? Vector3.Forward : Vector3.Zero;
+					// Explicitly sample the displayed platform five ticks behind the host.
+					clientPlatform.Transform.SetLocalTransformFast( Pose( pushing ? 0 : Math.Max( 0, tick - 5 ) ) );
+					if ( tick == 2 || delayedSnapshots.Count > 3 )
+						((IDeltaSnapshot)clientPlayer.GameObject._net).OnSnapshot( peers.Host, tick > 2 ? delayedSnapshots.Dequeue() : snapshot );
+					using ( Time.PushScope( tick * 0.02, 0.02 ) ) clientScene.InternalFixedUpdate();
+					if ( tick == (landing ? 70 : 20) ) warmCorrections = clientPlayer.PredictionCorrections;
+				}
+				using ( hostScene.Push() )
+				{
+					peers.BecomeHost();
+					hostPlatform.WorldTransform = Pose( pushing ? 0 : tick );
+					peers.ProcessMessages();
+					peers.Host.Messages.Clear();
+					using ( Time.PushScope( tick * 0.02, 0.02 ) ) hostScene.InternalFixedUpdate();
+					snapshot = Snapshot( hostPlayer.GameObject );
+					delayedSnapshots.Enqueue( snapshot );
+				}
+			}
+			Assert.IsTrue( clientPlayer.IsOnGround );
+			Assert.AreEqual( 0, clientPlayer.PredictionCorrections - warmCorrections,
+				$"Expected movement generated {clientPlayer.PredictionCorrections - warmCorrections} corrections after warmup (pushing={pushing}, moving={moving}, landing={landing})" );
+			var hostLocal = hostPlatform.WorldTransform.PointToLocal( hostPlayer.WorldPosition );
+			var clientLocal = clientPlatform.WorldTransform.PointToLocal( clientPlayer.WorldPosition );
+			Assert.IsTrue( (hostLocal - clientLocal).Length < (pushing ? 8 : 0.1f), $"Platform-relative drift: host {hostLocal}, client {clientLocal}" );
+		}
+		finally { Input.AnalogMove = oldMove; }
+	}
+	[TestMethod]
+	[DataRow( false )]
+	[DataRow( true )]
+	public void PredictedPlayerReceivesNativePhysicsPushes( bool remoteOwner )
+	{
+		using var scope = new Scene().Push();
+		using var peers = new ClientAndHost( TypeLibrary );
+		peers.BecomeHost();
+		var oldMove = Input.AnalogMove;
+		Input.AnalogMove = Vector3.Zero;
+		try
+		{
+			var floor = new GameObject();
+			floor.WorldPosition = Vector3.Down * 50;
+			var floorCollider = floor.Components.Create<BoxCollider>();
+			floorCollider.Scale = new Vector3( 2000, 2000, 100 );
+			floorCollider.Static = true;
+			var player = new GameObject();
+			player.WorldPosition = Vector3.Up;
+			var controller = player.Components.Create<PlayerController>();
+			controller.UseClientPrediction = true;
+			controller.EnableFootstepSounds = false;
+			player.NetworkSpawn( remoteOwner ? peers.Client : peers.Host );
+			var pusher = new GameObject();
+			pusher.WorldPosition = new Vector3( -60, 0, 40 );
+			var collider = pusher.Components.Create<BoxCollider>();
+			collider.Scale = new Vector3( 40, 100, 80 );
+			var body = pusher.Components.Create<Rigidbody>();
+			body.Gravity = false;
+			body.MassOverride = 1000;
+			for ( int tick = 1; tick <= 50; tick++ )
+			{
+				body.Velocity = Vector3.Forward * 120;
+				using ( Time.PushScope( tick * 0.02f, 0.02f ) ) Game.ActiveScene.InternalFixedUpdate();
+			}
+			Assert.IsTrue( controller.Body.PhysicsBody.MotionEnabled, "The host must simulate contacts even for a client-owned player" );
+			Assert.IsTrue( player.WorldPosition.x > 10, $"Moving rigidbody did not push predicted player: {player.WorldPosition}" );
+		}
+		finally { Input.AnalogMove = oldMove; }
+	}
+	[TestMethod]
+	public void HostTransformPredictionConvergesWithDelayedCommandsAndDroppedSnapshots()
+	{
+		var hostScene = new Scene();
+		var clientScene = new Scene();
+		using var peers = new ClientAndHost( TypeLibrary );
+		// The helper puts peers in Connected state; discard its bootstrap handshake
+		// packets instead of replaying a second handshake into these test scenes.
+		peers.Client.Messages.Clear();
+		peers.Host.Messages.Clear();
+		// Input.Pressed is disabled in headless runs; emulate an owning game client.
+		var headless = typeof( Application ).GetProperty( nameof( Application.IsHeadless ) );
+		var oldHeadless = Application.IsHeadless;
+		headless.SetValue( null, false );
+		Input.ClearActions();
+		var oldMove = Input.AnalogMove;
+		var oldSettings = Input.InputSettings;
+		var inputSettings = new InputSettings();
+		inputSettings.InitDefault();
+		Input.InputSettings = inputSettings;
+		PlayerController hostPlayer;
+		PlayerController clientPlayer;
+		PredictionEventCounter hostEvents;
+		const float delta = 0.02f;
+
+		static DeltaSnapshot Snapshot( PlayerController player )
+		{
+			IDeltaSnapshot networkObject = player.GameObject._net;
+			var snapshot = new DeltaSnapshot();
+			snapshot.CopyFrom( networkObject, networkObject.WriteSnapshotState(), 2 );
+			return snapshot;
+		}
+
+		try
+		{
+			using ( hostScene.Push() )
+			{
+				peers.BecomeHost();
+				var floor = hostScene.CreateObject();
+				floor.WorldPosition = new Vector3( 0, 0, -50 );
+				var box = floor.Components.Create<BoxCollider>();
+				box.Scale = new Vector3( 4000, 4000, 100 );
+				box.Static = true;
+				floor.NetworkSpawn();
+				var player = hostScene.CreateObject();
+				player.WorldPosition = Vector3.Up;
+				hostPlayer = player.Components.Create<PlayerController>();
+				hostPlayer.EnableFootstepSounds = false;
+				hostPlayer.UseClientPrediction = true;
+				hostEvents = player.Components.Create<PredictionEventCounter>();
+				player.NetworkSpawn( peers.Client );
+				using ( Time.PushScope( delta, delta ) ) hostScene.InternalFixedUpdate();
+			}
+
+			using ( clientScene.Push() )
+			{
+				peers.BecomeClient();
+				peers.ProcessMessages();
+				peers.Client.Messages.Clear();
+				clientPlayer = clientScene.GetComponentInChildren<PlayerController>();
+				Assert.IsNotNull( clientPlayer );
+			}
+
+			DeltaSnapshot latest;
+			using ( hostScene.Push() )
+			{
+				peers.BecomeHost();
+				latest = Snapshot( hostPlayer );
+			}
+
+			for ( int tick = 2; tick < 100; tick++ )
+			{
+				using ( clientScene.Push() )
+				{
+					peers.BecomeClient();
+					// Drop two out of every three state snapshots. The remaining state
+					// must be sufficient to reconcile without receiving earlier snapshots.
+					if ( tick % 3 == 2 ) ((IDeltaSnapshot)clientPlayer.GameObject._net).OnSnapshot( peers.Host, latest );
+					Input.AnalogMove = tick < 40 ? Vector3.Forward : Vector3.Zero;
+					// Scene fixed updates push their own accumulated input context.
+					var context = (Input.Context)typeof( Scene ).GetProperty( "FixedUpdateInputContext", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic ).GetValue( clientScene );
+					context.AccumActionsPressed = tick == 10 ? 1UL << Input.GetActionIndex( "Jump" ) : 0;
+					using ( Time.PushScope( tick * delta, delta ) ) clientScene.InternalFixedUpdate();
+				}
+				using ( hostScene.Push() )
+				{
+					peers.BecomeHost();
+					// Drop input packets as well as delaying delivery. Redundant batches
+					// must recover gaps without skipping a jump or simulating input twice.
+					if ( tick % 4 == 0 ) peers.Host.Messages.Clear();
+					// Deliver input in bursts to exercise host catch-up and replay.
+					if ( tick % 3 == 0 )
+					{
+						peers.ProcessMessages();
+						peers.Host.Messages.Clear();
+					}
+					if ( tick == 50 ) hostPlayer.WorldPosition += Vector3.Right * 50;
+					using ( Time.PushScope( tick * delta, delta ) ) hostScene.InternalFixedUpdate();
+					latest = Snapshot( hostPlayer );
+				}
+			}
+
+			using ( clientScene.Push() )
+			{
+				peers.BecomeClient();
+				Assert.IsTrue( clientPlayer.IsPredictingLocally );
+			}
+			Assert.IsTrue( hostPlayer.Body.MotionEnabled );
+			Assert.IsTrue( clientPlayer.Body.MotionEnabled );
+			Assert.IsTrue( hostPlayer.WorldPosition.x > 40, $"Host did not simulate movement: {hostPlayer.WorldPosition}" );
+			Assert.IsTrue( hostPlayer.WorldPosition.x < 100, $"Duplicate inputs advanced simulation twice: {hostPlayer.WorldPosition}" );
+			Assert.IsTrue( (hostPlayer.WorldPosition - clientPlayer.WorldPosition).Length < 0.1f,
+				$"Host {hostPlayer.WorldPosition}, client {clientPlayer.WorldPosition}" );
+			Assert.AreEqual( 1, hostEvents.Jumps, "Retransmitted jump input must execute exactly once on the host" );
+			using ( hostScene.Push() )
+			{
+				peers.BecomeHost();
+				hostPlayer.UseClientPrediction = false;
+				using ( Time.PushScope( 100 * delta, delta ) ) hostScene.InternalFixedUpdate();
+				Assert.IsTrue( hostPlayer.Body.MotionEnabled );
+				Assert.AreEqual( NetworkFlags.None, hostPlayer.Network.Flags & NetworkFlags.HostTransformAuthority );
+				latest = Snapshot( hostPlayer );
+			}
+			using ( clientScene.Push() )
+			{
+				peers.BecomeClient();
+				((IDeltaSnapshot)clientPlayer.GameObject._net).OnSnapshot( peers.Host, latest );
+				using ( Time.PushScope( 100 * delta, delta ) ) clientScene.InternalFixedUpdate();
+				Assert.IsFalse( clientPlayer.IsPredictingLocally );
+				Assert.IsTrue( clientPlayer.Body.MotionEnabled );
+			}
+		}
+		finally
+		{
+			headless.SetValue( null, oldHeadless );
+			Input.AnalogMove = oldMove;
+			Input.ClearActions();
+			Input.InputSettings = oldSettings;
+		}
+	}
+
+	[TestMethod]
+	public void HostTransformAuthorityRejectsOwnerTransforms()
+	{
+		using var scope = new Scene().Push();
+		using var peers = new ClientAndHost( TypeLibrary );
+		peers.BecomeClient();
+		var go = new GameObject();
+		go.Network.Interpolation = false;
+		go.NetworkSpawn();
+		go.WorldPosition = Vector3.Forward * 100;
+		IDeltaSnapshot networkObject = go._net;
+		var ownerSnapshot = new DeltaSnapshot();
+		ownerSnapshot.CopyFrom( networkObject, networkObject.WriteSnapshotState(), 2 );
+
+		peers.BecomeHost();
+		go.Network.Flags |= NetworkFlags.HostTransformAuthority;
+		go.WorldPosition = Vector3.Zero;
+		Assert.IsTrue( go._net.HasTransformControl( peers.Host ) );
+		Assert.IsFalse( go._net.HasTransformControl( peers.Client ) );
+		Assert.IsTrue( networkObject.OnSnapshot( peers.Client, ownerSnapshot ) );
+		Assert.AreEqual( Vector3.Zero, go.WorldPosition );
+
+		go.WorldPosition = Vector3.Up * 50;
+		var hostSnapshot = new DeltaSnapshot();
+		hostSnapshot.CopyFrom( networkObject, networkObject.WriteSnapshotState(), 2 );
+		peers.BecomeClient();
+		go.Transform.SetLocalTransformFast( Transform.Zero );
+		Assert.IsTrue( networkObject.OnSnapshot( peers.Host, hostSnapshot ) );
+		Assert.AreEqual( Vector3.Up * 50, go.WorldPosition );
+		// The owner retains ordinary input/property control.
+		Assert.IsTrue( go._net.HasControl( peers.Client ) );
+	}
+
 	private TypeLibrary _oldTypeLibrary;
 
 	[TestInitialize]

@@ -31,5 +31,11 @@ public enum NetworkFlags
 	/// <summary>
 	/// Disable synchronization for the entire transform of this networked object.
 	/// </summary>
-	NoTransformSync = NoPositionSync | NoRotationSync | NoScaleSync
+	NoTransformSync = NoPositionSync | NoRotationSync | NoScaleSync,
+
+	/// <summary>
+	/// The host publishes transforms even when another connection owns the object.
+	/// Ordinary synchronized properties and owner RPCs continue to use ownership.
+	/// </summary>
+	HostTransformAuthority = 16
 }

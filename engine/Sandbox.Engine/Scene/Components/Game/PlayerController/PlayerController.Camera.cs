@@ -46,7 +46,7 @@ public sealed partial class PlayerController : ICameraModifier
 		UpdateEyeTransform();
 
 		var rot = EyeTransform.Rotation;
-		var eyePosition = EyeTransform.Position;
+		var eyePosition = EyeTransform.Position + _predictionVisualOffset;
 
 		if ( !IsAirborne && _eyez != 0 )
 			eyePosition.z = _eyez.LerpTo( eyePosition.z, Time.Delta * 50 );

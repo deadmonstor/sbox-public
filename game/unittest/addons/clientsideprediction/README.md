@@ -29,3 +29,5 @@ The HUD shows mode, host/client role, speed, grounded state, crouch state, and c
 ## Validation
 
 Project and scene JSON and addon compilation are checked locally. Manual editor/multiplayer runs are left to the tester; no visual PASS claim is made without a run.
+
+Prediction diagnostics are enabled on spawned players. Filter the engine console/log for [prediction-diag-v1]. Reproduce by moving, releasing input, then riding the platform or being hit by the orange pusher. Capture both host and client logs: reconcile lines report input, motor/push velocity, platform carry, replayed contacts, and correction size; publish/contact lines show the host simulation. Disable PlayerController.PredictionDebugLogging to stop the per-tick output. Rebuild/restart the engine before testing engine changes.

@@ -321,6 +321,9 @@ public partial class GameObject
 			return;
 
 		// Can this caller set the parent?
+		if ( (NetworkFlags & NetworkFlags.HostTransformAuthority) != 0 && !caller.IsHost )
+			return;
+
 		if ( !caller.IsHost && !_net.HasControl( caller ) )
 			return;
 

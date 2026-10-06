@@ -228,14 +228,14 @@ sealed public partial class Rigidbody : Component, Component.ExecuteInEditor, IG
 	{
 		get
 		{
-			if ( IsProxy )
+			if ( IsPhysicsProxy )
 				return NetworkedVelocity;
 
 			return _body?.Velocity ?? default;
 		}
 		set
 		{
-			if ( _body.IsValid() && !IsProxy )
+			if ( _body.IsValid() && !IsPhysicsProxy )
 			{
 				_body.Velocity = value;
 			}
@@ -246,10 +246,10 @@ sealed public partial class Rigidbody : Component, Component.ExecuteInEditor, IG
 
 	public Vector3 AngularVelocity
 	{
-		get => IsProxy ? NetworkedAngularVelocity : _body?.AngularVelocity ?? default;
+		get => IsPhysicsProxy ? NetworkedAngularVelocity : _body?.AngularVelocity ?? default;
 		set
 		{
-			if ( _body.IsValid() && !IsProxy )
+			if ( _body.IsValid() && !IsPhysicsProxy )
 			{
 				_body.AngularVelocity = value;
 			}
@@ -670,7 +670,7 @@ sealed public partial class Rigidbody : Component, Component.ExecuteInEditor, IG
 	void OnLocalTransformChanged()
 	{
 		if ( isUpdatingFromPhysics ) return;
-		if ( IsProxy ) return;
+		if ( IsPhysicsProxy ) return;
 		if ( Transform.InsideChangeCallback ) return;
 
 		// Teleport physics body.
@@ -763,12 +763,14 @@ sealed public partial class Rigidbody : Component, Component.ExecuteInEditor, IG
 		PhysicsBody.SmoothRotate( rotation, timeToArrive, timeDelta );
 	}
 
+	bool IsPhysicsProxy => IsProxy && !(GameObject.GetComponent<PlayerController>()?.HasPredictionPhysicsAuthority ?? false);
+
 	/// <summary>
 	/// Returns true if this rigidbody is a networked proxy that should simulate physics
 	/// locally instead of being driven by network transform updates.
 	/// </summary>
 	bool ShouldSimulatePhysics =>
-		!IsProxy ||
+		!IsPhysicsProxy ||
 		GameObject.NetworkMode != NetworkMode.Object ||
 		GameObject.Network?.Flags.Contains( NetworkFlags.NoTransformSync ) == true;
 

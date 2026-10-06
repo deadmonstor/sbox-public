@@ -9,6 +9,28 @@ namespace NetworkTests;
 public class NetworkTableTest
 {
 	[TestMethod]
+	public void PredictionSnapshotExchange()
+	{
+		var initial = new CharacterPredictionSnapshot( Guid.NewGuid(), Guid.NewGuid(), 1,
+			new CharacterPredictionState { Position = new Vector3( 1, 2, 3 ), Velocity = Vector3.Up, Grounded = true, Ground = Guid.NewGuid(), GroundTransform = Transform.Zero } );
+		var changed = initial with
+		{
+			Command = 2,
+			State = initial.State with { Position = new Vector3( 4, 5, 6 ), PushVelocity = new Vector3( 20, 30, 40 ), Ducking = true, JumpCooldown = 0.5f, JumpCommand = 2 },
+			Settings = new CharacterPredictionSettings( Vector3.Up, Vector3.Down * 800, 110, 320, 70, 300, 0, 0, 45, 18, 18 ),
+			Delta = 0.02f
+		};
+		ExchangeTest( initial, changed );
+	}
+
+	[TestMethod]
+	public void PredictionInputExchange()
+	{
+		ExchangeTest( new CharacterPredictionInput( 1, Vector3.Forward, new Angles( 10, 20, 0 ), true, false, true, Guid.NewGuid() ),
+			new CharacterPredictionInput( 2, Vector3.Right, new Angles( 20, 30, 0 ), false, true, false, Guid.NewGuid() ) );
+	}
+
+	[TestMethod]
 	public void SetValue()
 	{
 		bool value = false;

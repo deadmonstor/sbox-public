@@ -212,7 +212,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 
 	internal void ClearInterpolation()
 	{
-		if ( IsProxy ) return;
+		if ( !HasTransformControl( Connection.Local ) ) return;
 		_clearInterpolationFlag = true;
 	}
 
@@ -574,6 +574,10 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 	/// </summary>
 	internal bool IsVisible( Connection target, BBox worldBounds )
 	{
+		// A predicting owner must always receive authoritative acknowledgements.
+		if ( (GameObject.Network.Flags & NetworkFlags.HostTransformAuthority) != 0 && target.Id == Owner )
+			return true;
+
 		// Do we have a INetworkVisible? We're going to let that take priority.
 		var go = GameObject;
 		if ( go.IsValid() && go.Enabled && go.NetworkVisibility is not null )
@@ -632,7 +636,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 		LocalSnapshotState.ObjectId = Id;
 		LocalSnapshotState.Flags = flags;
 
-		if ( !IsProxy )
+		if ( HasTransformControl( Connection.Local ) )
 		{
 			var tx = GameObject.Transform.TargetLocal;
 
@@ -652,8 +656,17 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 				LocalSnapshotState.Remove( SnapshotScaleSlot );
 
 			LocalSnapshotState.AddCached( _snapshotCache, SnapshotInterpolationSlot, _clearInterpolationFlag );
-			LocalSnapshotState.AddCached( _snapshotCache, SnapshotEnabledSlot, GameObject.Enabled );
 		}
+		else
+		{
+			LocalSnapshotState.Remove( SnapshotPositionSlot );
+			LocalSnapshotState.Remove( SnapshotRotationSlot );
+			LocalSnapshotState.Remove( SnapshotScaleSlot );
+			LocalSnapshotState.Remove( SnapshotInterpolationSlot );
+		}
+
+		if ( !IsProxy )
+			LocalSnapshotState.AddCached( _snapshotCache, SnapshotEnabledSlot, GameObject.Enabled );
 
 		dataTable.QueryValues();
 		dataTable.WriteSnapshotState( LocalSnapshotState );
@@ -795,7 +808,8 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 				GameObject.PreserveFromHostSyncMembers( jsonObj );
 			}
 
-			GameObject.SetParentFromNetwork( scene.Directory.FindByGuid( message.Parent ) );
+			if ( source.IsHost || (GameObject.Network.Flags & NetworkFlags.HostTransformAuthority) == 0 )
+				GameObject.SetParentFromNetwork( scene.Directory.FindByGuid( message.Parent ) );
 			GameObject.NetworkRefresh( jsonObj );
 		}
 
@@ -806,6 +820,9 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 		var newTransform = GameObject.Transform.TargetLocal;
 		var copyTransform = newTransform;
 		var flags = GameObject.Network.Flags;
+
+		if ( (flags & NetworkFlags.HostTransformAuthority) != 0 && !source.IsHost )
+			copyTransform = oldTransform;
 
 		if ( (flags & NetworkFlags.NoPositionSync) != 0 )
 			copyTransform.Position = oldTransform.Position;
@@ -853,7 +870,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 			return false;
 
 		// Conna: only what we regard as the owner can modify this shit.
-		if ( HasControl( source ) )
+		if ( HasTransformControl( source ) )
 		{
 			snapshot.TryGetValue<bool>( SnapshotInterpolationSlot, out var clearInterpolation );
 
@@ -878,20 +895,22 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 				transform.Scale = scale;
 			}
 
-			if ( didTransformChange )
+			// Prediction consumes a coherent movement state with its input acknowledgement.
+			// Applying a separate transform here would overwrite the owner's predicted position.
+			var predictingOwner = GameObject.GetComponent<PlayerController>() is { IsPredictingLocally: true };
+			if ( didTransformChange && !predictingOwner )
 			{
 				GameObject.Transform.FromNetwork( transform, clearInterpolation );
 			}
-			else if ( clearInterpolation )
+			else if ( clearInterpolation && !predictingOwner )
 			{
 				GameObject.Transform.ClearLocalInterpolation();
 			}
 
-			if ( snapshot.TryGetValue<bool>( SnapshotEnabledSlot, out var enabled ) )
-			{
-				GameObject.Enabled = enabled;
-			}
 		}
+
+		if ( HasControl( source ) && snapshot.TryGetValue<bool>( SnapshotEnabledSlot, out var enabled ) )
+			GameObject.Enabled = enabled;
 
 		dataTable.ReadSnapshot( source, snapshot );
 
@@ -911,6 +930,13 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 			return IsOwner;
 
 		return c.Id == Owner;
+	}
+
+	internal bool HasTransformControl( Connection c )
+	{
+		return (GameObject.Network.Flags & NetworkFlags.HostTransformAuthority) != 0
+			? c.IsHost
+			: HasControl( c );
 	}
 
 	void OnOwnerChanged( Guid newOwner, Guid prevOwner )

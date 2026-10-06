@@ -117,7 +117,9 @@ public sealed partial class PlayerController : Component
 	/// Gets the current character height from <see cref="BodyHeight"/> when standing,
 	/// otherwise uses <see cref="DuckedHeight"/> when ducking.
 	/// </summary>
-	public float CurrentHeight => IsDucking ? DuckedHeight : BodyHeight;
+	public float CurrentHeight => _predictionActive && _predictionSettings.Height > 0
+		? IsDucking ? _predictionSettings.DuckHeight : _predictionSettings.Height
+		: IsDucking ? DuckedHeight : BodyHeight;
 
 	/// <summary>
 	/// Called during FixedUpdate when UseInputControls is enabled. Will duck if requested.

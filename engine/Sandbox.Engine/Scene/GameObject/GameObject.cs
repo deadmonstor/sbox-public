@@ -285,7 +285,10 @@ public partial class GameObject : IJsonConvert, IComponentLister, BytePack.ISeri
 		if ( !IsValid )
 			return false;
 
-		return !IsNetworkRoot || !IsProxy;
+		if ( !IsNetworkRoot ) return true;
+		if ( (NetworkFlags & NetworkFlags.HostTransformAuthority) != 0 )
+			return Networking.IsHost || GetComponent<PlayerController>() is { IsPredictingLocally: true };
+		return !IsProxy;
 	}
 
 	/// <summary>
@@ -297,6 +300,9 @@ public partial class GameObject : IJsonConvert, IComponentLister, BytePack.ISeri
 	{
 		if ( _net is null )
 			return true;
+
+		if ( (NetworkFlags & NetworkFlags.HostTransformAuthority) != 0 && !Networking.IsHost )
+			return false;
 
 		if ( !Networking.IsHost && !_net.HasControl( Connection.Local ) )
 			return false;

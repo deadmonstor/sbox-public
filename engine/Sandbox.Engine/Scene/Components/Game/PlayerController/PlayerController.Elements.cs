@@ -44,7 +44,8 @@ public sealed partial class PlayerController : Component
 	void UpdateBody()
 	{
 		var feetHeight = CurrentHeight * 0.5f;
-		var radius = (BodyRadius * MathF.Sqrt( 2 )) / 2;
+		var bodyRadius = _predictionActive && _predictionSettings.BodyRadius > 0 ? _predictionSettings.BodyRadius : BodyRadius;
+		var radius = (bodyRadius * MathF.Sqrt( 2 )) / 2;
 		var up = UpDirection;
 		var localUp = Rotation.FromYaw( -WorldRotation.Yaw() ) * up;
 		var localUpAbs = localUp.Abs();
@@ -88,7 +89,7 @@ public sealed partial class PlayerController : Component
 		BodyCollider.Enabled = bodyEnd < bodyStart;
 
 		var feetLength = BodyCollider.Enabled ? feetHeight : CurrentHeight;
-		FeetCollider.Scale = new Vector3( BodyRadius ) + localUpAbs * (feetLength - BodyRadius);
+		FeetCollider.Scale = new Vector3( bodyRadius ) + localUpAbs * (feetLength - bodyRadius);
 		FeetCollider.Center = localUp * feetLength * 0.5f;
 		FeetCollider.Friction = feetFriction;
 		FeetCollider.Enabled = true;

@@ -29,6 +29,7 @@ public sealed class PredictionTest : Component, Component.INetworkListener
 		player.WorldPosition = SpawnPosition( Scene.GetAllComponents<PlayerController>().Count() );
 		var controller = player.Components.Create<PlayerController>();
 		controller.UseClientPrediction = PredictionEnabled;
+		controller.PredictionDebugLogging = true;
 		controller.UseAnimatorControls = false;
 		controller.EnableFootstepSounds = false;
 		controller.ThirdPerson = false;
