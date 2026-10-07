@@ -17,6 +17,53 @@ public class DresserTests
 	private static GameObject Deforms( SkinnedModelRenderer body ) =>
 		body.GameObject.Children.Single( x => !x.IsDestroyed && x.Name == "citizen_deforms" );
 
+	[TestMethod]
+	[DataRow( false )]
+	[DataRow( true )]
+	public void CloningRestoresDisabledManualOutfit( bool startEnabled )
+	{
+		var scene = new Scene();
+		using var scope = scene.Push();
+		var body = CreateBody( scene );
+		var dresser = body.GameObject.AddComponent<Dresser>( false );
+		dresser.BodyTarget = body;
+		dresser.ManualAge = 0.8f;
+		body.BodyGroups = 0;
+		Assert.AreNotEqual( 0UL, body.Model.Parts.DefaultMask );
+
+		var clone = body.GameObject.Clone( new CloneConfig( Transform.Zero, startEnabled: startEnabled ) );
+		var clonedBody = clone.GetComponent<SkinnedModelRenderer>( true );
+		var clonedDresser = clone.GetComponent<Dresser>( true );
+
+		Assert.IsFalse( clonedDresser.Enabled );
+		Assert.AreSame( clonedBody, clonedDresser.BodyTarget );
+		Assert.AreEqual( clonedBody.Model.Parts.DefaultMask, clonedBody.BodyGroups );
+		Assert.AreEqual( 0.8f, clonedBody.Attributes.GetFloat( "skin_age" ) );
+
+		// Validation after the initial request must not rebuild an already applied outfit.
+		clonedBody.BodyGroups = 0;
+		clonedDresser.OnValidateInternal();
+		Assert.AreEqual( 0UL, clonedBody.BodyGroups );
+	}
+
+	[TestMethod]
+	[DataRow( Dresser.ClothingSource.LocalUser )]
+	[DataRow( Dresser.ClothingSource.OwnerConnection )]
+	public void CloningDoesNotApplyDisabledAutomaticOutfit( Dresser.ClothingSource source )
+	{
+		var scene = new Scene();
+		using var scope = scene.Push();
+		var body = CreateBody( scene );
+		var dresser = body.GameObject.AddComponent<Dresser>( false );
+		dresser.BodyTarget = body;
+		dresser.Source = source;
+		body.BodyGroups = 0;
+
+		var clone = body.GameObject.Clone();
+		Assert.AreEqual( 0UL, clone.GetComponent<SkinnedModelRenderer>().BodyGroups );
+		Assert.IsFalse( clone.GetComponent<Dresser>( true ).Enabled );
+	}
+
 	/// <summary>
 	/// Explicit outfit requests remain supported on remote bodies through both public APIs.
 	/// </summary>

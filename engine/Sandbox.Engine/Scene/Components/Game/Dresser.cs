@@ -397,6 +397,11 @@ public sealed partial class Dresser : Component, Component.ExecuteInEditor
 				UpdateAppearance();
 			}
 		}
+		else if ( Source == ClothingSource.Manual && !_hasOutfitRequest && BodyTarget.IsValid() )
+		{
+			// Cloned and loaded outfits need their generated appearance restored, even on disabled Dressers.
+			_ = Apply( false );
+		}
 	}
 
 	/// <summary>
