@@ -44,6 +44,10 @@ public sealed class SceneSpriteSystem : GameObjectSystem<SceneSpriteSystem>
 	private readonly List<Guid> _keysToRemoveScratch = new();
 	private readonly HashSet<ulong> _isolatedRenderGroups = [];
 
+	// Which render group each sprite renderer is in. Translucent, non-billboard sprites each get an
+	// isolated group, so scanning every group to find a sprite's group made per-frame updates quadratic.
+	private readonly Dictionary<Guid, ulong> _spriteRenderGroups = [];
+
 	internal unsafe void UpdateParticleSprites()
 	{
 		var spriteRenderers = Scene.Query<IBatchedParticleSpriteRenderer>();
@@ -211,6 +215,9 @@ public sealed class SceneSpriteSystem : GameObjectSystem<SceneSpriteSystem>
 
 		foreach ( var sprite in _allSprites )
 		{
+			if ( !ShouldBatchSprite( sprite ) )
+				continue;
+
 			if ( sprite.Enabled && sprite.GameObject.Active )
 			{
 				sprite.Texture?.MarkUsed( ushort.MaxValue );
@@ -242,6 +249,22 @@ public sealed class SceneSpriteSystem : GameObjectSystem<SceneSpriteSystem>
 			UnregisterSprite( spriteId );
 			_registeredSpriteRenderers.Remove( spriteId );
 		}
+	}
+
+	private bool ShouldBatchSprite( SpriteRenderer sprite )
+	{
+		// Editor previews still need the artwork. Animation advances independently in OnUpdate.
+		if ( Scene.IsEditor )
+			return true;
+
+		if ( sprite.Shadows && !sprite.Additive )
+			return true;
+
+		var options = sprite.RenderOptions;
+		if ( options.Game || options.Overlay || options.Bloom || options.AfterUI )
+			return true;
+
+		return false;
 	}
 
 	private void UpdateSprites()
@@ -307,15 +330,7 @@ public sealed class SceneSpriteSystem : GameObjectSystem<SceneSpriteSystem>
 	/// </summary>
 	private ulong? FindCurrentRenderGroup( Guid componentId )
 	{
-		foreach ( var rg in RenderGroups )
-		{
-			if ( rg.Value.ContainsSprite( componentId ) )
-			{
-				return rg.Key;
-			}
-		}
-
-		return null;
+		return _spriteRenderGroups.TryGetValue( componentId, out var renderGroup ) ? renderGroup : null;
 	}
 
 	private bool IsPresentInRenderGroup( Guid componentId, ulong renderGroup )
@@ -327,6 +342,7 @@ public sealed class SceneSpriteSystem : GameObjectSystem<SceneSpriteSystem>
 	{
 		Assert.True( RenderGroups.ContainsKey( renderGroup ) );
 		RenderGroups[renderGroup].RegisterSprite( componentId, component );
+		_spriteRenderGroups[componentId] = renderGroup;
 	}
 
 	private void RemoveFromRenderGroup( Guid componentId, ulong renderGroup )
@@ -335,6 +351,7 @@ public sealed class SceneSpriteSystem : GameObjectSystem<SceneSpriteSystem>
 
 		var group = RenderGroups[renderGroup];
 		group.UnregisterSprite( componentId );
+		_spriteRenderGroups.Remove( componentId );
 
 		if ( group.Components.Count > 0 || !_isolatedRenderGroups.Remove( renderGroup ) )
 			return;
