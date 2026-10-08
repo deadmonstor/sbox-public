@@ -26,6 +26,7 @@ public sealed class TextureLifetimePanel : PanelComponent
 	int panelsCreated;
 	int panelsRemoved;
 	int allocatedMegabytes;
+	bool checkedTextureIdentity;
 	readonly System.Random random = new( 11859 );
 	readonly System.Collections.Generic.Queue<byte[]> allocations = new();
 
@@ -33,6 +34,7 @@ public sealed class TextureLifetimePanel : PanelComponent
 	{
 		images.Clear();
 		valid.Clear();
+		checkedTextureIdentity = false;
 		Panel.AddClass( "lifetime" );
 		Panel.AddChild<Label>().Text = "Texture lifetime: leave running without editing or hotloading";
 		Panel.AddChild<Label>().Text = "Rows: serialized property / direct load / path. Columns: PNG / VTEX";
@@ -47,7 +49,7 @@ public sealed class TextureLifetimePanel : PanelComponent
 		stressStatus = Panel.AddChild<Label>();
 		stressCounts = Panel.AddChild<Label>();
 		AddRow( "Serialized Texture property", Png, Vtex, false );
-		AddRow( "Texture.Load assigned directly", Texture.Load( "textures/lifetime.png" ), Texture.Load( "textures/lifetime.vtex" ), false );
+		AddRow( "Texture.Load assigned directly", Texture.Load( "textures/direct-png.png" ), Texture.Load( "textures/direct-vtex.vtex" ), false );
 		AddRow( "Image.SetTexture(path)", null, null, true );
 		AddRow( "Panel owns generated textures", CreateCheckerboard(), CreateCheckerboard(), false );
 	}
@@ -134,8 +136,8 @@ public sealed class TextureLifetimePanel : PanelComponent
 	{
 		var row = Panel.AddChild<Panel>( "row" );
 		row.AddChild<Label>().Text = name;
-		AddImage( row, png, "textures/lifetime.png", path );
-		AddImage( row, vtex, "textures/lifetime.vtex", path );
+		AddImage( row, png, "textures/path-png.png", path );
+		AddImage( row, vtex, "textures/path-vtex.vtex", path );
 	}
 
 	void AddImage( Panel row, Texture texture, string path, bool loadPath )
@@ -150,6 +152,19 @@ public sealed class TextureLifetimePanel : PanelComponent
 	protected override void OnUpdate()
 	{
 		if ( stressStatus is not null ) Stress();
+		if ( !checkedTextureIdentity && images.Count == 8 && images.TrueForAll( image => image.Texture.IsValid() && image.Texture.IsLoaded ) )
+		{
+			checkedTextureIdentity = true;
+			var shared = false;
+			for ( int i = 0; i < images.Count; i++ )
+				for ( int j = i + 1; j < images.Count; j++ )
+					if ( object.ReferenceEquals( images[i].Texture, images[j].Texture ) )
+					{
+						shared = true;
+						Log.Warning( $"Images {i} and {j} share a texture; isolation failed" );
+					}
+			if ( !shared ) Log.Info( "All eight test images have distinct Texture wrappers" );
+		}
 		for ( int i = 0; i < images.Count; i++ )
 		{
 			var texture = images[i].Texture;

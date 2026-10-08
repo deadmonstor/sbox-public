@@ -33,8 +33,8 @@
           "__guid": "541cfc9c-07a0-49cc-8739-c7ded54463ce",
           "__enabled": true,
           "Flags": 0,
-          "Png": "textures/lifetime.png",
-          "Vtex": "textures/lifetime.vtex"
+          "Png": "textures/serialized-png.png",
+          "Vtex": "textures/serialized-vtex.vtex"
         }
       ],
       "Children": []
