@@ -592,25 +592,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 		if ( !snapshotter.ShouldTransmit( source ) )
 			return;
 
-		var hasFullSnapshotState = true;
-
-		foreach ( var entry in LocalSnapshotState.Entries )
-		{
-			if ( state.IsValueHashEqual( entry.Slot, entry.Hash, snapshot.SnapshotId ) )
-			{
-				entry.Connections.Add( source.Id );
-			}
-			else
-			{
-				entry.Connections.Remove( source.Id );
-				hasFullSnapshotState = false;
-			}
-		}
-
-		if ( hasFullSnapshotState )
-			LocalSnapshotState.UpdatedConnections.Add( source.Id );
-		else
-			LocalSnapshotState.UpdatedConnections.Remove( source.Id );
+		LocalSnapshotState.OnSnapshotAck( source.Id, state );
 	}
 
 	private const int SnapshotPositionSlot = 1;

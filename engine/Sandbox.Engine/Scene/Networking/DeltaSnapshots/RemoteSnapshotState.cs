@@ -89,6 +89,15 @@ internal class RemoteSnapshotState
 	}
 
 	/// <summary>
+	/// Whether the acknowledged value is current with no later transmission awaiting an ack.
+	/// Even a matching prediction can follow an unacknowledged different value in flight.
+	/// </summary>
+	internal bool IsAcknowledgedValueHashEqual( int slot, ulong hash )
+	{
+		return Data.TryGetValue( slot, out var entry ) && entry.Hash == hash && !_predictedData.ContainsKey( slot );
+	}
+
+	/// <summary>
 	/// Try to get the hash of the value from the specified slot.
 	/// </summary>
 	public bool TryGetHash( int slot, out ulong hash, float timeNow )

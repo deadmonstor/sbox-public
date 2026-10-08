@@ -128,6 +128,40 @@ internal class LocalSnapshotState
 	}
 
 	/// <summary>
+	/// Reconcile acknowledged slots against the latest known client state. An older ack
+	/// must not invalidate values confirmed by a newer ack.
+	/// </summary>
+	internal void OnSnapshotAck( Guid connectionId, RemoteSnapshotState state )
+	{
+		var hasFullSnapshotState = true;
+		var wasUpdated = UpdatedConnections.Contains( connectionId );
+
+		foreach ( var entry in Entries )
+		{
+			var wasAcknowledged = entry.Connections.Contains( connectionId );
+
+			var isAcknowledged = state.IsAcknowledgedValueHashEqual( entry.Slot, entry.Hash );
+			if ( isAcknowledged != wasAcknowledged )
+			{
+				if ( isAcknowledged )
+					entry.Connections.Add( connectionId );
+				else
+					entry.Connections.Remove( connectionId );
+			}
+
+			hasFullSnapshotState &= isAcknowledged;
+		}
+
+		if ( hasFullSnapshotState != wasUpdated )
+		{
+			if ( hasFullSnapshotState )
+				UpdatedConnections.Add( connectionId );
+			else
+				UpdatedConnections.Remove( connectionId );
+		}
+	}
+
+	/// <summary>
 	/// Remove an existing entry from the specified slot.
 	/// </summary>
 	public void Remove( int slot )
