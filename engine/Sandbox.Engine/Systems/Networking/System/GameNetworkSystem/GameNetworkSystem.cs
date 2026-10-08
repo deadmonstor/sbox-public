@@ -1,4 +1,4 @@
-﻿using Sandbox.Internal;
+using Sandbox.Internal;
 
 namespace Sandbox.Network;
 
@@ -200,6 +200,31 @@ public abstract partial class GameNetworkSystem : IDisposable
 	internal void Send( Connection connection, InternalMessageType type, byte[] data, NetFlags flags )
 	{
 		Send( connection, type, data.AsSpan(), flags );
+	}
+
+	/// <summary>
+	/// Reuse an immutable wire packet across recipients of the same payload. Routed
+	/// connections retain the normal unencoded routing path.
+	/// </summary>
+	internal void SendShared( Connection connection, InternalMessageType type, ReadOnlySpan<byte> data, NetFlags flags, ref byte[] encoded )
+	{
+		var target = NetworkSystem.FindConnection( connection.Id );
+		if ( target is null or MockConnection )
+		{
+			Send( connection, type, data, flags );
+			return;
+		}
+
+		if ( encoded is null )
+		{
+			using var stream = ByteStream.Create( data.Length + 16 );
+			stream.Write( type );
+			stream.Write( data.Length );
+			stream.Write( data );
+			encoded = Connection.Encode( stream );
+		}
+
+		target.Send( encoded, flags );
 	}
 
 	internal void Send<T>( Connection connection, T obj, NetFlags flags )
