@@ -63,6 +63,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--batch", type=Path)
     parser.add_argument("--profile-dir", type=Path, help="Directory used by the pre-approved elevated capture helper")
+    parser.add_argument("--profile-case", nargs=3, metavar=("SCENARIO", "POPULATION", "CONNECTIONS"),
+                        help="Explicit diagnostic workload; permits an empty unprofiled plan")
     parser.add_argument("--smoke", action="store_true")
     parser.add_argument("--plan", type=Path, help="JSON array of [scenario, population, fake connections] cases")
     parser.add_argument("--resume", action="store_true", help="Append a recovery plan to an existing batch")
@@ -180,9 +182,13 @@ def main():
             ready = args.profile_dir / "ready.json"
             if not ready.exists():
                 raise RuntimeError("Elevated profiler helper is not ready; diagnostic capture remains pending")
-            cases = [r for r in records if r["scenario"] == "Changing" and r["valid"] and not r["profiled"]]
-            selected = max(cases, key=lambda r: (r["population"], r["fakeConnections"]))
-            run(first_index + len(plan), "Changing", selected["population"], selected["fakeConnections"], True)
+            if args.profile_case:
+                case, population, connections = args.profile_case
+                run(first_index + len(plan), case, int(population), int(connections), True)
+            else:
+                cases = [r for r in records if r["scenario"] == "Changing" and r["valid"] and not r["profiled"]]
+                selected = max(cases, key=lambda r: (r["population"], r["fakeConnections"]))
+                run(first_index + len(plan), "Changing", selected["population"], selected["fakeConnections"], True)
             print("Waiting for separate Superluminal capture export", flush=True)
             deadline = time.monotonic() + 300
             while time.monotonic() < deadline and not (args.profile_dir / "finished.json").exists():
