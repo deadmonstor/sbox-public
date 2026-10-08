@@ -68,7 +68,7 @@ def main():
     parser.add_argument("--smoke", action="store_true")
     parser.add_argument("--plan", type=Path, help="JSON array of [scenario, population, fake connections] cases")
     parser.add_argument("--resume", action="store_true", help="Append a recovery plan to an existing batch")
-    parser.add_argument("--heavy-repeats", type=int, default=5)
+    parser.add_argument("--heavy-repeats", type=int, default=1, help="Explicit repeats of the default four-case matrix")
     parser.add_argument("--frame-cap", type=int, default=90, help="Identical active/inactive cap for controlled comparisons")
     args = parser.parse_args()
     if not 1 <= args.heavy_repeats <= 10:
@@ -98,15 +98,12 @@ def main():
         (batch / "recovery-environment.json").write_text(json.dumps(meta, indent=2))
     else:
         (batch / "environment.json").write_text(json.dumps(meta, indent=2))
-    plan = [("Empty", 0, 32), ("IdleSynced", 1000, 8), ("Changing", 1000, 8),
-            ("IdleSynced", 1000, 32), ("Changing", 1000, 32),
-            ("IdleSynced", 5000, 32), ("Changing", 5000, 32),
-            ("IdleSynced", 10000, 32), ("Changing", 10000, 32), ("Mixed", 1000, 32)]
+    plan = [("IdleSynced", 10000, 32), ("Changing", 1000, 32),
+            ("IdleSynced", 100, 32), ("Changing", 100, 32)]
     if args.smoke:
         plan = [("IdleSynced", 100, 8)]
     else:
-        for _ in range(args.heavy_repeats - 1):
-            plan += [("IdleSynced", 1000, 32), ("Changing", 1000, 32)]
+        plan *= args.heavy_repeats
     if args.plan:
         plan = json.loads(args.plan.read_text())
     (batch / ("recovery-plan.json" if args.resume else "plan.json")).write_text(json.dumps(plan, indent=2))

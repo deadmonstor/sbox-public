@@ -1,6 +1,6 @@
 # Network Object Load
 
-Standalone s&box project for testing server replication costs at increasing object and client counts. Includes saved workloads, local frame/scope/allocation/GC exports, automated stress runs and reports. The synthetic editor-host benchmark has been run; real multiplayer correctness remains untested.
+Standalone s&box project for testing server replication costs at increasing object and client counts. Includes saved workloads, local frame/scope/allocation/GC exports, automated stress runs and reports. Synthetic editor-host benchmarks and four real-client settled-state correctness scenes have been run.
 
 ## Run
 
@@ -62,7 +62,7 @@ With this project open, compilation complete, Play stopped and scenes saved, run
 python game/unittest/addons/networkobjectload/run_stress.py
 ```
 
-The runner uses editor MCP at `127.0.0.1:7269`, holds active/inactive frame caps at 90 on this machine, reopens the saved fake-32 scene for each temporary configuration, and restores the original scene and active frame cap afterward. It runs empty, idle, changing and mixed cases with 8/32 fake connections, increases populations to 1,000/5,000/10,000, and repeats the 1,000-object/32-connection idle and changing cases five times. Excessively slow changing cases trigger the timeout and suppress larger changing cases; invalid runs remain in the results. `--plan <json>` accepts an array of `[scenario, population, fakeConnections]` cases. `--resume --batch <existing-batch>` appends only when measured source/binary hashes and caps match.
+The runner uses editor MCP at `127.0.0.1:7269`, holds active/inactive frame caps at 90 on this machine, reopens the saved fake-32 scene for each temporary configuration, and restores the original scene and active frame cap afterward. The default is one run each of IdleSynced/10,000, Changing/1,000, IdleSynced/100 and Changing/100, all with 32 fake connections. Run these four cases before and after each engine change. No empty case or automatic repeats are included. The same matrix is saved in `four-case-plan.json`. Excessively slow changing cases trigger the timeout; invalid runs remain in the results. `--plan <json>` accepts an array of `[scenario, population, fakeConnections]` cases. `--resume --batch <existing-batch>` appends only when measured source/binary hashes and caps match.
 
 Generate graphs after measurement, using the library's plotting environment:
 
@@ -102,3 +102,11 @@ Run `python game/unittest/addons/networkobjectload/verify.py` from the engine ch
 Branch `perf/network-idle-scan`; [before/after report](D:/Sandbox.Public.Projects/reports/network-object-load/idle-scan-20261008/index.html). Five repeats per build of IdleSynced/10,000/32 and Changing/1,000/32 completed identical workload counts. Median idle network scope: 22.091ms to 9.134ms, with overlapping ranges. Whole-editor idle allocation rate increased at the original 90fps cap; a separate five-repeat-per-build 20fps control measured essentially unchanged allocation rates (0.787 versus 0.789MiB/s). This is a prototype, with broader wake-up and dedicated-server checks pending.
 
 Mixed, Visibility, Lifecycle and LateJoin passed settled-state checks with actual clients and no fake peers; LateJoin used two clients. These checks do not validate adversarial acknowledgements. Separate Idle/10,000/32 and Changing/1,000/32 CPU captures plus a changing allocation trace are retained. No ACK/send optimization is included. `--frame-cap` supports controlled comparisons, defaulting to 90; `--profile-case SCENARIO POPULATION CONNECTIONS` selects a separate diagnostic workload.
+
+## Acknowledgement bookkeeping — 2026-10-08
+
+Branch `perf/network-snapshot-acks`; [four-case before/after report](D:/Sandbox.Public.Projects/reports/network-object-load/ack-bookkeeping-20261008/index.html). Seven new unit tests and five production-serializer/decoder integration cases pass, covering delayed, duplicated, reordered and missing ACKs, adjacent snapshot-ID wrapping and values returning to an older state while updates remain in flight. The original engine fails two reordered-ACK regressions. The change retains the full slot walk and avoids unnecessary acknowledgement-set mutations.
+
+One run per build of each approved case completed 1,500 workload ticks. Idle/10,000 network scope fell from 25.447ms to 3.224ms; changing/1,000 fell from 72.499ms to 69.534ms, with worse p99 frames and GC pauses. Whole-editor idle allocation rate rose as frame throughput increased. These single pairs do not establish repeatability or a changing-workload performance win. An earlier after cohort was superseded after finding an in-flight-value correctness edge case; both cohorts are retained.
+
+Mixed, Visibility, Lifecycle and LateJoin passed again with real clients, 100ms configured host lag and 10% configured packet loss, with sampling disabled. LateJoin used two clients. Broader ownership/query/transform wake-up coverage, dedicated-server comparisons and sending optimizations remain pending.
