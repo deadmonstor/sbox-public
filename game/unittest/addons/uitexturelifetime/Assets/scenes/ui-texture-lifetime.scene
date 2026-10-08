@@ -1,0 +1,69 @@
+{
+  "__guid": "46264a9d-614a-492e-af49-6c1e14d4e64e",
+  "GameObjects": [
+    {
+      "__guid": "fd29f23b-a177-40d7-9a65-a7561352f42f",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Texture Lifetime UI",
+      "Position": "0,0,0",
+      "Rotation": "0,0,0,1",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "Sandbox.ScreenPanel",
+          "__guid": "87cc6e52-31ac-498d-a7fa-2581b7cd1947",
+          "__enabled": true,
+          "Flags": 0,
+          "AutoScreenScale": true,
+          "Opacity": 1,
+          "Scale": 1,
+          "ScaleStrategy": "ConsistentHeight",
+          "ZIndex": 100
+        },
+        {
+          "__type": "TextureLifetimePanel",
+          "__guid": "541cfc9c-07a0-49cc-8739-c7ded54463ce",
+          "__enabled": true,
+          "Flags": 0,
+          "Png": "textures/lifetime.png",
+          "Vtex": "textures/lifetime.vtex"
+        }
+      ],
+      "Children": []
+    },
+    {
+      "__guid": "b3161fd7-ca6a-49c1-ac75-9cdf0ff615bd",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Camera",
+      "Position": "0,0,0",
+      "Rotation": "0,0,0,1",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "Sandbox.CameraComponent",
+          "__guid": "4f93fc6c-b5f7-4314-8ff0-ad01af29f6a6",
+          "__enabled": true,
+          "Flags": 0,
+          "IsMainCamera": true
+        }
+      ],
+      "Children": []
+    }
+  ]
+}
