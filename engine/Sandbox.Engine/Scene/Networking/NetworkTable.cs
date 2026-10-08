@@ -69,6 +69,10 @@ internal class NetworkTable : IDisposable
 	private readonly List<Entry> _reliableEntries = [];
 	private readonly List<Entry> _snapshotEntries = [];
 	private readonly List<Entry> _queryEntries = [];
+	private int _snapshotPollingEntries;
+
+	internal ulong SnapshotRevision { get; private set; }
+	internal bool CanReuseSnapshotState => _snapshotPollingEntries == 0;
 
 	/// <summary>
 	/// Do we have any pending changes for entries we control?
@@ -96,6 +100,8 @@ internal class NetworkTable : IDisposable
 
 	public void Dispose()
 	{
+		SnapshotRevision++;
+		_snapshotPollingEntries = 0;
 		_reliableEntries.Clear();
 		_snapshotEntries.Clear();
 		_queryEntries.Clear();
@@ -111,7 +117,12 @@ internal class NetworkTable : IDisposable
 		_snapshotEntries.RemoveAll( e => e.Slot == slot );
 		_reliableEntries.RemoveAll( e => e.Slot == slot );
 		_queryEntries.RemoveAll( e => e.Slot == slot );
-		_entries.Remove( slot );
+		if ( _entries.Remove( slot, out var entry ) )
+		{
+			SnapshotRevision++;
+			if ( entry.NeedsQuery || entry.IsDeltaSnapshotType )
+				_snapshotPollingEntries--;
+		}
 	}
 
 	/// <summary>
@@ -128,6 +139,9 @@ internal class NetworkTable : IDisposable
 
 		entry.Init( slot );
 		entry.IsDirty = true;
+		SnapshotRevision++;
+		if ( entry.NeedsQuery || entry.IsDeltaSnapshotType )
+			_snapshotPollingEntries++;
 
 		if ( entry.IsReliableType )
 			_reliableEntries.Add( entry );
@@ -180,6 +194,7 @@ internal class NetworkTable : IDisposable
 
 			entry.Serialized = null;
 			entry.IsDirty = true;
+			SnapshotRevision++;
 			return;
 		}
 
@@ -191,6 +206,7 @@ internal class NetworkTable : IDisposable
 		entry.HashCodeValue = hashValue;
 		entry.Serialized = null;
 		entry.IsDirty = true;
+		SnapshotRevision++;
 	}
 
 	/// <summary>

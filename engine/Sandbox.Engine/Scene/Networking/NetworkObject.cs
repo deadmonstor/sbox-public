@@ -1,4 +1,4 @@
-﻿using System.Runtime.CompilerServices;
+using System.Runtime.CompilerServices;
 using Sandbox.Network;
 using System.Runtime.InteropServices;
 using System.Text.Json.Nodes;
@@ -619,23 +619,34 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 	private const int SnapshotInterpolationSlot = 4;
 	private const int SnapshotEnabledSlot = 5;
 
+	private readonly record struct SnapshotPreparationState( NetworkTable Table, ulong Revision, Transform Transform,
+		Guid ParentId, NetworkFlags Flags, Guid Owner, bool IsProxy, bool IsHost, bool Enabled, bool ClearInterpolation );
+	private SnapshotPreparationState _preparedSnapshot;
+	private bool _hasPreparedSnapshot;
+
 	LocalSnapshotState IDeltaSnapshot.WriteSnapshotState()
 	{
 		var system = SceneNetworkSystem.Instance;
 		if ( system is null ) return null;
 
 		var flags = GameObject.Network.Flags;
+		var parentId = GameObject.Parent is null or Scene ? Guid.Empty : GameObject.Parent.Id;
+		var tx = IsProxy ? default : GameObject.Transform.TargetLocal;
+		var preparation = new SnapshotPreparationState( dataTable, dataTable.SnapshotRevision, tx, parentId,
+			flags, Owner, IsProxy, Networking.IsHost, GameObject.Enabled, _clearInterpolationFlag );
+
+		// Keep advancing IDs for retransmissions, even when the serialized state is unchanged.
+		LocalSnapshotState.SnapshotId = system.DeltaSnapshots.CreateSnapshotId( Id );
+		if ( dataTable.CanReuseSnapshotState && _hasPreparedSnapshot && preparation == _preparedSnapshot )
+			return LocalSnapshotState;
 
 		LocalSnapshotState.Begin();
-		LocalSnapshotState.SnapshotId = system.DeltaSnapshots.CreateSnapshotId( Id );
-		LocalSnapshotState.ParentId = GameObject.Parent is null or Scene ? Guid.Empty : GameObject.Parent.Id;
+		LocalSnapshotState.ParentId = parentId;
 		LocalSnapshotState.ObjectId = Id;
 		LocalSnapshotState.Flags = flags;
 
 		if ( !IsProxy )
 		{
-			var tx = GameObject.Transform.TargetLocal;
-
 			if ( (flags & NetworkFlags.NoPositionSync) == 0 )
 				LocalSnapshotState.AddCached( _snapshotCache, SnapshotPositionSlot, tx.Position, LocalSnapshotState.HashFlags.All );
 			else
@@ -657,6 +668,10 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 
 		dataTable.QueryValues();
 		dataTable.WriteSnapshotState( LocalSnapshotState );
+
+		// Store the revision from before serialization: a getter may change another entry while writing.
+		_preparedSnapshot = preparation;
+		_hasPreparedSnapshot = true;
 
 		_clearInterpolationFlag = false;
 
