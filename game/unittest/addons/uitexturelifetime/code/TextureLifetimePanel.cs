@@ -20,6 +20,12 @@ public sealed class TextureLifetimePanel : PanelComponent
 	int cycle;
 	Panel temporary;
 	Label stressStatus;
+	Label stressCounts;
+	int texturesCreated;
+	int texturesDisposed;
+	int panelsCreated;
+	int panelsRemoved;
+	int allocatedMegabytes;
 	readonly System.Random random = new( 11859 );
 	readonly System.Collections.Generic.Queue<byte[]> allocations = new();
 
@@ -39,6 +45,7 @@ public sealed class TextureLifetimePanel : PanelComponent
 			Log.Info( $"All stress modes: {enabled}" );
 		} );
 		stressStatus = Panel.AddChild<Label>();
+		stressCounts = Panel.AddChild<Label>();
 		AddRow( "Serialized Texture property", Png, Vtex, false );
 		AddRow( "Texture.Load assigned directly", Texture.Load( "textures/lifetime.png" ), Texture.Load( "textures/lifetime.vtex" ), false );
 		AddRow( "Image.SetTexture(path)", null, null, true );
@@ -81,10 +88,19 @@ public sealed class TextureLifetimePanel : PanelComponent
 			for ( int i = 0; i < 8; i++ )
 			{
 				var texture = CreateCheckerboard( 128 << random.Next( 0, 3 ) );
-				if ( (i & 1) == 0 ) texture.Dispose();
+				texturesCreated++;
+				if ( (i & 1) == 0 )
+				{
+					texture.Dispose();
+					texturesDisposed++;
+				}
 			}
 		}
-		temporary?.Delete();
+		if ( temporary is not null )
+		{
+			temporary.Delete();
+			panelsRemoved += 12;
+		}
 		temporary = null;
 		if ( PanelChurn )
 		{
@@ -93,6 +109,8 @@ public sealed class TextureLifetimePanel : PanelComponent
 			{
 				var image = temporary.AddChild<Image>();
 				image.Texture = i % 3 == 0 ? CreateCheckerboard() : Texture.Load( i % 3 == 1 ? "textures/lifetime.png" : "textures/lifetime.vtex" );
+				panelsCreated++;
+				if ( i % 3 == 0 ) texturesCreated++;
 			}
 		}
 		if ( AllocationPressure )
@@ -100,10 +118,15 @@ public sealed class TextureLifetimePanel : PanelComponent
 			var bytes = new byte[2 * 1024 * 1024];
 			bytes[0] = (byte)cycle;
 			allocations.Enqueue( bytes );
+			allocatedMegabytes += 2;
 			while ( allocations.Count > 4 ) allocations.Dequeue();
 		}
 		else allocations.Clear();
 		stressStatus.Text = $"Cycle {cycle}: hide={CycleVisibility}, textures={TextureChurn}, panels={PanelChurn}, allocations={AllocationPressure}, markUsed={MarkTexturesUsed}";
+		var visibility = !CycleVisibility ? "All images visible" : cycle % 30 < 20
+			? $"One column intentionally hidden; returns in {20 - cycle % 30}s"
+			: $"All images visible; next hide in {30 - cycle % 30}s";
+		stressCounts.Text = $"{visibility} | Textures: {texturesCreated} created / {texturesDisposed} disposed | Images: {panelsCreated} created / {panelsRemoved} removed | Allocated: {allocatedMegabytes} MB total / {allocations.Count * 2} MB retained";
 		if ( cycle % 10 == 0 ) Log.Info( stressStatus.Text );
 	}
 
