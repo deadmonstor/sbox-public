@@ -51,6 +51,7 @@ public sealed class NetworkObjectScenario : Component
 	[Property] public int PropertyGroups { get; set; } = 1;
 	[Property] public float ActiveFraction { get; set; } = 0.1f;
 	[Property] public int MinimumClients { get; set; } = 1;
+	[Property] public int FakeConnections { get; set; }
 	[Property] public int SpawnPerTick { get; set; } = 100;
 	[Property] public int ChildrenPerObject { get; set; }
 	[Property] public int WarmupTicks { get; set; } = 500;
@@ -90,6 +91,7 @@ public sealed class NetworkObjectScenario : Component
 	private long _rpcs;
 	private ulong _expectedDigest;
 	private int _expectedCount;
+	private int _actualFakeConnections;
 	private bool LocalOnly => Scenario is Workload.LocalIdle or Workload.LocalMoving or Workload.LocalChanging;
 	private bool Moves => Scenario is Workload.Moving or Workload.LocalMoving or Workload.Mixed;
 	private bool Changes => Scenario is Workload.Changing or Workload.LocalChanging or Workload.SparseChanges or Workload.Mixed;
@@ -104,7 +106,15 @@ public sealed class NetworkObjectScenario : Component
 			_phaseTime = 0;
 			if ( !Network.Active ) GameObject.NetworkSpawn();
 			if ( !ValidConfiguration() ) { Finish( false, "Invalid configuration" ); return; }
-			SetPhase( Phase.Waiting, $"Connect {MinimumClients} client(s)" );
+			int before = Connection.All.Count( c => c.Address == "empty" );
+			for ( int i = 0; i < FakeConnections; i++ ) Sandbox.Debug.Networking.AddEmptyConnection();
+			_actualFakeConnections = Connection.All.Count( c => c.Address == "empty" );
+			if ( _actualFakeConnections - before != FakeConnections )
+			{
+				Finish( false, "Fake connection creation failed" );
+				return;
+			}
+			SetPhase( Phase.Waiting, $"Connect {MinimumClients} real client(s); fake connections={_actualFakeConnections}" );
 		}
 
 		if ( _phase == Phase.Waiting )
@@ -158,11 +168,12 @@ public sealed class NetworkObjectScenario : Component
 		&& PropertyGroups >= 0 && PropertyGroups <= 8 && ChildrenPerObject >= 0 && ChildrenPerObject <= 16
 		&& SpawnPerTick >= 1 && SpawnPerTick <= 10000 && WarmupTicks >= 0 && RunTicks >= 1
 		&& ActiveFraction >= 0 && ActiveFraction <= 1 && MinimumClients >= 0 && MinimumClients <= 15
+		&& FakeConnections >= 0 && FakeConnections <= 256
 		&& (Scenario != Workload.LateJoin || MinimumClients >= 1)
 		&& LifecycleIntervalTicks >= 1 && LifecycleBurst >= 0 && LifecycleBurst <= 10000
 		&& RpcsPerTick >= 0 && RpcsPerTick <= 100 && SettleSeconds >= 1 && TimeoutSeconds > SettleSeconds;
 
-	private Connection[] Peers() => Connection.All.Where( c => c.IsActive && c.Id != Connection.Local.Id ).ToArray();
+	private Connection[] Peers() => Connection.All.Where( c => c.IsActive && c.Id != Connection.Local.Id && c.Address != "empty" ).ToArray();
 	private static Vector3 Position( int index ) => new( index % 100 * 48, index / 100 * 48, 48 );
 
 	private Subject Spawn( int index, int generation )
@@ -252,7 +263,7 @@ public sealed class NetworkObjectScenario : Component
 		_expectedDigest = Digest( expected );
 		foreach ( var peer in peers ) _pendingReports.Add( peer.Id );
 		SetPhase( Phase.Checking, "Comparing settled subject state on every client" );
-		if ( peers.Length == 0 ) { Finish( true, "Host-only workload; replication unverified" ); return; }
+		if ( peers.Length == 0 ) { Finish( true, "Server workload complete; no real clients to validate replication" ); return; }
 		_replicationChecked = true;
 		RequestReport();
 	}
@@ -328,8 +339,8 @@ public sealed class NetworkObjectScenario : Component
 	private void Finish( bool success, string detail )
 	{
 		_phase = Phase.Finished;
-		Status = success ? (_replicationChecked ? "PASS" : "COMPLETE (host only)") : "FAIL";
-		Detail = $"{detail}\nObjects={_subjects.Count}; run ticks={_completedRunTicks}/{RunTicks}; object updates={_mutations}; spawns={_spawns}; destroys={_destroys}; RPCs={_rpcs}";
+		Status = success ? (_replicationChecked ? "PASS" : "COMPLETE (replication unverified)") : "FAIL";
+		Detail = $"{detail}\nObjects={_subjects.Count}; fake connections={_actualFakeConnections}; run ticks={_completedRunTicks}/{RunTicks}; object updates={_mutations}; spawns={_spawns}; destroys={_destroys}; RPCs={_rpcs}";
 		Log.Info( $"NETWORK LOAD {Scenario} {Status}: {Detail}" );
 	}
 }

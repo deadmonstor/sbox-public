@@ -33,6 +33,12 @@ The scene contains a lobby helper, host workload controller, status panel, camer
 | 14-mixed | Ten percent moving/changing, lifecycle bursts and one reliable scene RPC per tick |
 | 15-hierarchy | Moving roots with four children per root |
 | 16-rpcs | Idle roots plus ten reliable scene RPCs per fixed tick |
+| 17-fake-8 | Idle roots with eight fake connections; no real clients required |
+| 18-fake-32 | Idle roots with 32 fake connections; no real clients required |
+
+Set FakeConnections on any scene's Scenario Controller to add 0–256 engine empty connections before spawning subjects. Set MinimumClients=0 to run without real client processes, or keep it at 1 to combine fake load with a real client's correctness check. Fake connections do not satisfy MinimumClients, send state reports or count as late joiners. Restart Play between runs to reset the networking system and clear them.
+
+These connections exercise server replication processing and encoding; the engine simulates delta-cluster acknowledgements. They have no transport send/receive, client simulation, latency or packet loss. Their timing is a separate synthetic benchmark, not a replacement for real multiplayer measurements. Fake-only runs finish with COMPLETE (replication unverified), never PASS. Use the visibility scene's explicit gate for fake visibility workloads because fake peers have no player/PVS origin.
 
 PropertyGroups controls zero to eight payload components (four properties each). ActiveFraction selects a deterministic prefix of the population; no random input is involved. ChildrenPerObject adds descendants under each network root, rather than independent network objects. RpcsPerTick is scene-level reliable RPC traffic with an empty receiver; it does not simulate per-object gameplay RPCs. The local controls explicitly use NetworkMode.Never, including for late-join snapshots.
 
@@ -46,7 +52,7 @@ The visibility scene uses Component.INetworkVisible and AlwaysTransmit=false; it
 
 MinimumClients=0 permits a host-only smoke run; it cannot pass multiplayer replication validation. MaxPlayers is 16 total (host plus up to 15 remote clients). For CPU comparisons, run clients on a different machine and hold build, network settings and workload counts constant. Logs and the HUD update at phase boundaries; client digests run after the workload, outside future timing intervals.
 
-Expected: all required clients match settled state and the HUD shows PASS. Host-only runs show COMPLETE (host only). A failed check or timeout shows FAIL. No frame/tick timing, bandwidth, allocations, GC or profiling results have been collected.
+Expected: all required real clients match settled state and the HUD shows PASS. Runs without real clients show COMPLETE (replication unverified). A failed check or timeout shows FAIL. No frame/tick timing, bandwidth, allocations, GC or profiling results have been collected.
 
 ## Validation
 

@@ -36,7 +36,8 @@
           "RpcsPerTick": 0,
           "SettleSeconds": 5,
           "TimeoutSeconds": 120,
-          "RenderSubjects": false
+          "RenderSubjects": false,
+          "FakeConnections": 0
         }
       ],
       "Children": []

@@ -1,8 +1,8 @@
 {
-  "__guid": "17bfc813-fbb4-4b07-a56e-bf246dbf915d",
+  "__guid": "dfc02a9a-a680-4796-af12-a8b32821dbfd",
   "GameObjects": [
     {
-      "__guid": "ce152392-65b1-4592-95f1-89b1b5e24e80",
+      "__guid": "3f60c698-fe5f-4f11-a6fe-5d153ca80a5c",
       "__version": 2,
       "Flags": 0,
       "Name": "Scenario Controller",
@@ -19,14 +19,14 @@
       "Components": [
         {
           "__type": "NetworkObjectLoad.NetworkObjectScenario",
-          "__guid": "1f027ac3-73aa-4d33-b192-0d7925335075",
+          "__guid": "f84f7ab6-3de4-447e-9d37-72bc5c968794",
           "__enabled": true,
           "Flags": 0,
-          "Scenario": "SparseChanges",
+          "Scenario": "IdleSynced",
           "Population": 1000,
-          "MinimumClients": 1,
+          "MinimumClients": 0,
           "PropertyGroups": 1,
-          "ActiveFraction": 0.01,
+          "ActiveFraction": 0.1,
           "SpawnPerTick": 100,
           "ChildrenPerObject": 0,
           "WarmupTicks": 500,
@@ -37,13 +37,13 @@
           "SettleSeconds": 5,
           "TimeoutSeconds": 120,
           "RenderSubjects": false,
-          "FakeConnections": 0
+          "FakeConnections": 32
         }
       ],
       "Children": []
     },
     {
-      "__guid": "45e4eb12-3503-4078-a51b-e55018cc77fc",
+      "__guid": "36ebf944-a996-4574-aae6-2b78f3421b79",
       "__version": 2,
       "Flags": 0,
       "Name": "Lobby",
@@ -60,7 +60,7 @@
       "Components": [
         {
           "__type": "Sandbox.NetworkHelper",
-          "__guid": "920b5aa1-8c98-47d2-88ea-87b49e3c58f7",
+          "__guid": "dc222301-1f18-49a6-8ebc-356578505f95",
           "__enabled": true,
           "Flags": 0,
           "StartServer": true
@@ -69,7 +69,7 @@
       "Children": []
     },
     {
-      "__guid": "da36abb8-965e-4939-af3f-95dccef3b25a",
+      "__guid": "8c03824b-cafa-4cde-bbe8-61658a3802b9",
       "__version": 2,
       "Flags": 0,
       "Name": "Status HUD",
@@ -86,13 +86,13 @@
       "Components": [
         {
           "__type": "Sandbox.ScreenPanel",
-          "__guid": "82087af5-29a0-48de-b457-cd14064b0e9a",
+          "__guid": "b9cb9da9-32a7-403f-89d2-253284231f8e",
           "__enabled": true,
           "Flags": 0
         },
         {
           "__type": "NetworkObjectLoad.NetworkLoadHud",
-          "__guid": "5b518cce-a403-4d4f-910f-dcd923745957",
+          "__guid": "411de241-44f3-4b92-a748-9a126d0ff04c",
           "__enabled": true,
           "Flags": 0
         }
@@ -100,7 +100,7 @@
       "Children": []
     },
     {
-      "__guid": "f0d01a36-c23c-4569-ac1e-eed7e167e847",
+      "__guid": "d4764b4f-5c45-48ae-9e7b-da69fde58c9e",
       "__version": 2,
       "Flags": 0,
       "Name": "Camera",
@@ -117,7 +117,7 @@
       "Components": [
         {
           "__type": "Sandbox.CameraComponent",
-          "__guid": "f8f5f6e3-3f11-4065-b68e-851255963255",
+          "__guid": "f2f1e859-4c67-4a99-983a-98356c96ef80",
           "__enabled": true,
           "Flags": 0,
           "IsMainCamera": true,
@@ -130,7 +130,7 @@
       "Children": []
     },
     {
-      "__guid": "a5a70697-1d59-4959-a932-b67eaf87613d",
+      "__guid": "04f51a21-0955-4155-95b2-9579dbdb6a61",
       "__version": 2,
       "Flags": 0,
       "Name": "Light",
@@ -147,7 +147,7 @@
       "Components": [
         {
           "__type": "Sandbox.DirectionalLight",
-          "__guid": "af671f0e-cc64-429c-8d26-3ae47cffa68c",
+          "__guid": "12856847-88bc-4233-8330-48a3e30835da",
           "__enabled": true,
           "Flags": 0,
           "LightColor": "1,1,1,1",
@@ -178,8 +178,8 @@
       "IncludedBodies": ""
     }
   },
-  "Title": "09-sparse-1-percent",
-  "Description": "Only one percent of the population changes.",
+  "Title": "18-fake-32",
+  "Description": "Idle roots with 32 engine empty connections; replication correctness unverified without real clients.",
   "ResourceVersion": 1,
   "__references": [],
   "__version": 1

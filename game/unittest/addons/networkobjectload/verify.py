@@ -36,6 +36,10 @@ def main():
         components = [c for go in scene["GameObjects"] for c in go["Components"]]
         controllers = [c for c in components if c["__type"] == "NetworkObjectLoad.NetworkObjectScenario"]
         assert len(controllers) == 1 and controllers[0]["Scenario"] == scenario["case"]
+        assert 0 <= controllers[0]["FakeConnections"] <= 256
+        if "fake-" in scenario["scene"]:
+            assert controllers[0]["MinimumClients"] == 0
+            assert controllers[0]["FakeConnections"] in (8, 32)
         for kind in ("Sandbox.NetworkHelper", "Sandbox.CameraComponent", "Sandbox.ScreenPanel", "NetworkObjectLoad.NetworkLoadHud"):
             assert any(c["__type"] == kind for c in components), kind
         assert scene["SceneProperties"]["FixedUpdateFrequency"] == 50

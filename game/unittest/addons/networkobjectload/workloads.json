@@ -14,11 +14,12 @@
     15
   ],
   "validation": {
-    "sceneJson": "passed: 17 scenes, 207 unique scene/settings GUIDs",
+    "sceneJson": "passed: 19 scenes, 231 unique scene/settings GUIDs",
     "apiCompile": "passed: .NET 10, existing managed assemblies and code generators, zero warnings/errors",
-    "editorSandboxCompile": "not run",
-    "multiplayer": "not run",
-    "benchmarked": false
+    "editorSandboxCompile": "passed: live local.networkobjectload compiler, zero errors/warnings",
+    "multiplayer": "real clients not tested",
+    "benchmarked": false,
+    "fakeConnectionSmoke": "MCP verified: IdleSynced/1000 with 8 and 32 fake connections; each completed 1500 workload ticks; stopping Play cleared all fake connections"
   },
   "scenarios": [
     {
@@ -105,6 +106,24 @@
       "case": "IdleSynced",
       "scene": "Assets/scenes/16-rpcs.scene",
       "description": "Idle objects plus ten reliable scene RPCs per fixed tick."
+    },
+    {
+      "case": "IdleSynced",
+      "scene": "Assets/scenes/17-fake-8.scene",
+      "description": "Idle roots with 8 engine empty connections; replication correctness unverified without real clients."
+    },
+    {
+      "case": "IdleSynced",
+      "scene": "Assets/scenes/18-fake-32.scene",
+      "description": "Idle roots with 32 engine empty connections; replication correctness unverified without real clients."
     }
+  ],
+  "fakeConnections": [
+    0,
+    1,
+    4,
+    8,
+    16,
+    32
   ]
 }
