@@ -77,7 +77,7 @@ def main():
         raise RuntimeError("Open the compiled Network Object Load project and stop Play first.")
     if any(s["HasUnsavedChanges"] for s in tool("list_scenes")["Scenes"]):
         raise RuntimeError("Save existing scene changes before running; the runner only discards its own temporary settings.")
-    original_scene = status["ActiveScenePath"]
+    original_scene = status["ActiveScenePath"] or "scenes/18-fake-32.scene"
     convars = json.loads((ENGINE / "game/core/cfg/machine_convars.json").read_text())["convars"]
     original_cap = int(convars.get("fps_max", "0"))
     original_inactive_cap = int(convars.get("fps_max_inactive", "100"))
