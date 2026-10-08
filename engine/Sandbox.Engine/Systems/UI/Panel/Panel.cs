@@ -500,7 +500,7 @@ public partial class Panel : IPanel, IValid, IComponent
 	[Hide]
 	public bool IsValid => LayoutTree is not null;
 
-	string CollectSelectedChildrenText( Panel p )
+	internal string CollectSelectedChildrenText( Panel p )
 	{
 		if ( !p.IsVisible )
 			return null;

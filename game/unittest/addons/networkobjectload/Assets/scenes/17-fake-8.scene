@@ -1,0 +1,186 @@
+{
+  "__guid": "8e517c76-2c16-4919-9816-535d71ec750f",
+  "GameObjects": [
+    {
+      "__guid": "c5da4749-6d03-4ede-9606-2d9c18c034b9",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Scenario Controller",
+      "Position": "0,0,0",
+      "Rotation": "0,0,0,1",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "NetworkObjectLoad.NetworkObjectScenario",
+          "__guid": "6ccb55e8-4e9c-4a29-8547-d81bd80b4509",
+          "__enabled": true,
+          "Flags": 0,
+          "Scenario": "IdleSynced",
+          "Population": 1000,
+          "MinimumClients": 0,
+          "PropertyGroups": 1,
+          "ActiveFraction": 0.1,
+          "SpawnPerTick": 100,
+          "ChildrenPerObject": 0,
+          "WarmupTicks": 500,
+          "RunTicks": 1500,
+          "LifecycleIntervalTicks": 50,
+          "LifecycleBurst": 10,
+          "RpcsPerTick": 0,
+          "SettleSeconds": 5,
+          "TimeoutSeconds": 120,
+          "RenderSubjects": false,
+          "FakeConnections": 8
+        }
+      ],
+      "Children": []
+    },
+    {
+      "__guid": "21357e4e-651b-4ab4-bc66-7ff6696625b5",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Lobby",
+      "Position": "0,0,0",
+      "Rotation": "0,0,0,1",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "Sandbox.NetworkHelper",
+          "__guid": "566581d2-5df4-45c7-ad97-d35a94790990",
+          "__enabled": true,
+          "Flags": 0,
+          "StartServer": true
+        }
+      ],
+      "Children": []
+    },
+    {
+      "__guid": "25e612f1-c9aa-4314-b9c7-37f94d83239d",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Status HUD",
+      "Position": "0,0,0",
+      "Rotation": "0,0,0,1",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "Sandbox.ScreenPanel",
+          "__guid": "b794c455-4396-4481-bcc8-006e4db4a266",
+          "__enabled": true,
+          "Flags": 0
+        },
+        {
+          "__type": "NetworkObjectLoad.NetworkLoadHud",
+          "__guid": "a115c3f5-8d00-444c-bb8d-7ba449409494",
+          "__enabled": true,
+          "Flags": 0
+        }
+      ],
+      "Children": []
+    },
+    {
+      "__guid": "39b4be4c-cb8d-493a-a1d9-7591310af370",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Camera",
+      "Position": "-600,0,380",
+      "Rotation": "0,0.259,0,0.966",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "Sandbox.CameraComponent",
+          "__guid": "8da368f1-960d-4880-bc6b-9f89e701ff05",
+          "__enabled": true,
+          "Flags": 0,
+          "IsMainCamera": true,
+          "FieldOfView": 60,
+          "ZNear": 1,
+          "ZFar": 10000,
+          "BackgroundColor": "0.025,0.035,0.06,1"
+        }
+      ],
+      "Children": []
+    },
+    {
+      "__guid": "64096e74-ed92-4bfd-a6da-f7a13e0e5243",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Light",
+      "Position": "0,0,0",
+      "Rotation": "0,0,0,1",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "Sandbox.DirectionalLight",
+          "__guid": "17cbd930-4a40-4546-b571-c0f7a9b29900",
+          "__enabled": true,
+          "Flags": 0,
+          "LightColor": "1,1,1,1",
+          "Shadows": false
+        }
+      ],
+      "Children": []
+    }
+  ],
+  "SceneProperties": {
+    "FixedUpdateFrequency": 50,
+    "MaxFixedUpdates": 5,
+    "NetworkFrequency": 60,
+    "NetworkInterpolation": true,
+    "ThreadedAnimation": true,
+    "TimeScale": 1,
+    "UseFixedUpdate": true,
+    "NavMesh": {
+      "Enabled": false,
+      "IncludeStaticBodies": true,
+      "IncludeKeyframedBodies": true,
+      "EditorAutoUpdate": true,
+      "AgentHeight": 64,
+      "AgentRadius": 16,
+      "AgentStepSize": 18,
+      "AgentMaxSlope": 40,
+      "ExcludedBodies": "",
+      "IncludedBodies": ""
+    }
+  },
+  "Title": "17-fake-8",
+  "Description": "Idle roots with 8 engine empty connections; replication correctness unverified without real clients.",
+  "ResourceVersion": 1,
+  "__references": [],
+  "__version": 1
+}

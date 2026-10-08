@@ -1,0 +1,134 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Deterministic networking workloads, synthetic editor-host stress measurements and separate CPU profiling",
+  "populations": [
+    100,
+    1000,
+    5000,
+    10000
+  ],
+  "remoteClients": [
+    1,
+    4,
+    8,
+    15
+  ],
+  "validation": {
+    "sceneJson": "passed: 19 scenes, 231 unique scene/settings GUIDs",
+    "apiCompile": "passed: .NET 10, existing managed assemblies and code generators, zero warnings/errors",
+    "editorSandboxCompile": "passed: live local.networkobjectload compiler, zero errors/warnings",
+    "multiplayer": "real clients not tested",
+    "benchmarked": true,
+    "fakeConnectionSmoke": "MCP verified: IdleSynced/1000 with 8 and 32 fake connections; each completed 1500 workload ticks; stopping Play cleared all fake connections",
+    "benchmarkScope": "16 valid unprofiled runs: Empty/32 fake, IdleSynced/1000 at 8 and 32 fake, Changing/1000 at 8 and 32 fake, IdleSynced/5000 and /10000 at 32 fake, Mixed/1000 at 32 fake; five repeats of IdleSynced and Changing/1000/32",
+    "stressFailure": "Changing/5000/32 timed out after 180 seconds at 986/1500 ticks; excluded from completed comparisons; Changing/10000 not run",
+    "superluminal": "Captured and analyzed separately: Changing/1000/8 fake; 24404 samples; 53.5% unresolved leaf samples; no allocation ticks",
+    "report": "D:/Sandbox.Public.Projects/reports/network-object-load/batch-20261008-170500/index.html",
+    "remaining": "Real-client convergence and standalone server measurements; remaining scene variants not benchmarked"
+  },
+  "scenarios": [
+    {
+      "case": "Empty",
+      "scene": "Assets/scenes/00-empty.scene",
+      "description": "Lobby, controller and HUD baseline."
+    },
+    {
+      "case": "LocalIdle",
+      "scene": "Assets/scenes/01-local-idle.scene",
+      "description": "Static local objects; compare with IdleSynced."
+    },
+    {
+      "case": "LocalMoving",
+      "scene": "Assets/scenes/02-local-moving.scene",
+      "description": "Local transform changes; compare with Moving."
+    },
+    {
+      "case": "LocalChanging",
+      "scene": "Assets/scenes/03-local-changing.scene",
+      "description": "Local property changes; compare with Changing."
+    },
+    {
+      "case": "IdleBare",
+      "scene": "Assets/scenes/04-idle-bare.scene",
+      "description": "Idle network roots without subject components."
+    },
+    {
+      "case": "IdleSynced",
+      "scene": "Assets/scenes/05-idle-synced.scene",
+      "description": "Four unchanged synced properties per root."
+    },
+    {
+      "case": "IdleSynced",
+      "scene": "Assets/scenes/06-idle-32-properties.scene",
+      "description": "Eight payload components, 32 unchanged synced properties."
+    },
+    {
+      "case": "Moving",
+      "scene": "Assets/scenes/07-moving.scene",
+      "description": "All network roots move once per fixed tick."
+    },
+    {
+      "case": "Changing",
+      "scene": "Assets/scenes/08-changing.scene",
+      "description": "Four synced properties per object change once per fixed tick."
+    },
+    {
+      "case": "SparseChanges",
+      "scene": "Assets/scenes/09-sparse-1-percent.scene",
+      "description": "Only one percent of the population changes."
+    },
+    {
+      "case": "SparseChanges",
+      "scene": "Assets/scenes/10-sparse-10-percent.scene",
+      "description": "Only ten percent of the population changes."
+    },
+    {
+      "case": "Visibility",
+      "scene": "Assets/scenes/11-visibility.scene",
+      "description": "Hidden during warmup and first half, then explicit visibility gate opens."
+    },
+    {
+      "case": "Lifecycle",
+      "scene": "Assets/scenes/12-lifecycle.scene",
+      "description": "Ten true destroy/spawn replacements every 50 fixed ticks."
+    },
+    {
+      "case": "LateJoin",
+      "scene": "Assets/scenes/13-late-join.scene",
+      "description": "An additional client joins the populated scene during the workload."
+    },
+    {
+      "case": "Mixed",
+      "scene": "Assets/scenes/14-mixed.scene",
+      "description": "Ten percent moving/changing, lifecycle bursts and one reliable scene RPC per tick."
+    },
+    {
+      "case": "Moving",
+      "scene": "Assets/scenes/15-hierarchy.scene",
+      "description": "Moving roots, each with four children in its network hierarchy."
+    },
+    {
+      "case": "IdleSynced",
+      "scene": "Assets/scenes/16-rpcs.scene",
+      "description": "Idle objects plus ten reliable scene RPCs per fixed tick."
+    },
+    {
+      "case": "IdleSynced",
+      "scene": "Assets/scenes/17-fake-8.scene",
+      "description": "Idle roots with 8 engine empty connections; replication correctness unverified without real clients."
+    },
+    {
+      "case": "IdleSynced",
+      "scene": "Assets/scenes/18-fake-32.scene",
+      "description": "Idle roots with 32 engine empty connections; replication correctness unverified without real clients."
+    }
+  ],
+  "fakeConnections": [
+    0,
+    1,
+    4,
+    8,
+    16,
+    32
+  ]
+}

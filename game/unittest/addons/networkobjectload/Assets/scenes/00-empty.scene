@@ -1,0 +1,186 @@
+{
+  "__guid": "46757446-5b57-4488-bff5-bdff76904de5",
+  "GameObjects": [
+    {
+      "__guid": "3450460c-ca9c-4a03-b747-ebeec410025a",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Scenario Controller",
+      "Position": "0,0,0",
+      "Rotation": "0,0,0,1",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "NetworkObjectLoad.NetworkObjectScenario",
+          "__guid": "424b0427-3dfd-4693-ae0b-3beb37103aba",
+          "__enabled": true,
+          "Flags": 0,
+          "Scenario": "Empty",
+          "Population": 1000,
+          "MinimumClients": 1,
+          "PropertyGroups": 1,
+          "ActiveFraction": 0.1,
+          "SpawnPerTick": 100,
+          "ChildrenPerObject": 0,
+          "WarmupTicks": 500,
+          "RunTicks": 1500,
+          "LifecycleIntervalTicks": 50,
+          "LifecycleBurst": 10,
+          "RpcsPerTick": 0,
+          "SettleSeconds": 5,
+          "TimeoutSeconds": 120,
+          "RenderSubjects": false,
+          "FakeConnections": 0
+        }
+      ],
+      "Children": []
+    },
+    {
+      "__guid": "4cc65e0d-871a-4e5e-be63-47650a16bba7",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Lobby",
+      "Position": "0,0,0",
+      "Rotation": "0,0,0,1",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "Sandbox.NetworkHelper",
+          "__guid": "bcfc0d5d-8162-4bc0-a6e0-cdb6ef8f743c",
+          "__enabled": true,
+          "Flags": 0,
+          "StartServer": true
+        }
+      ],
+      "Children": []
+    },
+    {
+      "__guid": "e9288127-0a81-4d15-889f-3cad9e555715",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Status HUD",
+      "Position": "0,0,0",
+      "Rotation": "0,0,0,1",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "Sandbox.ScreenPanel",
+          "__guid": "25d9d387-441d-4b99-ad3d-482ab6ca1bc9",
+          "__enabled": true,
+          "Flags": 0
+        },
+        {
+          "__type": "NetworkObjectLoad.NetworkLoadHud",
+          "__guid": "80859c5c-6563-419b-a558-425227c4ad30",
+          "__enabled": true,
+          "Flags": 0
+        }
+      ],
+      "Children": []
+    },
+    {
+      "__guid": "0f5929c9-0649-4f76-92f2-6bd5ab79401f",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Camera",
+      "Position": "-600,0,380",
+      "Rotation": "0,0.259,0,0.966",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "Sandbox.CameraComponent",
+          "__guid": "fd9f526a-cad4-4a31-ad24-a717acc6e15c",
+          "__enabled": true,
+          "Flags": 0,
+          "IsMainCamera": true,
+          "FieldOfView": 60,
+          "ZNear": 1,
+          "ZFar": 10000,
+          "BackgroundColor": "0.025,0.035,0.06,1"
+        }
+      ],
+      "Children": []
+    },
+    {
+      "__guid": "8cfa7b83-a0ba-47e0-aba1-ccfabda041a2",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Light",
+      "Position": "0,0,0",
+      "Rotation": "0,0,0,1",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "Sandbox.DirectionalLight",
+          "__guid": "d0e49c76-3b61-4a78-9f04-b64cfb961cb1",
+          "__enabled": true,
+          "Flags": 0,
+          "LightColor": "1,1,1,1",
+          "Shadows": false
+        }
+      ],
+      "Children": []
+    }
+  ],
+  "SceneProperties": {
+    "FixedUpdateFrequency": 50,
+    "MaxFixedUpdates": 5,
+    "NetworkFrequency": 60,
+    "NetworkInterpolation": true,
+    "ThreadedAnimation": true,
+    "TimeScale": 1,
+    "UseFixedUpdate": true,
+    "NavMesh": {
+      "Enabled": false,
+      "IncludeStaticBodies": true,
+      "IncludeKeyframedBodies": true,
+      "EditorAutoUpdate": true,
+      "AgentHeight": 64,
+      "AgentRadius": 16,
+      "AgentStepSize": 18,
+      "AgentMaxSlope": 40,
+      "ExcludedBodies": "",
+      "IncludedBodies": ""
+    }
+  },
+  "Title": "00-empty",
+  "Description": "Lobby, controller and HUD baseline.",
+  "ResourceVersion": 1,
+  "__references": [],
+  "__version": 1
+}

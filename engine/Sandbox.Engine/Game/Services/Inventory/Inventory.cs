@@ -1,4 +1,4 @@
-﻿using System.Threading;
+using System.Threading;
 
 namespace Sandbox.Services;
 
@@ -29,34 +29,35 @@ public static partial class Inventory
 		var result = NativeEngine.SteamInventory.GetAllItems();
 		if ( result.IsNull ) return Array.Empty<Item>();
 
-		while ( result.IsPending() )
+		try
 		{
-			await Task.Delay( 10 );
+			while ( result.IsPending() )
+			{
+				await Task.Delay( 10, token );
+			}
+
+			var wasLoaded = HasLoaded;
+			var previousItems = _items.ToArray();
+
+			_items.Clear();
+
+			for ( int i = 0; i < result.Count(); i++ )
+			{
+				_items.Add( new Item( result.Get( i ) ) );
+			}
+
+			CurrentBlob = SerializeResult( result );
+			HasLoaded = true;
+
+			// The initial load isn't a purchase, but an already loaded empty inventory can gain new items.
+			if ( !wasLoaded ) return Array.Empty<Item>();
+
+			return _items.Where( x => !previousItems.Any( y => y.ItemId == x.ItemId ) ).ToArray();
 		}
-
-		var previousItems = _items.ToArray();
-
-		_items.Clear();
-
-		for ( int i = 0; i < result.Count(); i++ )
+		finally
 		{
-			_items.Add( new Item( result.Get( i ) ) );
+			result.Destroy();
 		}
-
-		CurrentBlob = SerializeResult( result );
-		HasLoaded = true;
-
-		// If we had items previously then notify of new items. This is usually caused by a call to Refresh after an in-game purchase.
-		if ( previousItems.Count() > 0 )
-		{
-			var newItems = _items.ToList();
-			newItems.RemoveAll( x => previousItems.Any( y => y.ItemId == x.ItemId ) );
-
-			return newItems.ToArray();
-		}
-
-		result.Destroy();
-		return Array.Empty<Item>();
 	}
 
 	/// <summary>

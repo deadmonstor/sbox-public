@@ -186,8 +186,29 @@ internal class DeltaSnapshotSystem
 	}
 
 	private Dictionary<DeltaSnapshot, SnapshotData> ClusterBuffer { get; set; } = new();
+	private readonly Dictionary<DeltaSnapshot, SnapshotData> SerializedClusterBuffer = new();
 
-	private void SendCluster( ConnectionData target, DeltaSnapshotCluster cluster,
+	internal static bool HasSameClusterData( Dictionary<DeltaSnapshot, SnapshotData> left, Dictionary<DeltaSnapshot, SnapshotData> right )
+	{
+		if ( left.Count != right.Count ) return false;
+		foreach ( var (snapshot, data) in left )
+		{
+			if ( !right.TryGetValue( snapshot, out var other ) || data.Count != other.Count ) return false;
+			foreach ( var (slot, value) in data )
+			{
+				if ( !other.TryGetValue( slot, out var otherValue ) || !ReferenceEquals( value, otherValue ) ) return false;
+			}
+		}
+		return true;
+	}
+
+	private void ClearSerializedClusterBuffer()
+	{
+		foreach ( var data in SerializedClusterBuffer.Values ) data.Release();
+		SerializedClusterBuffer.Clear();
+	}
+
+	private void SendCluster( ConnectionData target, DeltaSnapshotCluster cluster, ref ByteStream writer, ref byte[] encoded,
 		NetFlags flags = NetFlags.Unreliable | NetFlags.SendImmediate )
 	{
 		if ( cluster.Snapshots.Count == 0 )
@@ -279,25 +300,32 @@ internal class DeltaSnapshotSystem
 		if ( ClusterBuffer.Count == 0 )
 			return;
 
-		using var writer = new ByteStream( DeltaSnapshotCluster.MaxSize * 4 );
-
-		writer.Write( cluster.Id );
-		writer.Write( (ushort)ClusterBuffer.Count );
-
-		foreach ( var (snapshot, dataToSend) in ClusterBuffer )
+		if ( !HasSameClusterData( ClusterBuffer, SerializedClusterBuffer ) )
 		{
-			writer.Write( snapshot.Version );
-			writer.Write( snapshot.SnapshotId );
-			writer.Write( snapshot.ObjectId );
-			writer.Write( (ushort)dataToSend.Count );
+			ClearSerializedClusterBuffer();
+			writer.Dispose();
+			writer = new ByteStream( DeltaSnapshotCluster.MaxSize * 4 );
+			encoded = null;
+			writer.Write( cluster.Id );
+			writer.Write( (ushort)ClusterBuffer.Count );
 
-			foreach ( var (slot, value) in dataToSend )
+			foreach ( var (snapshot, dataToSend) in ClusterBuffer )
 			{
-				writer.Write( slot );
-				writer.WriteArray( value );
+				writer.Write( snapshot.Version );
+				writer.Write( snapshot.SnapshotId );
+				writer.Write( snapshot.ObjectId );
+				writer.Write( (ushort)dataToSend.Count );
+				foreach ( var (slot, value) in dataToSend )
+				{
+					writer.Write( slot );
+					writer.WriteArray( value );
+				}
+				SerializedClusterBuffer.Add( snapshot, dataToSend );
 			}
-
-			dataToSend.Release();
+		}
+		else
+		{
+			foreach ( var data in ClusterBuffer.Values ) data.Release();
 		}
 
 		var sentSnapshotIds = ObjectPool<HashSet<(ushort, Guid)>>.Get();
@@ -308,7 +336,7 @@ internal class DeltaSnapshotSystem
 
 		ClusterBuffer.Clear();
 
-		System.Send( target.Connection, InternalMessageType.DeltaSnapshotCluster, writer.ToSpan(), flags );
+		System.SendShared( target.Connection, InternalMessageType.DeltaSnapshotCluster, writer.ToSpan(), flags, ref encoded );
 
 		target.SentClusters.Add( new SentCluster( cluster, sentSnapshotIds ) );
 		cluster.AddReference();
@@ -814,13 +842,21 @@ internal class DeltaSnapshotSystem
 		if ( _clusters.Count == 0 )
 			return;
 
-		foreach ( var c in connections )
+		foreach ( var cluster in _clusters )
 		{
-			var connectionData = GetConnection( c );
-
-			foreach ( var cluster in _clusters )
+			ByteStream writer = default;
+			byte[] encoded = null;
+			try
 			{
-				SendCluster( connectionData, cluster );
+				foreach ( var c in connections )
+				{
+					SendCluster( GetConnection( c ), cluster, ref writer, ref encoded );
+				}
+			}
+			finally
+			{
+				writer.Dispose();
+				ClearSerializedClusterBuffer();
 			}
 		}
 
