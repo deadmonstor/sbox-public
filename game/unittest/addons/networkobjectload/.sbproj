@@ -1,0 +1,22 @@
+{
+  "Title": "Network Object Load",
+  "Type": "game",
+  "Org": "local",
+  "Ident": "networkobjectload",
+  "Schema": 1,
+  "IncludeSourceFiles": false,
+  "Resources": null,
+  "PackageReferences": [],
+  "EditorReferences": null,
+  "Mounts": null,
+  "IsStandaloneOnly": false,
+  "Metadata": {
+    "MaxPlayers": 16,
+    "MinPlayers": 1,
+    "TickRate": 50,
+    "GameNetworkType": "Multiplayer",
+    "MapSelect": "Unrestricted",
+    "CsProjName": "",
+    "StartupScene": "scenes/05-idle-synced.scene"
+  }
+}

@@ -1,0 +1,110 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Step 1: deterministic networking workload project; no measured performance claims",
+  "populations": [
+    100,
+    1000,
+    5000,
+    10000
+  ],
+  "remoteClients": [
+    1,
+    4,
+    8,
+    15
+  ],
+  "validation": {
+    "sceneJson": "passed: 17 scenes, 207 unique scene/settings GUIDs",
+    "apiCompile": "passed: .NET 10, existing managed assemblies and code generators, zero warnings/errors",
+    "editorSandboxCompile": "not run",
+    "multiplayer": "not run",
+    "benchmarked": false
+  },
+  "scenarios": [
+    {
+      "case": "Empty",
+      "scene": "Assets/scenes/00-empty.scene",
+      "description": "Lobby, controller and HUD baseline."
+    },
+    {
+      "case": "LocalIdle",
+      "scene": "Assets/scenes/01-local-idle.scene",
+      "description": "Static local objects; compare with IdleSynced."
+    },
+    {
+      "case": "LocalMoving",
+      "scene": "Assets/scenes/02-local-moving.scene",
+      "description": "Local transform changes; compare with Moving."
+    },
+    {
+      "case": "LocalChanging",
+      "scene": "Assets/scenes/03-local-changing.scene",
+      "description": "Local property changes; compare with Changing."
+    },
+    {
+      "case": "IdleBare",
+      "scene": "Assets/scenes/04-idle-bare.scene",
+      "description": "Idle network roots without subject components."
+    },
+    {
+      "case": "IdleSynced",
+      "scene": "Assets/scenes/05-idle-synced.scene",
+      "description": "Four unchanged synced properties per root."
+    },
+    {
+      "case": "IdleSynced",
+      "scene": "Assets/scenes/06-idle-32-properties.scene",
+      "description": "Eight payload components, 32 unchanged synced properties."
+    },
+    {
+      "case": "Moving",
+      "scene": "Assets/scenes/07-moving.scene",
+      "description": "All network roots move once per fixed tick."
+    },
+    {
+      "case": "Changing",
+      "scene": "Assets/scenes/08-changing.scene",
+      "description": "Four synced properties per object change once per fixed tick."
+    },
+    {
+      "case": "SparseChanges",
+      "scene": "Assets/scenes/09-sparse-1-percent.scene",
+      "description": "Only one percent of the population changes."
+    },
+    {
+      "case": "SparseChanges",
+      "scene": "Assets/scenes/10-sparse-10-percent.scene",
+      "description": "Only ten percent of the population changes."
+    },
+    {
+      "case": "Visibility",
+      "scene": "Assets/scenes/11-visibility.scene",
+      "description": "Hidden during warmup and first half, then explicit visibility gate opens."
+    },
+    {
+      "case": "Lifecycle",
+      "scene": "Assets/scenes/12-lifecycle.scene",
+      "description": "Ten true destroy/spawn replacements every 50 fixed ticks."
+    },
+    {
+      "case": "LateJoin",
+      "scene": "Assets/scenes/13-late-join.scene",
+      "description": "An additional client joins the populated scene during the workload."
+    },
+    {
+      "case": "Mixed",
+      "scene": "Assets/scenes/14-mixed.scene",
+      "description": "Ten percent moving/changing, lifecycle bursts and one reliable scene RPC per tick."
+    },
+    {
+      "case": "Moving",
+      "scene": "Assets/scenes/15-hierarchy.scene",
+      "description": "Moving roots, each with four children in its network hierarchy."
+    },
+    {
+      "case": "IdleSynced",
+      "scene": "Assets/scenes/16-rpcs.scene",
+      "description": "Idle objects plus ten reliable scene RPCs per fixed tick."
+    }
+  ]
+}
