@@ -1,6 +1,6 @@
 # Network Object Load
 
-Standalone s&box project for testing server replication costs at increasing object and client counts. No specific issue or performance defect is claimed. This implements the workload matrix; timing collection and profiling are separate next steps.
+Standalone s&box project for testing server replication costs at increasing object and client counts. Includes saved workloads, local frame/scope/allocation/GC exports, automated stress runs and reports. The synthetic editor-host benchmark has been run; real multiplayer correctness remains untested.
 
 ## Run
 
@@ -52,7 +52,46 @@ The visibility scene uses Component.INetworkVisible and AlwaysTransmit=false; it
 
 MinimumClients=0 permits a host-only smoke run; it cannot pass multiplayer replication validation. MaxPlayers is 16 total (host plus up to 15 remote clients). For CPU comparisons, run clients on a different machine and hold build, network settings and workload counts constant. Logs and the HUD update at phase boundaries; client digests run after the workload, outside future timing intervals.
 
-Expected: all required real clients match settled state and the HUD shows PASS. Runs without real clients show COMPLETE (replication unverified). A failed check or timeout shows FAIL. No frame/tick timing, bandwidth, allocations, GC or profiling results have been collected.
+Expected: all required real clients match settled state and the HUD shows PASS. Runs without real clients show COMPLETE (replication unverified). A failed check or timeout shows FAIL. CaptureMetrics exports samples.csv, summary.json and manifest.json after completion under `game/data/local/networkobjectload#local/network-object-load/`. Network is an elapsed engine scope; frame and allocation counters include editor activity. Bandwidth and real transport latency are not measured.
+
+## Automated stress test
+
+With this project open, compilation complete, Play stopped and scenes saved, run from `D:/sbox-public`:
+
+```powershell
+python game/unittest/addons/networkobjectload/run_stress.py
+```
+
+The runner uses editor MCP at `127.0.0.1:7269`, holds active/inactive frame caps at 90 on this machine, reopens the saved fake-32 scene for each temporary configuration, and restores the original scene and active frame cap afterward. It runs empty, idle, changing and mixed cases with 8/32 fake connections, increases populations to 1,000/5,000/10,000, and repeats the 1,000-object/32-connection idle and changing cases five times. Excessively slow changing cases trigger the timeout and suppress larger changing cases; invalid runs remain in the results. `--plan <json>` accepts an array of `[scenario, population, fakeConnections]` cases. `--resume --batch <existing-batch>` appends only when measured source/binary hashes and caps match.
+
+Generate graphs after measurement, using the library's plotting environment:
+
+```powershell
+D:/Sandbox.Public.Projects/.benchmark-env/Scripts/python.exe game/unittest/addons/networkobjectload/report_stress.py <batch-directory>
+```
+
+Superluminal runs separately and requires an approved Administrator PowerShell helper:
+
+```powershell
+./game/unittest/addons/networkobjectload/profile_stress.ps1 -TargetProcessId <sbox-dev-pid> -OutputDirectory <diagnostic-directory>
+```
+
+Start that helper with a normal UAC prompt after approval, then add `--profile-dir <diagnostic-directory>` to the stress command. Use a fresh diagnostic directory for each capture. The runner waits for ready.json, triggers a separate changing workload, and excludes its measurements from the unprofiled report. Export CPU/scopes with the library's `TraceSummary.dll` and put the diagnostic exports in `<batch>/diagnostics/` before regenerating the report.
+
+## Measured baseline — 2026-10-08
+
+[Graphs and full report](D:/Sandbox.Public.Projects/reports/network-object-load/batch-20261008-170500/index.html), [investigation](D:/Sandbox.Public.Projects/reports/network-object-load/batch-20261008-170500/findings.md), raw batch `D:/Sandbox.Public.Projects/results/network-object-load/batch-20261008-170500`.
+
+16 valid unprofiled runs, one timed-out stress case and one separate Superluminal diagnostic. Ryzen 9 5900X, editor host, no rendered subjects, four synced properties per root, 50Hz fixed simulation, 30Hz network updates. Valid runs completed 1,500 measured ticks after 500 warmup ticks. Five repeats each at 1,000 objects/32 fake connections:
+
+| Workload | Mean frame ms, median across repeats | Frame p99 ms, median across repeats | Network elapsed ms/s | Allocation MiB/s |
+|---|---:|---:|---:|---:|
+| Idle, 1,000 / 32 fake | 11.11 | 11.15 | 55.1 | 2.5 |
+| Changing, 1,000 / 32 fake | 92.68 | 166.06 | 872.9 | 26.7 |
+| Idle, 10,000 / 32 fake (one run) | 42.15 | 46.51 | 934.0 | 0.9 |
+| Mixed, 1,000 / 32 fake (one run) | 11.22 | 20.78 | 231.4 | 10.4 |
+
+Changing/5,000/32 fake timed out after 180 seconds at 986/1,500 workload ticks, with approximately 910ms mean frames; it is excluded from completed-run comparisons. Changing/10,000 was not attempted after this limit. The separately profiled Changing/1,000/8 run resolves sending and acknowledgement processing as CPU leads. Allocation ownership is unavailable from that CPU trace, and 53.5% of leaf samples are unresolved. These are local synthetic measurements, not dedicated-server or real-client throughput guarantees. Remaining scene variants have been designed/compiled but were not all benchmarked.
 
 ## Validation
 

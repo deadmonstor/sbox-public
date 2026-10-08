@@ -44,7 +44,7 @@ public sealed class VisibilityGate : Component, Component.INetworkVisible
 	public bool IsVisibleToConnection( Connection connection, in BBox worldBounds ) => Visible;
 }
 
-public sealed class NetworkObjectScenario : Component
+public sealed partial class NetworkObjectScenario : Component
 {
 	[Property] public Workload Scenario { get; set; } = Workload.IdleSynced;
 	[Property] public int Population { get; set; } = 1000;
@@ -63,7 +63,7 @@ public sealed class NetworkObjectScenario : Component
 	[Property] public float TimeoutSeconds { get; set; } = 120;
 	[Property] public bool RenderSubjects { get; set; }
 	[Sync( SyncFlags.FromHost )] public string Status { get; set; } = "Waiting for host and clients";
-	[Sync( SyncFlags.FromHost )] public string Detail { get; set; } = "Restart Play to reset. No performance samples collected.";
+	[Sync( SyncFlags.FromHost )] public string Detail { get; set; } = "Restart Play to reset. Results export locally after completion.";
 
 	private enum Phase { Waiting, Spawning, Warmup, Running, Settling, Checking, Finished }
 	private sealed class Subject
@@ -328,19 +328,23 @@ public sealed class NetworkObjectScenario : Component
 
 	private void SetPhase( Phase phase, string detail )
 	{
+		if ( _phase == Phase.Running ) _measureEnded = RealTime.Now;
 		_phase = phase;
 		_phaseTicks = 0;
 		_phaseTime = 0;
 		Status = $"{Scenario} / {phase}";
 		Detail = detail;
 		Log.Info( $"NETWORK LOAD {Status}: {detail}" );
+		if ( phase == Phase.Running ) BeginMeasurement();
 	}
 
 	private void Finish( bool success, string detail )
 	{
+		if ( _phase == Phase.Running ) _measureEnded = RealTime.Now;
 		_phase = Phase.Finished;
 		Status = success ? (_replicationChecked ? "PASS" : "COMPLETE (replication unverified)") : "FAIL";
 		Detail = $"{detail}\nObjects={_subjects.Count}; fake connections={_actualFakeConnections}; run ticks={_completedRunTicks}/{RunTicks}; object updates={_mutations}; spawns={_spawns}; destroys={_destroys}; RPCs={_rpcs}";
 		Log.Info( $"NETWORK LOAD {Scenario} {Status}: {Detail}" );
+		ExportMeasurement( success, detail );
 	}
 }

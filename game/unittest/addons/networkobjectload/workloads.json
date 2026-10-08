@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "purpose": "Step 1: deterministic networking workload project; no measured performance claims",
+  "purpose": "Deterministic networking workloads, synthetic editor-host stress measurements and separate CPU profiling",
   "populations": [
     100,
     1000,
@@ -18,8 +18,13 @@
     "apiCompile": "passed: .NET 10, existing managed assemblies and code generators, zero warnings/errors",
     "editorSandboxCompile": "passed: live local.networkobjectload compiler, zero errors/warnings",
     "multiplayer": "real clients not tested",
-    "benchmarked": false,
-    "fakeConnectionSmoke": "MCP verified: IdleSynced/1000 with 8 and 32 fake connections; each completed 1500 workload ticks; stopping Play cleared all fake connections"
+    "benchmarked": true,
+    "fakeConnectionSmoke": "MCP verified: IdleSynced/1000 with 8 and 32 fake connections; each completed 1500 workload ticks; stopping Play cleared all fake connections",
+    "benchmarkScope": "16 valid unprofiled runs: Empty/32 fake, IdleSynced/1000 at 8 and 32 fake, Changing/1000 at 8 and 32 fake, IdleSynced/5000 and /10000 at 32 fake, Mixed/1000 at 32 fake; five repeats of IdleSynced and Changing/1000/32",
+    "stressFailure": "Changing/5000/32 timed out after 180 seconds at 986/1500 ticks; excluded from completed comparisons; Changing/10000 not run",
+    "superluminal": "Captured and analyzed separately: Changing/1000/8 fake; 24404 samples; 53.5% unresolved leaf samples; no allocation ticks",
+    "report": "D:/Sandbox.Public.Projects/reports/network-object-load/batch-20261008-170500/index.html",
+    "remaining": "Real-client convergence and standalone server measurements; remaining scene variants not benchmarked"
   },
   "scenarios": [
     {

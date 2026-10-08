@@ -1,4 +1,5 @@
 !.sbproj
+!*.ps1
 !ProjectSettings/*.config
 !code/*.scss
 .verification/
