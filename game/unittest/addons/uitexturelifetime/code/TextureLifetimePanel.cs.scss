@@ -4,15 +4,17 @@
  height: 100%;
  background-color: #18202b;
  color: white;
- font-size: 24px;
- padding: 32px;
+ font-size: 20px;
+ padding: 16px;
  flex-direction: column;
- gap: 16px;
+ gap: 8px;
  .row {
   flex-direction: row;
   align-items: center;
   gap: 24px;
-  label { width: 380px; }
-  image { width: 200px; height: 200px; flex-shrink: 0; border: 3px solid white; object-fit: contain; }
+  label { width: 330px; }
+  image { width: 128px; height: 128px; flex-shrink: 0; border: 3px solid white; object-fit: contain; }
  }
+ button { background-color: #345578; padding: 6px 12px; cursor: pointer; }
+ .temporary { position: absolute; bottom: 8px; right: 8px; gap: 3px; image { width: 20px; height: 20px; } }
 }
