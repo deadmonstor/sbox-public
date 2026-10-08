@@ -69,9 +69,12 @@ def main():
     parser.add_argument("--plan", type=Path, help="JSON array of [scenario, population, fake connections] cases")
     parser.add_argument("--resume", action="store_true", help="Append a recovery plan to an existing batch")
     parser.add_argument("--heavy-repeats", type=int, default=5)
+    parser.add_argument("--frame-cap", type=int, default=90, help="Identical active/inactive cap for controlled comparisons")
     args = parser.parse_args()
     if not 1 <= args.heavy_repeats <= 10:
         parser.error("heavy-repeats must be 1..10")
+    if not 1 <= args.frame_cap <= 1000:
+        parser.error("frame-cap must be 1..1000")
     status = call("editor_status")
     if status["Project"] != "networkobjectload" or status["IsPlaying"] or status["IsCompiling"] or not status["LastCompileSucceeded"]:
         raise RuntimeError("Open the compiled Network Object Load project and stop Play first.")
@@ -85,7 +88,7 @@ def main():
     batch = args.batch or LIBRARY / "results/network-object-load" / ("batch-" + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d-%H%M%S"))
     batch.mkdir(parents=True, exist_ok=True)
     meta = environment()
-    meta.update(benchmarkFrameCap=90, inactiveFrameCap=90, originalFrameCap=original_cap, originalInactiveFrameCap=original_inactive_cap)
+    meta.update(benchmarkFrameCap=args.frame_cap, inactiveFrameCap=args.frame_cap, originalFrameCap=original_cap, originalInactiveFrameCap=original_inactive_cap)
     meta["limitations"][-1] = "Resolution/quality/vsync not fully recorded; editor-host baseline"
     if args.resume:
         previous = json.loads((batch / "environment.json").read_text())
@@ -150,6 +153,10 @@ def main():
             candidates = list(DATA.glob(label + "-*/summary.json")) if DATA.exists() else []
             if candidates:
                 source = candidates[0].parent
+                # The exporter writes the manifest after the summary; wait for the whole export.
+                if not (source / "manifest.json").exists():
+                    time.sleep(0.1)
+                    continue
                 summary = json.loads(candidates[0].read_text())
                 destination = batch / label
                 shutil.copytree(source, destination)
@@ -169,8 +176,8 @@ def main():
         raise TimeoutError(f"No completed export for {label}")
 
     try:
-        tool("console_command", command="fps_max 90")
-        tool("console_command", command="fps_max_inactive 90")
+        tool("console_command", command=f"fps_max {args.frame_cap}")
+        tool("console_command", command=f"fps_max_inactive {args.frame_cap}")
         for index, (case, population, connections) in enumerate(plan, first_index):
             if population >= 10000 and case != "IdleSynced" and skip_large:
                 print(f"SKIP {index}: larger population exceeds the exploratory safety budget", flush=True)

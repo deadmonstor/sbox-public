@@ -96,3 +96,9 @@ Changing/5,000/32 fake timed out after 180 seconds at 986/1,500 workload ticks, 
 ## Validation
 
 Run `python game/unittest/addons/networkobjectload/verify.py` from the engine checkout. It validates scene/settings JSON, GUID uniqueness and required components, then compiles only addon code against existing local managed assemblies with the engine code generators. Generated verification output is ignored. Actual check status is recorded in `workloads.json`; local compilation does not establish editor sandbox or multiplayer success.
+
+## Idle preparation prototype — 2026-10-08
+
+Branch `perf/network-idle-scan`; [before/after report](D:/Sandbox.Public.Projects/reports/network-object-load/idle-scan-20261008/index.html). Five repeats per build of IdleSynced/10,000/32 and Changing/1,000/32 completed identical workload counts. Median idle network scope: 22.091ms to 9.134ms, with overlapping ranges. Whole-editor idle allocation rate increased at the original 90fps cap; a separate five-repeat-per-build 20fps control measured essentially unchanged allocation rates (0.787 versus 0.789MiB/s). This is a prototype, with broader wake-up and dedicated-server checks pending.
+
+Mixed, Visibility, Lifecycle and LateJoin passed settled-state checks with actual clients and no fake peers; LateJoin used two clients. These checks do not validate adversarial acknowledgements. Separate Idle/10,000/32 and Changing/1,000/32 CPU captures plus a changing allocation trace are retained. No ACK/send optimization is included. `--frame-cap` supports controlled comparisons, defaulting to 90; `--profile-case SCENARIO POPULATION CONNECTIONS` selects a separate diagnostic workload.
