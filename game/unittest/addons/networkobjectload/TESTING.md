@@ -109,3 +109,12 @@ Repeated notifications now skip continuous-set updates when the object is alread
 The measured candidate was `eca36bc09` plus the retained `tested.patch` in `D:/Sandbox.Public.Projects/results/network-object-load/replication-coalescing-client-20261010`; binary hashes and dirty diff hash are recorded. Harness/native/settings match; supporting managed hashes differ after rebuilding. No new profiling or dedicated-server run was performed. Next investigate candidate-set construction and per-send ACK/retention checks rather than assuming notifications explain the changing cost.
 
 Repeat matched baseline/candidate cohorts and compare mean/median/p95/p99 network/frame scopes, allocation rates, GC and exact work counts. Retain repeats and failures. Run all ten multiplayer scenes plus impaired Mixed/Visibility/Lifecycle/LateJoin, then separate Superluminal attribution and dedicated-server measurements. Schema/quantization and network-budget changes remain future work.
+
+
+## Scalar setter and snapshot storage optimization - 2026-10-10
+
+[Saved comparison graphs](D:/Sandbox.Public.Projects/reports/network-object-load/scalar-setters-20261010/index.html). Scalar setters avoid extra slot lookups and scalar boxing; serialization reads the getter once. Snapshot lists/dictionaries start with 16 entries instead of 128, grow automatically, and receipt/removal backing arrays allocate lazily. Receipt semantics and packet format are unchanged.
+
+Five valid actual-client Changing/5000 repeats averaged 59.4-63.8ms per frame (median run mean 60.5ms), versus two retained before runs at 87.6-91.7ms (median 89.7ms): 32.5% lower frame cost and 48.1% higher throughput. Allocation median fell 46.2 to 24.6MiB/s. Changing/3000 rose from 33.5 to 72.3fps; Changing/1000 and IdleSynced/10000 retained the 90fps cap. All nine final runs completed 1500 ticks and actual-client final-state checks. The short Mixed/100 client check also passed.
+
+Developer build, 170 targeted network tests and format verification passed. A separate final Superluminal capture and earlier EventPipe allocation evidence are retained. Source/harness/native/settings match; baselines were reused, not rerun or alternated. This is an exploratory same-machine editor-host comparison. Heavy frames still exceed the 90fps budget; dedicated-server and remote-client performance remain unmeasured. Exact per-run data, symbol limitations and rerun instructions are in the report.

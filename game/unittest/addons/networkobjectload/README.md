@@ -118,3 +118,17 @@ Mixed, Visibility, Lifecycle and LateJoin passed again with real clients, 100ms 
 Branch `perf/network-shared-cluster-serialization`; [four-case comparison](D:/Sandbox.Public.Projects/reports/network-object-load/shared-serialization-20261008/index.html). Identical recipient selections reuse serialization and an immutable encoded packet within cluster fan-out. Different selections retain separate handling. The comparison adds slot lookups, so differing-state performance remains unmeasured.
 
 The final ACK measurements were reused as the baseline; exactly four new after runs completed. Changing/1,000 mean frames fell 81.081 to 60.742ms, p99 fell 135.659 to 84.672ms and allocations fell 29.942 to 12.209MiB/s. Network scope per frame fell, but elapsed network work per second rose slightly as frame throughput increased. Changing/100 allocation rate approximately halved; idle cases stayed broadly unchanged. These are single pairs with synthetic peers. Seven targeted tests and one actual-client Mixed smoke passed, with configured 100ms host lag and 10% packet loss. Broader real-client and dedicated-server validation remains pending.
+
+
+## Deep replication cost investigation — 2026-10-10
+
+[Saved graphs and findings](D:/Sandbox.Public.Projects/reports/network-object-load/deep-cost-20261010/index.html). Four actual-client scaling runs completed all 1,500 ticks and final-state checks: LocalChanging/5000, Changing/2000, /3000 and /5000. Separate Superluminal CPU and EventPipe allocation diagnostics also passed. Local/5000 held 90fps; replicated/5000 reached 11.4fps, 46.8MiB/s allocation and 92.3ms/s GC pauses. CPU stacks and sampled allocations identify scalar boxing in sync setters and snapshot getters as the leading next experiment, alongside repeated invalidation and serialization work. Single-run scaling is exploratory; no engine patch made in this investigation. Raw runs and reproducible report.py are under results/network-object-load/deep-cost-20261010 in the project library. Dedicated-server/remote-client performance remains unmeasured.
+
+
+## Scalar setter and snapshot storage optimization - 2026-10-10
+
+[Saved comparison graphs](D:/Sandbox.Public.Projects/reports/network-object-load/scalar-setters-20261010/index.html). Scalar setters avoid extra slot lookups and scalar boxing; serialization reads the getter once. Snapshot lists/dictionaries start with 16 entries instead of 128, grow automatically, and receipt/removal backing arrays allocate lazily. Receipt semantics and packet format are unchanged.
+
+Five valid actual-client Changing/5000 repeats averaged 59.4-63.8ms per frame (median run mean 60.5ms), versus two retained before runs at 87.6-91.7ms (median 89.7ms): 32.5% lower frame cost and 48.1% higher throughput. Allocation median fell 46.2 to 24.6MiB/s. Changing/3000 rose from 33.5 to 72.3fps; Changing/1000 and IdleSynced/10000 retained the 90fps cap. All nine final runs completed 1500 ticks and actual-client final-state checks. The short Mixed/100 client check also passed.
+
+Developer build, 170 targeted network tests and format verification passed. A separate final Superluminal capture and earlier EventPipe allocation evidence are retained. Source/harness/native/settings match; baselines were reused, not rerun or alternated. This is an exploratory same-machine editor-host comparison. Heavy frames still exceed the 90fps budget; dedicated-server and remote-client performance remain unmeasured. Exact per-run data, symbol limitations and rerun instructions are in the report.

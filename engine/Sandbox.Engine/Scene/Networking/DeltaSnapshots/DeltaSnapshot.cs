@@ -82,8 +82,8 @@ internal class DeltaSnapshot : IObjectPoolEvent
 		}
 	}
 
-	public readonly List<SnapshotDataEntry> Entries = new( 128 );
-	public readonly Dictionary<int, SnapshotDataEntry> Lookup = new( 128 );
+	public readonly List<SnapshotDataEntry> Entries = new( 16 );
+	public readonly Dictionary<int, SnapshotDataEntry> Lookup = new( 16 );
 
 	public LocalSnapshotState LocalState { get; set; }
 	public RealTimeSince TimeSinceCreated { get; private set; } = 0f;

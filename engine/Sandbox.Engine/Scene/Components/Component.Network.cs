@@ -55,13 +55,13 @@ public abstract partial class Component
 
 			var net = root._net;
 
-			if ( !net.dataTable.IsRegistered( slot ) )
+			if ( !net.dataTable.TryGetEntry( slot, out var entry ) )
 			{
 				p.Setter?.Invoke( p.Value );
 				return;
 			}
 
-			if ( !net.dataTable.HasControl( slot ) )
+			if ( !entry.HasControl() )
 			{
 				if ( !NetworkTable.IsReadingChanges )
 					return;
@@ -79,7 +79,7 @@ public abstract partial class Component
 				return;
 			}
 
-			net.dataTable.UpdateSlotHash( slot, p.Value );
+			net.dataTable.UpdateValueHash( entry, p.Value );
 			p.Setter?.Invoke( p.Value );
 		}
 		catch ( Exception e )

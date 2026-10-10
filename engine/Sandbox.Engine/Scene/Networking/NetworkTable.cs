@@ -317,6 +317,43 @@ internal class NetworkTable : IDisposable
 		UpdateSlotHash( v, value );
 	}
 
+	internal bool TryGetEntry( int slot, out Entry entry ) => _entries.TryGetValue( slot, out entry );
+
+	private static class ValueHash<T>
+	{
+		// Collection and custom property values still need binding and change detection.
+		internal static readonly bool IsScalar = typeof( T ).IsValueType
+			&& Nullable.GetUnderlyingType( typeof( T ) ) is null
+			&& !typeof( T ).IsAssignableTo( typeof( IList ) )
+			&& !typeof( T ).IsAssignableTo( typeof( IDictionary ) )
+			&& !typeof( T ).IsAssignableTo( typeof( INetworkProperty ) )
+			&& !typeof( T ).IsAssignableTo( typeof( INetworkSerializer ) );
+	}
+
+	internal void UpdateValueHash<T>( Entry entry, T value )
+	{
+		if ( !ReferenceEquals( entry.Table, this ) )
+		{
+			// A control callback may have removed or replaced the entry.
+			UpdateSlotHash( entry.Slot, value );
+			return;
+		}
+
+		if ( !ValueHash<T>.IsScalar )
+		{
+			UpdateSlotHash( entry, value );
+			return;
+		}
+
+		// Match the object path's hash without boxing a scalar on every sync setter.
+		var hash = HashCode.Combine( value );
+		if ( entry.HashCodeValue == hash )
+			return;
+
+		entry.HashCodeValue = hash;
+		entry.InvalidateSnapshot();
+	}
+
 	private static int ToHashCode( object value )
 	{
 		if ( value is IList list )
@@ -601,7 +638,7 @@ internal class NetworkTable : IDisposable
 		}
 		else
 		{
-			Game.TypeLibrary.ToBytes( entry.GetValue(), ref bs );
+			Game.TypeLibrary.ToBytes( value, ref bs );
 		}
 	}
 

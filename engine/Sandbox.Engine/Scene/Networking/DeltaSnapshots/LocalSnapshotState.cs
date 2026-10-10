@@ -16,10 +16,10 @@ internal class LocalSnapshotState
 		public ulong Hash;
 	}
 
-	public readonly List<Entry> Entries = new( 128 );
-	public readonly HashSet<int> RemovedSlots = new( 128 );
-	public readonly Dictionary<int, Entry> Lookup = new( 128 );
-	public readonly HashSet<Guid> UpdatedConnections = new( 128 );
+	public readonly List<Entry> Entries = new( 16 );
+	public readonly HashSet<int> RemovedSlots = [];
+	public readonly Dictionary<int, Entry> Lookup = new( 16 );
+	public readonly HashSet<Guid> UpdatedConnections = [];
 
 	public ushort SnapshotId { get; set; }
 	public ushort Version { get; set; }
