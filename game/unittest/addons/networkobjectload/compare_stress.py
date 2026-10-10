@@ -73,7 +73,7 @@ def main():
     fig.savefig(args.output / "comparison.png", dpi=160)
     plt.close(fig)
     lines = ["# Delta snapshot scheduling comparison", "", f"Before: `{before_env['commit']}`. After: `{after_env['commit']}`.", "",
-             "Source, runner, native binaries, hardware, frame caps, client counts and workload settings match. Graphs show medians and full repeat ranges; single runs are exploratory, not a repeatability claim. Local clients share CPU/GPU with the editor. Network timings are overlapping elapsed scopes, not an additive CPU breakdown. Resolution/quality/vsync remain unrecorded. New Superluminal attribution and dedicated-server validation are pending.", "",
+             "Harness source, runner, native binaries, hardware, frame caps, client counts and workload settings match. Graphs show medians and full repeat ranges; single runs are exploratory, not a repeatability claim. Local clients share CPU/GPU with the editor. Network timings are overlapping elapsed scopes, not an additive CPU breakdown. Resolution/quality/vsync remain unrecorded. New Superluminal attribution and dedicated-server validation are pending.", "",
              f"Supporting managed assemblies with different hashes: {', '.join(supporting_differences) or 'none'}.", "",
              "| Case | Before / after repeats | Mean frame ms | Frame p99 ms | Network ms/frame | Network ms/s | Allocation MiB/s |", "|---|---:|---:|---:|---:|---:|---:|"]
     for key in keys:

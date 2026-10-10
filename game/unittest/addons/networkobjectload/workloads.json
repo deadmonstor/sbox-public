@@ -148,14 +148,35 @@
       "sceneJson": "19 scenes, 231 unique GUIDs",
       "editorCompile": "passed",
       "actualClientSmoke": "passed: IdleSynced/100/one actual client, final state matched, 100 ticks, no engine measurement exceptions",
-      "candidateClientMatrix": "running",
-      "fullComparison": "pending",
-      "currentSuperluminal": "pending; requires approval"
+      "candidateClientMatrix": "passed: four cases, one actual client, zero fake peers; all 1500 measured ticks and final state checks completed without measurement exceptions",
+      "fullComparison": "completed: four matched case pairs, one run per build; exploratory only",
+      "currentSuperluminal": "pending; requires approval",
+      "baselineClientMatrix": "passed: same four cases, one actual client, zero fake peers; all 1500 measured ticks and final state checks completed without measurement exceptions",
+      "candidateBuildRestored": "passed: feature branch restored and rebuilt after baseline"
     },
     "sourceRestoredFrom": "josh-branch:game/unittest/addons/networkobjectload",
     "smoke": "replication-scheduling-smoke-20261010-retry1",
     "failedSmoke": "replication-scheduling-smoke-20261010",
-    "notes": "Historical October 8 benchmarks are not a matched baseline. Fake peers return no ACKs."
+    "notes": "Historical October 8 benchmarks are not a matched baseline. Fake peers return no ACKs.",
+    "candidateBatch": "replication-scheduling-client-20261010",
+    "baselineBatch": "replication-scheduling-baseline-client-20261010",
+    "baselineBuildCommit": "dce32b54b",
+    "harnessCommit": "43b419a7e",
+    "comparisonLimitations": [
+      "Only one measurement per case/build; no repeatability claim",
+      "Actual client shares CPU/GPU with host editor",
+      "Native/harness/settings match; Sandbox.System and Sandbox.GameInstance hashes differ after rebuild; their source trees did not change",
+      "Resolution/quality/vsync not fully recorded",
+      "No new Superluminal capture or dedicated-server measurement"
+    ],
+    "comparisonReport": "D:/Sandbox.Public.Projects/reports/network-object-load/replication-scheduling-20261010/index.html",
+    "featureBranch": "perf/replication-dirty-state",
+    "remaining": [
+      "Independent repeat variability, especially changing workloads",
+      "Current fake-peer stress reruns",
+      "Ten-scene multiplayer matrix and impaired wakeups",
+      "Approved Superluminal capture and dedicated-server cohort"
+    ]
   },
   "testingIndex": "TESTING.md",
   "benchmarkCohorts": {

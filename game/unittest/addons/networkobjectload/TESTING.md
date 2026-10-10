@@ -77,6 +77,27 @@ Default warmup: 500 fixed ticks. Measurement: 1,500 ticks. Simulation: 50Hz; net
 
 Raw immutable runs live under `D:/Sandbox.Public.Projects/results/network-object-load/<unique-run>/`; graphs/findings under `reports/network-object-load/<cohort>/`. Full before/after comparisons and current CPU captures are pending unless listed as completed in the validation record. Superluminal requires Administrator approval; keep those captures separate from timing runs and follow the project README.
 
-## Remaining work
+## Scheduling comparison — 2026-10-10
 
-Run matched baseline/candidate cohorts and compare mean/median/p95/p99 network/frame scopes, allocation rates, GC and exact work counts. Retain repeats and failures. Run all ten multiplayer scenes plus impaired Mixed/Visibility/Lifecycle/LateJoin, then separate Superluminal attribution and dedicated-server measurements. Schema/quantization and network-budget changes remain future work.
+[Graphs and comparison](D:/Sandbox.Public.Projects/reports/network-object-load/replication-scheduling-20261010/index.html), [findings](D:/Sandbox.Public.Projects/reports/network-object-load/replication-scheduling-20261010/findings.md). All four cases passed on both builds: one actual local client, zero fake peers, 500 warmup ticks and 1,500 measured ticks per case. Final state matched in every run; measurement exceptions were zero. The changing/1,000 cases each completed 1.5 million object updates. The short actual-client smoke passed separately; the first failed runner startup attempt is retained.
+
+| Workload | Network elapsed ms/frame, before -> after | Allocation MiB/s, before -> after |
+|---|---:|---:|
+| Idle, 10,000 | 1.723 -> 0.012 | 1.437 -> 1.567 |
+| Changing, 1,000 | 1.701 -> 1.801 | 16.257 -> 16.191 |
+| Idle, 100 | 0.027 -> 0.012 | 1.456 -> 1.560 |
+| Changing, 100 | 0.173 -> 0.186 | 2.944 -> 3.053 |
+
+This first pair shows substantially less acknowledged idle network work, with slightly higher changing costs. It establishes neither repeatability nor an allocation improvement. Frames remained near the 90fps cap. Native/harness/settings match, but supporting managed DLL hashes differ after rebuilding; their source trees are unchanged. Client and editor share hardware, and resolution/quality/vsync remain unrecorded. Raw per-run frame percentiles, GC, working set, timelines and exact counts are in the linked reports.
+
+Reproduce the graphs using existing raw exports:
+
+```powershell
+D:/Sandbox.Public.Projects/.benchmark-env/Scripts/python.exe game/unittest/addons/networkobjectload/compare_stress.py D:/Sandbox.Public.Projects/results/network-object-load/replication-scheduling-baseline-client-20261010 D:/Sandbox.Public.Projects/results/network-object-load/replication-scheduling-client-20261010 D:/Sandbox.Public.Projects/reports/network-object-load/replication-scheduling-20261010
+```
+
+The baseline is retained on `perf/replication-scheduling-baseline-20261010` at `dce32b54b`: engine `95eda4fae` plus identical harness source. The feature branch contains the scheduler and restored test project. Current fake-peer performance reruns, the ten-scene multiplayer matrix, Superluminal and dedicated-server runs remain pending.
+
+## Next investigations
+
+Repeat matched baseline/candidate cohorts and compare mean/median/p95/p99 network/frame scopes, allocation rates, GC and exact work counts. Retain repeats and failures. Run all ten multiplayer scenes plus impaired Mixed/Visibility/Lifecycle/LateJoin, then separate Superluminal attribution and dedicated-server measurements. Schema/quantization and network-budget changes remain future work.
