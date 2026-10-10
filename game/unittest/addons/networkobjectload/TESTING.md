@@ -1,0 +1,82 @@
+# Delta snapshot testing
+
+Start here for the current engine changes, runnable projects, correctness coverage and retained measurements.
+
+## Repository and projects
+
+The versioned harness is in `D:/sbox-public`, repository `https://github.com/Facepunch/sbox-public`, at `game/unittest/addons/networkobjectload/`. It was restored from `josh-branch` onto `perf/replication-dirty-state`; no combined-branch engine changes were imported. Keep the same harness available on both builds used for comparison. Never use `josh-branch` as a PR source.
+
+- [Network Object Load](README.md): 19 deterministic scenes, network/frame scopes, allocations, GC and local exports. Open [.sbproj](.sbproj).
+- [Network Dormancy Lab](D:/Sandbox.Public.Projects/projects/network-dormancy-lab/README.md): ten multiplayer correctness scenes for visibility, nested transforms, reparenting, enabled state, scalar/query/reliable collections, late join, ownership and getter destruction. Its old branch name identifies the original target; current scheduler execution must be recorded separately.
+- [Project library and catalog](D:/Sandbox.Public.Projects/README.md): inventory and historical validation.
+- [Network report index](D:/Sandbox.Public.Projects/reports/network-object-load/README.md): investigations, graphs and current evidence.
+
+## Engine changes
+
+Branch: `perf/replication-dirty-state`, based on master `da927017a`.
+
+| Commit | Change |
+|---|---|
+| `b437aa1af` | Reuse unchanged scalar preparation |
+| `f6bfdf23c` | Delta table mutation notifications |
+| `95eda4fae` | Cache tracked delta preparation per property, including polling siblings |
+| `4554e2fc8` | Schedule dirty, continuously evaluated and unacknowledged objects; acknowledged idle objects leave the send pass |
+
+Unknown delta implementations, query properties, dynamic visibility and transform proxies remain continuously evaluated. Unacknowledged snapshots stay active and advance IDs. Mutations, recipient changes and hotload must wake objects.
+
+For a scheduler-only comparison, use baseline `95eda4fae` and candidate `4554e2fc8`. For all preparation changes, use master `da927017a` and candidate `4554e2fc8`. Use identical harness source/settings, local branches in this checkout, close the editor before rebuilding, restart for each build and record DLL/native/source hashes. October 8 results use different engine/native bases; they are historical references, not matched controls.
+
+## Correctness
+
+Developer build, format verification and 148 selected network tests passed for `4554e2fc8`: 46 unit, 54 engine and 48 integration cases, including 17 scheduling cases. This establishes automated regression coverage, not a performance improvement or completion of the multiplayer matrix.
+
+```powershell
+dotnet run --project engine/Tools/SboxBuild/SboxBuild.csproj -- build --config Developer --skip-native
+dotnet run --project engine/Tools/SboxBuild/SboxBuild.csproj --no-build -- test --no-build --filter 'FullyQualifiedName~SceneTests.GameObjects.NetworkTest|FullyQualifiedName~NetworkTests'
+dotnet run --project engine/Tools/SboxBuild/SboxBuild.csproj --no-build -- format --verify
+python game/unittest/addons/networkobjectload/verify.py
+```
+
+Engine/integration runs require `FACEPUNCH_ENGINE` pointing to `D:/sbox-public/game`; SboxBuild configures its test runs. Project API compilation and scene validation passed: 19 scenes, 231 unique GUIDs, zero warnings/errors. Current editor compilation passed too.
+
+| Contract | Automated test | Multiplayer follow-up |
+|---|---|---|
+| Scalar/delta/transform/metadata wakeups | `IdleSnapshotWakesOnMutation` (10 cases) | Dormancy scenes 1, 3, 4, 5 |
+| Mutations during preparation | `ChangesDuringPreparationRemainScheduled` | Getter destruction scene 10 |
+| Query/reliable collection polling | `ReliableQueryPropertiesKeepPolling`, `SnapshotPreparationTest` | Scenes 6 and 7 |
+| Visibility continues evaluating | `PollingAndVisibilityObjectsRemainScheduled` | Scene 2, load Visibility |
+| Missing ACKs keep delivery active | `UnacknowledgedSnapshotsRemainScheduled` | Fake-peer stress and impaired real clients |
+| Recipients, hotload, ownership | `IdleSnapshotsWakeForConnectionChangesAndHotload`, mutation cases | Scenes 8 and 9, load LateJoin |
+| Queued object destruction | `DestroyedObjectsLeaveSnapshotQueues` | Scene 10, load Lifecycle |
+
+Source: [scheduling tests](../../../../engine/Tests/Sandbox.Test.Integration/Scene/GameObjects/Network.Scheduling.cs), [preparation tests](../../../../engine/Tests/Sandbox.Test.Engine/Network/SnapshotPreparation.cs). [Current evidence folder](D:/Sandbox.Public.Projects/results/network-object-load/replication-dirty-state-20261010) retains build/test/format/project logs and explicit validation status.
+
+## Benchmark cohorts
+
+Fake peers are `EmptyConnection`: they receive no packets and return no ACKs. Their idle objects remain pending. Keep those cases for pending-delivery cost; they cannot demonstrate acknowledged objects leaving the queue.
+
+With this project compiled, Play stopped and scene changes saved:
+
+```powershell
+# Existing four cases: 32 fake peers, no ACKs.
+python game/unittest/addons/networkobjectload/run_stress.py --plan game/unittest/addons/networkobjectload/four-case-plan.json
+
+# Actual client: transport and final-state convergence, zero fake peers.
+python game/unittest/addons/networkobjectload/run_stress.py --local-client --plan game/unittest/addons/networkobjectload/acknowledged-case-plan.json
+
+# Short function check, not a performance comparison.
+python game/unittest/addons/networkobjectload/run_stress.py --local-client --smoke
+
+# Generate graphs outside measurement.
+D:/Sandbox.Public.Projects/.benchmark-env/Scripts/python.exe game/unittest/addons/networkobjectload/report_stress.py <batch-directory>
+```
+
+Both four-case plans use idle/10,000, changing/1,000, idle/100 and changing/100. The acknowledged plan uses one actual local client and zero fake peers. The runner starts/cleans up its own client per case, preserves failures, restores scenes/frame caps and records project/runner/binary hashes and real-client counts. A local client shares CPU/GPU with the editor: this is an editor-host cohort, not dedicated-server throughput.
+
+Default warmup: 500 fixed ticks. Measurement: 1,500 ticks. Simulation: 50Hz; network: 30Hz; active/inactive frame cap: 90. Match settings and work counts across builds. One pair is provisional. `--heavy-repeats 5` repeats the default fake-peer plan; repeat custom plan entries explicitly. Allow initial replication to settle before accepting idle timing. Final-state digests establish convergence, not precise ACK latency.
+
+Raw immutable runs live under `D:/Sandbox.Public.Projects/results/network-object-load/<unique-run>/`; graphs/findings under `reports/network-object-load/<cohort>/`. Full before/after comparisons and current CPU captures are pending unless listed as completed in the validation record. Superluminal requires Administrator approval; keep those captures separate from timing runs and follow the project README.
+
+## Remaining work
+
+Run matched baseline/candidate cohorts and compare mean/median/p95/p99 network/frame scopes, allocation rates, GC and exact work counts. Retain repeats and failures. Run all ten multiplayer scenes plus impaired Mixed/Visibility/Lifecycle/LateJoin, then separate Superluminal attribution and dedicated-server measurements. Schema/quantization and network-budget changes remain future work.

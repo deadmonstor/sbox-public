@@ -1,0 +1,13 @@
+NetworkLoadHud {
+	position: absolute;
+	left: 24px;
+	top: 24px;
+	width: 860px;
+	padding: 24px;
+	background-color: rgba(10, 18, 30, 0.95);
+	border-radius: 10px;
+	color: white;
+	font-family: Roboto;
+	font-size: 22px;
+	.status { white-space: pre-wrap; }
+}
