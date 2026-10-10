@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using Sandbox.Network;
 
 namespace NetworkTests;
@@ -182,9 +184,168 @@ public class SnapshotPreparationTest
 		}
 	}
 
+	[TestMethod]
+	public void PollingEntryDoesNotPrepareUnchangedDeltaProperties()
+	{
+		var values = new CountingDeltaTable();
+		values.Set( 1, 7 );
+		var list = new List<int> { 1 };
+		using var table = new NetworkTable();
+		table.Register( 42, new NetworkTable.Entry { TargetType = values.GetType(), GetValue = () => values } );
+		table.Register( 43, new NetworkTable.Entry { TargetType = list.GetType(), GetValue = () => list } );
+		var snapshot = new LocalSnapshotState();
+		table.QueryValues();
+		table.WriteSnapshotState( snapshot );
+		Assert.IsFalse( table.CanReuseSnapshotState );
+		var listHash = snapshot.Lookup[43].Hash;
+		var slot = "42.1".FastHash();
+		var deltaEntry = snapshot.Lookup[slot];
+		var connection = Guid.NewGuid();
+		deltaEntry.Connections.Add( connection );
+
+		list.Add( 2 );
+		table.QueryValues();
+		table.WriteSnapshotState( snapshot );
+		Assert.AreEqual( 1, values.WriteCalls );
+		Assert.AreNotEqual( listHash, snapshot.Lookup[43].Hash );
+		Assert.IsTrue( deltaEntry.Connections.Contains( connection ), "Reuse must preserve acknowledgements for retransmission filtering." );
+
+		values.Set( 1, 8 );
+		table.WriteSnapshotState( snapshot );
+		Assert.AreEqual( 2, values.WriteCalls );
+		Assert.IsFalse( deltaEntry.Connections.Contains( connection ) );
+	}
+
+	[TestMethod]
+	public void MutationOnlyPreparesTheChangedDeltaEntry()
+	{
+		var first = new CountingDeltaTable();
+		var second = new CountingDeltaTable();
+		using var table = new NetworkTable();
+		table.Register( 42, new NetworkTable.Entry { TargetType = first.GetType(), GetValue = () => first } );
+		table.Register( 43, new NetworkTable.Entry { TargetType = second.GetType(), GetValue = () => second } );
+		var snapshot = new LocalSnapshotState();
+		table.WriteSnapshotState( snapshot );
+		first.Set( 1, 7 );
+		table.WriteSnapshotState( snapshot );
+		Assert.AreEqual( 2, first.WriteCalls );
+		Assert.AreEqual( 1, second.WriteCalls );
+	}
+
+	[TestMethod]
+	public void DeltaPreparationInvalidatesOnContextAndAuthorityChanges()
+	{
+		var values = new CountingDeltaTable();
+		values.Set( 1, 7 );
+		var controlled = true;
+		using var table = new NetworkTable();
+		table.Register( 42, new NetworkTable.Entry
+		{
+			TargetType = values.GetType(), GetValue = () => values, ControlCondition = _ => controlled
+		} );
+		var snapshot = new LocalSnapshotState();
+		table.WriteSnapshotState( snapshot );
+		table.WriteSnapshotState( snapshot );
+		Assert.AreEqual( 1, values.WriteCalls );
+
+		snapshot.ParentId = Guid.NewGuid();
+		table.WriteSnapshotState( snapshot );
+		Assert.AreEqual( 2, values.WriteCalls );
+		snapshot.Flags = NetworkFlags.NoPositionSync;
+		table.WriteSnapshotState( snapshot );
+		Assert.AreEqual( 3, values.WriteCalls );
+		snapshot.Version++;
+		table.WriteSnapshotState( snapshot );
+		Assert.AreEqual( 4, values.WriteCalls );
+		controlled = false;
+		table.WriteSnapshotState( snapshot );
+		Assert.AreEqual( 4, values.WriteCalls );
+		controlled = true;
+		table.WriteSnapshotState( snapshot );
+		Assert.AreEqual( 5, values.WriteCalls );
+
+		var otherSnapshot = new LocalSnapshotState();
+		table.WriteSnapshotState( otherSnapshot );
+		Assert.AreEqual( 6, values.WriteCalls );
+		Assert.IsTrue( otherSnapshot.Lookup.ContainsKey( "42.1".FastHash() ) );
+	}
+
+	[TestMethod]
+	public void CachedBodyTransformsRehashWhenParentOrFlagsChange()
+	{
+		var values = new NetworkTransforms();
+		values.Set( 1, new Transform( Vector3.One, Rotation.Identity ) );
+		using var table = new NetworkTable();
+		table.Register( 42, new NetworkTable.Entry { TargetType = values.GetType(), GetValue = () => values } );
+		var snapshot = new LocalSnapshotState { ParentId = Guid.NewGuid(), Flags = NetworkFlags.None };
+		snapshot.Begin();
+		table.WriteSnapshotState( snapshot );
+		var slot = "42.1.position".FastHash();
+		var hash = snapshot.Lookup[slot].Hash;
+
+		snapshot.Begin();
+		snapshot.ParentId = Guid.NewGuid();
+		table.WriteSnapshotState( snapshot );
+		Assert.AreNotEqual( hash, snapshot.Lookup[slot].Hash );
+		hash = snapshot.Lookup[slot].Hash;
+		snapshot.Begin();
+		snapshot.Flags = NetworkFlags.NoRotationSync;
+		table.WriteSnapshotState( snapshot );
+		Assert.AreNotEqual( hash, snapshot.Lookup[slot].Hash );
+
+		var otherSnapshot = new LocalSnapshotState();
+		table.WriteSnapshotState( otherSnapshot );
+		Assert.IsTrue( otherSnapshot.Lookup.ContainsKey( slot ), "A different snapshot needs the cached body transforms inserted again." );
+	}
+
+	[TestMethod]
+	public void MutationDuringDeltaPreparationRemainsPending()
+	{
+		var values = new CountingDeltaTable();
+		values.Set( 1, 7 );
+		using var table = new NetworkTable();
+		table.Register( 42, new NetworkTable.Entry { TargetType = values.GetType(), GetValue = () => values } );
+		values.AfterWrite = () => values.Set( 1, 8 );
+		var snapshot = new LocalSnapshotState();
+		table.WriteSnapshotState( snapshot );
+		var hash = snapshot.Lookup["42.1".FastHash()].Hash;
+		values.AfterWrite = null;
+		table.WriteSnapshotState( snapshot );
+		Assert.AreEqual( 2, values.WriteCalls );
+		Assert.AreNotEqual( hash, snapshot.Lookup["42.1".FastHash()].Hash );
+		table.WriteSnapshotState( snapshot );
+		Assert.AreEqual( 2, values.WriteCalls );
+	}
+
+	[TestMethod]
+	public void UntrackedCustomDeltaPropertiesAlwaysPrepare()
+	{
+		var values = new CustomDelta();
+		using var table = new NetworkTable();
+		table.Register( 42, new NetworkTable.Entry { TargetType = values.GetType(), GetValue = () => values } );
+		var snapshot = new LocalSnapshotState();
+		table.WriteSnapshotState( snapshot );
+		table.WriteSnapshotState( snapshot );
+		Assert.AreEqual( 2, values.WriteCalls );
+	}
+
+	private sealed class CountingDeltaTable : Sandbox.NetworkTable<int>
+	{
+		public int WriteCalls;
+		public Action AfterWrite;
+
+		protected override void WriteSnapshot( int slot, LocalSnapshotState snapshot )
+		{
+			WriteCalls++;
+			base.WriteSnapshot( slot, snapshot );
+			AfterWrite?.Invoke();
+		}
+	}
+
 	private sealed class CustomDelta : INetworkDeltaSnapshot
 	{
-		public void WriteSnapshotState( int slot, LocalSnapshotState snapshot ) { }
+		public int WriteCalls;
+		public void WriteSnapshotState( int slot, LocalSnapshotState snapshot ) { WriteCalls++; }
 		public void ReadSnapshot( int slot, DeltaSnapshot snapshot ) { }
 	}
 }

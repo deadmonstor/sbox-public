@@ -33,6 +33,18 @@ internal class NetworkTable : IDisposable
 		internal NetworkTable Table;
 		internal INetworkProperty BoundProperty;
 		internal bool RequiresSnapshotPolling;
+		private DeltaPreparation _deltaPreparation;
+
+		// Only tracked delta properties need this state; scalar entries already cache their bytes.
+		private sealed class DeltaPreparation
+		{
+			public ulong Revision;
+			public ulong PreparedRevision;
+			public LocalSnapshotState Snapshot;
+			public Guid Parent;
+			public NetworkFlags Flags;
+			public ushort Version;
+		}
 
 		bool INetworkProxy.IsProxy => !HasControl( Connection.Local );
 
@@ -41,9 +53,51 @@ internal class NetworkTable : IDisposable
 			if ( Table is null || !ReferenceEquals( BoundProperty, property ) )
 				return;
 
+			InvalidateSnapshot();
+		}
+
+		internal void InvalidateSnapshot()
+		{
 			Serialized = null;
 			IsDirty = true;
+			if ( _deltaPreparation is not null )
+				_deltaPreparation.Revision++;
 			Table.SnapshotRevision++;
+		}
+
+		internal bool CanReusePreparation( LocalSnapshotState snapshot )
+		{
+			var prepared = _deltaPreparation;
+			return prepared is not null && ReferenceEquals( prepared.Snapshot, snapshot )
+				&& prepared.PreparedRevision == prepared.Revision && prepared.Parent == snapshot.ParentId
+				&& prepared.Flags == snapshot.Flags && prepared.Version == snapshot.Version;
+		}
+
+		internal void PrepareSnapshot( LocalSnapshotState snapshot )
+		{
+			// Capture before invoking user code: mutations during writing must stay pending.
+			var prepared = _deltaPreparation;
+			var revision = prepared?.Revision ?? 0;
+			var parent = snapshot.ParentId;
+			var flags = snapshot.Flags;
+			var version = snapshot.Version;
+			var value = GetValue() as INetworkDeltaSnapshot;
+			value?.WriteSnapshotState( Slot, snapshot );
+
+			if ( prepared is null )
+				return;
+
+			prepared.Snapshot = snapshot;
+			prepared.PreparedRevision = revision;
+			prepared.Parent = parent;
+			prepared.Flags = flags;
+			prepared.Version = version;
+		}
+
+		internal void ClearPreparation()
+		{
+			if ( _deltaPreparation is not null )
+				_deltaPreparation.Snapshot = null;
 		}
 
 		/// <summary>
@@ -77,6 +131,8 @@ internal class NetworkTable : IDisposable
 			var reportsSnapshotChanges = IsDeltaSnapshotType && TargetType.IsAssignableTo( typeof( INetworkSnapshotChanges ) );
 			NeedsQuery |= !reportsSnapshotChanges && (isListType || isDictionaryType || IsSerializerType);
 			RequiresSnapshotPolling = !IsReliableType && (NeedsQuery || (IsDeltaSnapshotType && !reportsSnapshotChanges));
+			if ( IsDeltaSnapshotType && !RequiresSnapshotPolling )
+				_deltaPreparation = new();
 		}
 	}
 
@@ -119,6 +175,7 @@ internal class NetworkTable : IDisposable
 		{
 			entry.Table = null;
 			entry.BoundProperty = null;
+			entry.ClearPreparation();
 		}
 		SnapshotRevision++;
 		_snapshotPollingEntries = 0;
@@ -141,6 +198,7 @@ internal class NetworkTable : IDisposable
 		{
 			entry.Table = null;
 			entry.BoundProperty = null;
+			entry.ClearPreparation();
 			SnapshotRevision++;
 			if ( entry.RequiresSnapshotPolling )
 				_snapshotPollingEntries--;
@@ -209,17 +267,13 @@ internal class NetworkTable : IDisposable
 			entry.BoundProperty = property;
 			property.Init( entry.Slot, entry );
 			entry.Initialized = true;
-			entry.Serialized = null;
-			entry.IsDirty = true;
-			SnapshotRevision++;
+			entry.InvalidateSnapshot();
 		}
 		else if ( value is not INetworkProperty )
 		{
 			if ( entry.BoundProperty is not null )
 			{
-				entry.Serialized = null;
-				entry.IsDirty = true;
-				SnapshotRevision++;
+				entry.InvalidateSnapshot();
 			}
 			entry.BoundProperty = null;
 			entry.Initialized = false;
@@ -230,9 +284,7 @@ internal class NetworkTable : IDisposable
 			if ( !serializer.HasChanges )
 				return;
 
-			entry.Serialized = null;
-			entry.IsDirty = true;
-			SnapshotRevision++;
+			entry.InvalidateSnapshot();
 			return;
 		}
 
@@ -242,9 +294,7 @@ internal class NetworkTable : IDisposable
 			return;
 
 		entry.HashCodeValue = hashValue;
-		entry.Serialized = null;
-		entry.IsDirty = true;
-		SnapshotRevision++;
+		entry.InvalidateSnapshot();
 	}
 
 	/// <summary>
@@ -327,12 +377,15 @@ internal class NetworkTable : IDisposable
 			var entry = _snapshotEntries[i];
 
 			if ( !entry.HasControl( localConnection ) )
+			{
+				entry.ClearPreparation();
 				continue;
+			}
 
 			if ( entry.IsDeltaSnapshotType )
 			{
-				var value = entry.GetValue() as INetworkDeltaSnapshot;
-				value?.WriteSnapshotState( entry.Slot, snapshot );
+				if ( !entry.CanReusePreparation( snapshot ) )
+					entry.PrepareSnapshot( snapshot );
 				continue;
 			}
 

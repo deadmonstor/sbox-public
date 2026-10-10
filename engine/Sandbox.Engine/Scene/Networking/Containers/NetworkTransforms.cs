@@ -25,9 +25,17 @@ internal class NetworkTransforms : NetworkTable<Transform>
 	}
 
 	private readonly SnapshotValueCache _snapshotCache = new();
+	private LocalSnapshotState _snapshotTarget;
 
 	protected override void WriteSnapshot( int slot, LocalSnapshotState state )
 	{
+		// Cached values may only skip insertion into the snapshot they were prepared for.
+		if ( !ReferenceEquals( _snapshotTarget, state ) )
+		{
+			_snapshotCache.Clear();
+			_snapshotTarget = state;
+		}
+
 		foreach ( var (key, transform) in Table )
 		{
 			UpdateComponentHashes( key );
@@ -83,6 +91,7 @@ internal class NetworkTransforms : NetworkTable<Transform>
 
 	protected override void OnCleared()
 	{
+		_snapshotTarget = null;
 		_componentHashes.Clear();
 		_snapshotCache.Clear();
 	}

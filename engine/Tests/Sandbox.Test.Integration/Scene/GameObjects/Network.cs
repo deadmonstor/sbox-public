@@ -36,7 +36,9 @@ public class NetworkTest
 	}
 
 	[TestMethod]
-	public void UnchangedDeltaPropertyReusesPreparationAndAdvancesSnapshotIds()
+	[DataRow( false )]
+	[DataRow( true )]
+	public void UnchangedDeltaPropertyReusesPreparationAndAdvancesSnapshotIds( bool hasPollingEntry )
 	{
 		using var scope = new Scene().Push();
 		using var clientAndHost = new ClientAndHost( TypeLibrary );
@@ -50,6 +52,11 @@ public class NetworkTest
 			TargetType = values.GetType(),
 			GetValue = () => { getterCalls++; return values; }
 		} );
+		if ( hasPollingEntry )
+		{
+			var list = new List<int> { 1 };
+			go._net.dataTable.Register( 43, new Sandbox.Network.NetworkTable.Entry { TargetType = list.GetType(), GetValue = () => list } );
+		}
 		values.Set( 1, 7 );
 		IDeltaSnapshot networkObject = go._net;
 		var state = networkObject.WriteSnapshotState();
