@@ -241,7 +241,9 @@ public class SnapshotPreparationTest
 		using var table = new NetworkTable();
 		table.Register( 42, new NetworkTable.Entry
 		{
-			TargetType = values.GetType(), GetValue = () => values, ControlCondition = _ => controlled
+			TargetType = values.GetType(),
+			GetValue = () => values,
+			ControlCondition = _ => controlled
 		} );
 		var snapshot = new LocalSnapshotState();
 		table.WriteSnapshotState( snapshot );

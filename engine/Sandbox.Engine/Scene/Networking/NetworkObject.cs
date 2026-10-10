@@ -207,6 +207,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 	internal void Dispose()
 	{
 		GameObject.Scene.UnregisterNetworkObject( this );
+		dataTable.Changed = null;
 		GameObject = default;
 	}
 
@@ -214,6 +215,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 	{
 		if ( IsProxy ) return;
 		_clearInterpolationFlag = true;
+		ScheduleSnapshot();
 	}
 
 	internal bool CanDropOwnership( Connection source )
@@ -413,6 +415,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 		_culledConnections.Remove( id );
 		_createMessageConnections.Remove( id );
 		_cullStates.Remove( id );
+		ScheduleSnapshot();
 	}
 
 	/// <summary>
@@ -431,6 +434,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 	private void ClearConnections()
 	{
 		LocalSnapshotState.ClearConnections();
+		ScheduleSnapshot();
 		_createMessageConnections.Clear();
 	}
 
@@ -610,7 +614,10 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 		if ( hasFullSnapshotState )
 			LocalSnapshotState.UpdatedConnections.Add( source.Id );
 		else
+		{
 			LocalSnapshotState.UpdatedConnections.Remove( source.Id );
+			ScheduleSnapshot();
+		}
 	}
 
 	private const int SnapshotPositionSlot = 1;
@@ -631,6 +638,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 
 		// Reliable query properties still need polling when snapshot preparation can be reused.
 		dataTable.QueryValues();
+		var scheduleRevision = _scheduleRevision;
 
 		var flags = GameObject.Network.Flags;
 		var parentId = GameObject.Parent is null or Scene ? Guid.Empty : GameObject.Parent.Id;
@@ -641,7 +649,10 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 		// Keep advancing IDs for retransmissions, even when the serialized state is unchanged.
 		LocalSnapshotState.SnapshotId = system.DeltaSnapshots.CreateSnapshotId( Id );
 		if ( dataTable.CanReuseSnapshotState && _hasPreparedSnapshot && preparation == _preparedSnapshot )
+		{
+			_preparedScheduleRevision = scheduleRevision;
 			return LocalSnapshotState;
+		}
 
 		LocalSnapshotState.Begin();
 		LocalSnapshotState.ParentId = parentId;
@@ -674,6 +685,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 		// Store the revision from before serialization: a getter may change another entry while writing.
 		_preparedSnapshot = preparation;
 		_hasPreparedSnapshot = true;
+		_preparedScheduleRevision = scheduleRevision;
 
 		_clearInterpolationFlag = false;
 
@@ -702,6 +714,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 	internal void TransmitStateChanged()
 	{
 		LocalSnapshotState.ClearConnections();
+		ScheduleSnapshot();
 	}
 
 	private static readonly GameObject.SerializeOptions _createSerializeOptions = new() { SingleNetworkObject = true, SkipNulls = true };
@@ -957,6 +970,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 		system?.DeltaSnapshots.ClearNetworkObject( this );
 
 		LocalSnapshotState.ClearConnections();
+		ScheduleSnapshot();
 
 		if ( !isOwner )
 			return;

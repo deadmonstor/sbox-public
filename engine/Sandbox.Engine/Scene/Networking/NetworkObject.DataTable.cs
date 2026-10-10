@@ -20,8 +20,13 @@ internal sealed partial class NetworkObject
 
 	void CreateDataTable()
 	{
-		dataTable?.Dispose();
-		dataTable = new();
+		if ( dataTable is not null )
+		{
+			dataTable.Changed = null;
+			dataTable.Dispose();
+		}
+		dataTable = new() { Changed = ScheduleSnapshot };
+		ScheduleSnapshot();
 
 		RegisterPropertiesRecursive( GameObject );
 	}

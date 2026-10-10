@@ -55,6 +55,11 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 	internal void OnHotload()
 	{
 		DeltaSnapshots.Reset();
+		if ( Game.ActiveScene is { } scene )
+		{
+			foreach ( var obj in scene.networkedObjects )
+				obj.TransmitStateChanged();
+		}
 	}
 
 	/// <summary>

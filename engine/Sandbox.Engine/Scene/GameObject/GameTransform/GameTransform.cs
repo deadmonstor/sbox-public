@@ -36,7 +36,16 @@ public partial class GameTransform
 		return true;
 	}
 
-	public TransformProxy Proxy { get; set; }
+	public TransformProxy Proxy
+	{
+		get;
+		set
+		{
+			if ( field == value ) return;
+			field = value;
+			GameObject._net?.ScheduleSnapshot();
+		}
+	}
 
 	/// <summary>
 	/// Returns true if we're inside the transform changed callback.
@@ -141,6 +150,7 @@ public partial class GameTransform
 
 		_interpolatedLocal = value;
 		_targetLocal = value;
+		GameObject._net?.ScheduleSnapshot();
 
 		return true;
 	}
@@ -161,6 +171,7 @@ public partial class GameTransform
 		_hasPositionSet = true;
 		_interpolatedLocal = value;
 		_targetLocal = value;
+		GameObject._net?.ScheduleSnapshot();
 		_positionBuffer?.Clear();
 		_rotationBuffer?.Clear();
 		TransformChanged();

@@ -124,6 +124,7 @@ public partial class GameTransform
 		if ( shouldInterpolate )
 		{
 			Interpolate = true;
+			GameObject._net?.ScheduleSnapshot();
 			TransformChanged();
 		}
 	}
@@ -159,7 +160,10 @@ public partial class GameTransform
 		}
 
 		if ( didTransformChange )
+		{
+			GameObject._net?.ScheduleSnapshot();
 			TransformChanged();
+		}
 	}
 
 

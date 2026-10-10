@@ -87,6 +87,7 @@ public partial class GameObject : IJsonConvert, IComponentLister, BytePack.ISeri
 				return;
 
 			_enabled = value;
+			_net?.ScheduleSnapshot();
 
 			UpdateEnabledStatus();
 		}
@@ -311,6 +312,7 @@ public partial class GameObject : IJsonConvert, IComponentLister, BytePack.ISeri
 	{
 		// Clear any local interpolation when our parent changes. This will also call TransformChanged.
 		Transform.ClearLocalInterpolation();
+		_net?.ScheduleSnapshot();
 
 		//
 		// Tags could have changed

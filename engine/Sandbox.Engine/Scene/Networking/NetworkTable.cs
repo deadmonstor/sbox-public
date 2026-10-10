@@ -62,7 +62,7 @@ internal class NetworkTable : IDisposable
 			IsDirty = true;
 			if ( _deltaPreparation is not null )
 				_deltaPreparation.Revision++;
-			Table.SnapshotRevision++;
+			Table.MarkChanged();
 		}
 
 		internal bool CanReusePreparation( LocalSnapshotState snapshot )
@@ -144,6 +144,14 @@ internal class NetworkTable : IDisposable
 
 	internal ulong SnapshotRevision { get; private set; }
 	internal bool CanReuseSnapshotState => _snapshotPollingEntries == 0;
+	internal bool RequiresPolling => _queryEntries.Count > 0 || _snapshotPollingEntries > 0;
+	internal Action Changed { get; set; }
+
+	internal void MarkChanged()
+	{
+		SnapshotRevision++;
+		Changed?.Invoke();
+	}
 
 	/// <summary>
 	/// Do we have any pending changes for entries we control?
@@ -177,12 +185,12 @@ internal class NetworkTable : IDisposable
 			entry.BoundProperty = null;
 			entry.ClearPreparation();
 		}
-		SnapshotRevision++;
 		_snapshotPollingEntries = 0;
 		_reliableEntries.Clear();
 		_snapshotEntries.Clear();
 		_queryEntries.Clear();
 		_entries.Clear();
+		MarkChanged();
 	}
 
 	/// <summary>
@@ -199,9 +207,9 @@ internal class NetworkTable : IDisposable
 			entry.Table = null;
 			entry.BoundProperty = null;
 			entry.ClearPreparation();
-			SnapshotRevision++;
 			if ( entry.RequiresSnapshotPolling )
 				_snapshotPollingEntries--;
+			MarkChanged();
 		}
 	}
 
@@ -220,7 +228,6 @@ internal class NetworkTable : IDisposable
 		UpdateSlotHash( slot, value );
 
 		entry.IsDirty = true;
-		SnapshotRevision++;
 		if ( entry.RequiresSnapshotPolling )
 			_snapshotPollingEntries++;
 
@@ -231,6 +238,8 @@ internal class NetworkTable : IDisposable
 
 		if ( entry.NeedsQuery )
 			_queryEntries.Add( entry );
+
+		MarkChanged();
 	}
 
 	/// <summary>

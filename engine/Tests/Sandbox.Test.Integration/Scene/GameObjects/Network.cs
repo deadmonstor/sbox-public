@@ -12,7 +12,7 @@ namespace SceneTests.GameObjects;
 using static GlobalGameNamespace;
 
 [TestClass]
-public class NetworkTest
+public partial class NetworkTest
 {
 	private TypeLibrary _oldTypeLibrary;
 

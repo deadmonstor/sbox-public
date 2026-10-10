@@ -17,6 +17,7 @@ public partial class Scene : GameObject
 	internal void RegisterNetworkedObject( NetworkObject obj )
 	{
 		networkedObjects.Add( obj );
+		ScheduleSnapshot( obj );
 	}
 
 	internal void UnregisterNetworkObject( NetworkObject obj )
@@ -26,6 +27,8 @@ public partial class Scene : GameObject
 		system?.DeltaSnapshots?.ClearNetworkObject( obj );
 
 		networkedObjects.Remove( obj );
+		_pendingSnapshotObjects.Remove( obj );
+		_continuousSnapshotObjects.Remove( obj );
 	}
 
 	RealTimeSince _timeSinceNetworkUpdate = 0f;
@@ -53,27 +56,7 @@ public partial class Scene : GameObject
 		var connections = system.GetFilteredConnections( Connection.ChannelState.Connected );
 		var connectionsArray = connections as Connection[] ?? connections.ToArray();
 
-		// Partition objects into dirty (pending changes) and clean (fully ACK'd).
-		// Dirty objects are processed first so they end up in earlier clusters,
-		// which are less likely to be delayed under network congestion.
-		_dirtySnapshotObjects.Clear();
-		_cleanSnapshotObjects.Clear();
-
-		foreach ( var n in networkedObjects )
-		{
-			if ( n.LocalSnapshotState.UpdatedConnections.Count == 0 )
-				_dirtySnapshotObjects.Add( n );
-			else
-				_cleanSnapshotObjects.Add( n );
-		}
-
-		IEnumerable<IDeltaSnapshot> objects = _dirtySnapshotObjects.Concat( _cleanSnapshotObjects );
-
-		// If we're the host, include any GameObjectSystems.
-		if ( Networking.IsHost )
-			objects = objects.Concat( systems.Values );
-
-		system.DeltaSnapshots.Send( objects, connectionsArray );
+		SendScheduledSnapshots( system, connectionsArray );
 
 		system.DeltaSnapshots.Tick();
 	}
@@ -187,8 +170,6 @@ public partial class Scene : GameObject
 	/// A cache of all the MapInstances that gets updated every frame
 	/// </summary>
 	readonly List<MapInstance> _networkMapInstanceCache = new();
-	readonly List<IDeltaSnapshot> _dirtySnapshotObjects = new();
-	readonly List<IDeltaSnapshot> _cleanSnapshotObjects = new();
 
 	/// <summary>
 	/// Are these bounds visible to the specified <see cref="Connection"/>?
