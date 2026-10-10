@@ -100,4 +100,12 @@ The baseline is retained on `perf/replication-scheduling-baseline-20261010` at `
 
 ## Next investigations
 
+### Notification coalescing trial — 2026-10-10
+
+Repeated notifications now skip continuous-set updates when the object is already pending. Revisions still advance on every notification; continuous membership is refreshed before processing to preserve queued visibility/polling changes. Developer build, format verification and 150 selected network tests passed, including two new queued-visibility cases.
+
+[Trial graphs](D:/Sandbox.Public.Projects/reports/network-object-load/replication-coalescing-comparison-20261010/index.html) compare retained scheduler results with six new actual-client runs, without rerunning the baseline. All six passed convergence and work-count checks with zero measurement exceptions. Changing/1,000 network elapsed cost was 1.753, 1.906 and 1.809 ms/frame (median 1.809), versus the previous single 1.801 run: no demonstrated throughput improvement. Frame p99 median was 14.795 ms versus 16.788; allocations were 16.140 versus 16.191 MiB/s. Neither establishes a repeatable benefit against a single older control. Idle/10,000 remains approximately 0.012 ms/frame; changing/100 is 0.185 versus 0.186.
+
+The measured candidate was `eca36bc09` plus the retained `tested.patch` in `D:/Sandbox.Public.Projects/results/network-object-load/replication-coalescing-client-20261010`; binary hashes and dirty diff hash are recorded. Harness/native/settings match; supporting managed hashes differ after rebuilding. No new profiling or dedicated-server run was performed. Next investigate candidate-set construction and per-send ACK/retention checks rather than assuming notifications explain the changing cost.
+
 Repeat matched baseline/candidate cohorts and compare mean/median/p95/p99 network/frame scopes, allocation rates, GC and exact work counts. Retain repeats and failures. Run all ten multiplayer scenes plus impaired Mixed/Visibility/Lifecycle/LateJoin, then separate Superluminal attribution and dedicated-server measurements. Schema/quantization and network-budget changes remain future work.

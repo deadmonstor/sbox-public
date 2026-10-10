@@ -205,6 +205,30 @@ public partial class NetworkTest
 	}
 
 	[TestMethod]
+	[DataRow( false )]
+	[DataRow( true )]
+	public void QueuedNotificationsRefreshVisibilityPolling( bool alwaysTransmit )
+	{
+		using var scope = new Scene().Push();
+		using var peers = new ClientAndHost( TypeLibrary );
+		peers.BecomeHost();
+		var go = new GameObject();
+		go.NetworkSpawn();
+		SettleScheduledSnapshot( go.Scene, go._net, peers.Client );
+		go._net.ScheduleSnapshot();
+		go.Network.AlwaysTransmit = !alwaysTransmit;
+		go.Network.AlwaysTransmit = alwaysTransmit;
+		for ( var i = 0; i < 3; i++ )
+		{
+			go.Scene.SendScheduledSnapshots( SceneNetworkSystem.Instance, [peers.Client] );
+			AcknowledgeScheduledSnapshot( go._net, peers.Client );
+		}
+		var id = go._net.LocalSnapshotState.SnapshotId;
+		go.Scene.SendScheduledSnapshots( SceneNetworkSystem.Instance, [peers.Client] );
+		Assert.AreEqual( alwaysTransmit, id == go._net.LocalSnapshotState.SnapshotId );
+	}
+
+	[TestMethod]
 	public void DestroyedObjectsLeaveSnapshotQueues()
 	{
 		using var scope = new Scene().Push();

@@ -17,7 +17,13 @@ public partial class Scene
 	{
 		if ( !networkedObjects.Contains( obj ) ) return;
 
-		_pendingSnapshotObjects.Add( obj );
+		// Further notifications still advance the object's revision, but need no queue work.
+		if ( !_pendingSnapshotObjects.Add( obj ) ) return;
+		RefreshContinuousSnapshots( obj );
+	}
+
+	void RefreshContinuousSnapshots( NetworkObject obj )
+	{
 		if ( obj.RequiresContinuousSnapshots )
 			_continuousSnapshotObjects.Add( obj );
 		else
@@ -81,6 +87,8 @@ public partial class Scene
 			if ( !networkedObjects.Contains( obj ) || !obj.IsValid ) continue;
 
 			_pendingSnapshotObjects.Remove( obj );
+			// Polling requirements may have changed while notifications were coalesced.
+			RefreshContinuousSnapshots( obj );
 			if ( !_continuousSnapshotObjects.Contains( obj ) && !obj.NeedsSnapshotUpdate( connections ) ) continue;
 
 			yield return obj;
