@@ -201,6 +201,12 @@ internal class LocalSnapshotState
 	/// <param name="hashFlags"></param>
 	public void AddSerialized( int slot, byte[] value, HashFlags hashFlags = HashFlags.Default )
 	{
+		if ( hashFlags == HashFlags.Default )
+		{
+			AddSerialized( slot, value, XxHash3.HashToUInt64( value ) );
+			return;
+		}
+
 		Hasher.Reset();
 		Hasher.Append( value );
 
