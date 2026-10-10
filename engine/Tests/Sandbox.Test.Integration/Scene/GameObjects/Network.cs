@@ -36,6 +36,41 @@ public class NetworkTest
 	}
 
 	[TestMethod]
+	public void UnchangedDeltaPropertyReusesPreparationAndAdvancesSnapshotIds()
+	{
+		using var scope = new Scene().Push();
+		using var clientAndHost = new ClientAndHost( TypeLibrary );
+		clientAndHost.BecomeHost();
+		var go = new GameObject();
+		go.NetworkSpawn();
+		var values = new Sandbox.NetworkTable<int>();
+		var getterCalls = 0;
+		go._net.dataTable.Register( 42, new Sandbox.Network.NetworkTable.Entry
+		{
+			TargetType = values.GetType(),
+			GetValue = () => { getterCalls++; return values; }
+		} );
+		values.Set( 1, 7 );
+		IDeltaSnapshot networkObject = go._net;
+		var state = networkObject.WriteSnapshotState();
+		// Settle the one-shot interpolation flag raised by spawning.
+		state = networkObject.WriteSnapshotState();
+		var slot = "42.1".FastHash();
+		var hash = state.Lookup[slot].Hash;
+		var snapshotId = state.SnapshotId;
+		var calls = getterCalls;
+		state = networkObject.WriteSnapshotState();
+		Assert.AreEqual( calls, getterCalls, "Unchanged delta properties should not be visited during reuse." );
+		Assert.AreEqual( hash, state.Lookup[slot].Hash );
+		Assert.AreEqual( unchecked((ushort)(snapshotId + 1)), state.SnapshotId );
+
+		values.Set( 1, 8 );
+		state = networkObject.WriteSnapshotState();
+		Assert.IsTrue( getterCalls > calls );
+		Assert.AreNotEqual( hash, state.Lookup[slot].Hash );
+	}
+
+	[TestMethod]
 	public void DisableTransformSync()
 	{
 		Assert.IsNotNull( TypeLibrary.GetType<ModelRenderer>(), "TypeLibrary hasn't been given the game assembly" );

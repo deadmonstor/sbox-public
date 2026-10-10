@@ -30,8 +30,21 @@ internal class NetworkTable : IDisposable
 		public byte[] Serialized;
 		public bool Initialized;
 		public int Slot;
+		internal NetworkTable Table;
+		internal INetworkProperty BoundProperty;
+		internal bool RequiresSnapshotPolling;
 
 		bool INetworkProxy.IsProxy => !HasControl( Connection.Local );
+
+		void INetworkProxy.MarkChanged( INetworkProperty property )
+		{
+			if ( Table is null || !ReferenceEquals( BoundProperty, property ) )
+				return;
+
+			Serialized = null;
+			IsDirty = true;
+			Table.SnapshotRevision++;
+		}
 
 		/// <summary>
 		/// Whether the specified <see cref="Connection"/> has control of this entry.
@@ -52,6 +65,7 @@ internal class NetworkTable : IDisposable
 
 		internal void Init( int slot )
 		{
+			Slot = slot;
 			if ( TargetType is null ) return;
 
 			var isListType = TargetType.IsAssignableTo( typeof( IList ) );
@@ -60,8 +74,9 @@ internal class NetworkTable : IDisposable
 			IsDeltaSnapshotType = TargetType.IsAssignableTo( typeof( INetworkDeltaSnapshot ) );
 			IsReliableType = !IsDeltaSnapshotType && TargetType.IsAssignableTo( typeof( INetworkReliable ) );
 			IsSerializerType = TargetType.IsAssignableTo( typeof( INetworkSerializer ) );
-			NeedsQuery |= (isListType || isDictionaryType || IsSerializerType);
-			Slot = slot;
+			var reportsSnapshotChanges = IsDeltaSnapshotType && TargetType.IsAssignableTo( typeof( INetworkSnapshotChanges ) );
+			NeedsQuery |= !reportsSnapshotChanges && (isListType || isDictionaryType || IsSerializerType);
+			RequiresSnapshotPolling = !IsReliableType && (NeedsQuery || (IsDeltaSnapshotType && !reportsSnapshotChanges));
 		}
 	}
 
@@ -100,6 +115,11 @@ internal class NetworkTable : IDisposable
 
 	public void Dispose()
 	{
+		foreach ( var entry in _entries.Values )
+		{
+			entry.Table = null;
+			entry.BoundProperty = null;
+		}
 		SnapshotRevision++;
 		_snapshotPollingEntries = 0;
 		_reliableEntries.Clear();
@@ -119,8 +139,10 @@ internal class NetworkTable : IDisposable
 		_queryEntries.RemoveAll( e => e.Slot == slot );
 		if ( _entries.Remove( slot, out var entry ) )
 		{
+			entry.Table = null;
+			entry.BoundProperty = null;
 			SnapshotRevision++;
-			if ( entry.NeedsQuery || entry.IsDeltaSnapshotType )
+			if ( entry.RequiresSnapshotPolling )
 				_snapshotPollingEntries--;
 		}
 	}
@@ -134,13 +156,14 @@ internal class NetworkTable : IDisposable
 		if ( !_entries.TryAdd( slot, entry ) )
 			return;
 
+		entry.Init( slot );
+		entry.Table = this;
 		var value = GetValue( slot );
 		UpdateSlotHash( slot, value );
 
-		entry.Init( slot );
 		entry.IsDirty = true;
 		SnapshotRevision++;
-		if ( entry.NeedsQuery || entry.IsDeltaSnapshotType )
+		if ( entry.RequiresSnapshotPolling )
 			_snapshotPollingEntries++;
 
 		if ( entry.IsReliableType )
@@ -181,10 +204,25 @@ internal class NetworkTable : IDisposable
 	/// </summary>
 	private void UpdateSlotHash( Entry entry, object value )
 	{
-		if ( value is INetworkProperty property && !entry.Initialized )
+		if ( value is INetworkProperty property && (!entry.Initialized || !ReferenceEquals( entry.BoundProperty, property )) )
 		{
+			entry.BoundProperty = property;
 			property.Init( entry.Slot, entry );
 			entry.Initialized = true;
+			entry.Serialized = null;
+			entry.IsDirty = true;
+			SnapshotRevision++;
+		}
+		else if ( value is not INetworkProperty )
+		{
+			if ( entry.BoundProperty is not null )
+			{
+				entry.Serialized = null;
+				entry.IsDirty = true;
+				SnapshotRevision++;
+			}
+			entry.BoundProperty = null;
+			entry.Initialized = false;
 		}
 
 		if ( value is INetworkSerializer serializer )

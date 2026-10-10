@@ -6,4 +6,9 @@
 internal interface INetworkProxy
 {
 	public bool IsProxy { get; }
+
+	/// <summary>
+	/// Notify the parent that a property changed internally, without replacing its value.
+	/// </summary>
+	void MarkChanged( INetworkProperty property ) { }
 }

@@ -7,7 +7,7 @@ namespace Sandbox;
 /// fully for clients when they first need it, and then it will be sent as delta snapshots when individual
 /// entries change.
 /// </summary>
-internal class NetworkTable<T> : INetworkDeltaSnapshot, INetworkProperty, INetworkSerializer
+internal class NetworkTable<T> : INetworkDeltaSnapshot, INetworkSnapshotChanges, INetworkSerializer
 {
 	protected Dictionary<int, byte[]> Serialized { get; set; } = new();
 	protected Dictionary<int, T> Table { get; set; } = new();
@@ -47,6 +47,7 @@ internal class NetworkTable<T> : INetworkDeltaSnapshot, INetworkProperty, INetwo
 		Keys.Clear();
 
 		OnCleared();
+		Parent?.MarkChanged( this );
 	}
 
 	/// <summary>
@@ -64,6 +65,7 @@ internal class NetworkTable<T> : INetworkDeltaSnapshot, INetworkProperty, INetwo
 		Table[slot] = value;
 
 		OnValueChanged( slot, value );
+		Parent?.MarkChanged( this );
 
 		if ( !Keys.Add( slot ) )
 			return;
@@ -196,6 +198,7 @@ internal class NetworkTable<T> : INetworkDeltaSnapshot, INetworkProperty, INetwo
 		ReadSnapshot( slot, snapshot );
 
 		PruneRemovedEntries();
+		Parent?.MarkChanged( this );
 	}
 
 	void PruneRemovedEntries()
@@ -268,6 +271,7 @@ internal class NetworkTable<T> : INetworkDeltaSnapshot, INetworkProperty, INetwo
 		}
 
 		WriteSerializedKeys();
+		Parent?.MarkChanged( this );
 	}
 
 	/// <summary>

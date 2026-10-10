@@ -629,6 +629,9 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 		var system = SceneNetworkSystem.Instance;
 		if ( system is null ) return null;
 
+		// Reliable query properties still need polling when snapshot preparation can be reused.
+		dataTable.QueryValues();
+
 		var flags = GameObject.Network.Flags;
 		var parentId = GameObject.Parent is null or Scene ? Guid.Empty : GameObject.Parent.Id;
 		var tx = IsProxy ? default : GameObject.Transform.TargetLocal;
@@ -666,7 +669,6 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 			LocalSnapshotState.AddCached( _snapshotCache, SnapshotEnabledSlot, GameObject.Enabled );
 		}
 
-		dataTable.QueryValues();
 		dataTable.WriteSnapshotState( LocalSnapshotState );
 
 		// Store the revision from before serialization: a getter may change another entry while writing.
