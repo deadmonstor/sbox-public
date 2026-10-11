@@ -20,6 +20,9 @@ public abstract partial class Component
 	[EditorBrowsable( EditorBrowsableState.Never )]
 	protected void __sync_SetValue<T>( in WrappedPropertySet<T> p )
 	{
+		var syncCounts = SyncSetterDiagnostics.IsEnabled
+			? SyncSetterDiagnostics.Begin( p.TypeName, p.PropertyName, NetworkTable.IsReadingChanges )
+			: null;
 		try
 		{
 			// If we aren't valid, then just set the property value anyway.
@@ -39,9 +42,11 @@ public abstract partial class Component
 
 				if ( EqualityComparer<T>.Default.Equals( currentValue, p.Value ) )
 				{
+					if ( syncCounts is not null ) System.Threading.Interlocked.Increment( ref syncCounts.Unchanged );
 					p.Setter?.Invoke( p.Value );
 					return;
 				}
+				if ( syncCounts is not null ) System.Threading.Interlocked.Increment( ref syncCounts.LocalChanges );
 			}
 
 			var root = GameObject.FindNetworkRoot();
@@ -79,7 +84,10 @@ public abstract partial class Component
 				return;
 			}
 
+			var revisionBefore = syncCounts is null ? 0 : net.dataTable.SnapshotRevision;
 			net.dataTable.UpdateValueHash( entry, p.Value );
+			if ( syncCounts is not null && net.dataTable.SnapshotRevision != revisionBefore )
+				System.Threading.Interlocked.Increment( ref syncCounts.ReplicationUpdates );
 			p.Setter?.Invoke( p.Value );
 		}
 		catch ( Exception e )
