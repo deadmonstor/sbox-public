@@ -567,6 +567,7 @@ sealed public partial class Rigidbody : Component, Component.ExecuteInEditor, IG
 		// Destroy shapes first so triggers can detect exits later.
 		_body?.Remove();
 		_body = null;
+		_lastReadBody = null;
 
 		FreeColliders();
 
@@ -591,11 +592,26 @@ sealed public partial class Rigidbody : Component, Component.ExecuteInEditor, IG
 	}
 
 	bool isUpdatingFromPhysics;
+	PhysicsBody _lastReadBody;
+	ulong _lastReadBodyRevision;
 
 	internal void UpdateTransformFromBody()
 	{
 		if ( !_body.IsValid() ) return;
 		if ( !_isSimulatingPhysics ) return;
+
+		// Box3D reports active bodies and explicit transform edits through Dirty. Box2D
+		// does not report the same changes, so keep its transform readback polling.
+		if ( _body._body is PhysicsBody3d body )
+		{
+			var revision = body.ChangeRevision;
+			if ( ReferenceEquals( _lastReadBody, _body ) && _lastReadBodyRevision == revision )
+				return;
+
+			// Capture before applying: transform callbacks can edit this body again.
+			_lastReadBody = _body;
+			_lastReadBodyRevision = revision;
+		}
 
 		var tx = WorldTransform;
 		var target = _body.Transform.WithScale( tx.Scale );
@@ -656,7 +672,17 @@ sealed public partial class Rigidbody : Component, Component.ExecuteInEditor, IG
 			// Synced networked proxy should use velocity to move to world transform.
 			if ( !isSimulatingPhysics )
 			{
-				_body.Move( Transform.TargetWorld, Time.Delta );
+				var target = Transform.TargetWorld;
+				var atRest = !Scene.Is2D && velocity == Vector3.Zero && angularVelocity == Vector3.Zero;
+				var alreadyAtTarget = false;
+				if ( atRest )
+				{
+					var current = _body.Transform;
+					alreadyAtTarget = current.Position == target.Position && current.Rotation == target.Rotation;
+				}
+
+				if ( !alreadyAtTarget )
+					_body.Move( target, Time.Delta );
 			}
 		}
 
@@ -690,6 +716,7 @@ sealed public partial class Rigidbody : Component, Component.ExecuteInEditor, IG
 	void OnLocalTransformChanged()
 	{
 		if ( isUpdatingFromPhysics ) return;
+		_lastReadBody = null;
 		if ( IsProxy ) return;
 		if ( Transform.InsideChangeCallback ) return;
 

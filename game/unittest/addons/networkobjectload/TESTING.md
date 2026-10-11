@@ -2,6 +2,8 @@
 
 Start here for the current engine changes, runnable projects, correctness coverage and retained measurements.
 
+Latest continuation: [idle rigidbody findings](D:/Sandbox.Public.Projects/reports/network-object-load/idle-20261010/findings.md), October 11. Seven focused integration cases, two actual-client 10,000-body timing runs and a separate approved Superluminal capture passed. Host transform readback sample share fell; candidate timing repeatability and moving-body live-client coverage remain pending. The candidate remains uncommitted.
+
 ## Repository and projects
 
 The versioned harness is in `D:/sbox-public`, repository `https://github.com/Facepunch/sbox-public`, at `game/unittest/addons/networkobjectload/`. It was restored from `josh-branch` onto `perf/replication-dirty-state`; no combined-branch engine changes were imported. Keep the same harness available on both builds used for comparison. Never use `josh-branch` as a PR source.

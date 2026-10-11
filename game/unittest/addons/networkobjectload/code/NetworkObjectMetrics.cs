@@ -90,6 +90,9 @@ public sealed partial class NetworkObjectScenario
 		var summary = new
 		{
 			valid, reason, scenario = Scenario.ToString(), population = _subjects.Count, fakeConnections = _actualFakeConnections, realConnections = _participants.Count,
+			rigidbodies = _subjects.Count( s => s.Object.Components.Get<Rigidbody>() is not null ),
+			sleepingRigidbodies = _subjects.Count( s => s.Object.Components.Get<Rigidbody>()?.Sleeping == true ),
+			motionDisabledRigidbodies = _subjects.Count( s => s.Object.Components.Get<Rigidbody>()?.MotionEnabled == false ),
 			samples = rows.Length, runTicks = _completedRunTicks, requestedTicks = RunTicks,
 			actualSeconds = _measureEnded - _measureStarted, objectUpdates = _mutations, spawns = _spawns, destroys = _destroys, rpcs = _rpcs,
 			meanMs = Mean( s => s.FrameMs ), medianMs = Percentile( s => s.FrameMs, 0.5 ),

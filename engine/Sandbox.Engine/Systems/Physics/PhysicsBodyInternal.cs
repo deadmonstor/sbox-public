@@ -817,8 +817,11 @@ internal abstract partial class PhysicsBodyInternal : IValid
 		AngularVelocity = angVelocity;
 	}
 
+	internal ulong ChangeRevision { get; private set; }
+
 	protected void Dirty()
 	{
+		ChangeRevision++;
 		OnDirty?.Invoke();
 	}
 

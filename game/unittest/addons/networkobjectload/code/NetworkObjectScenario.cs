@@ -19,7 +19,11 @@ public enum Workload
 	Visibility,
 	Lifecycle,
 	LateJoin,
-	Mixed
+	Mixed,
+	IdleRigidbodySleeping,
+	IdleRigidbodyDisabled,
+	LocalRigidbodySleeping,
+	LocalRigidbodyDisabled
 }
 
 public class Payload : Component
@@ -92,7 +96,9 @@ public sealed partial class NetworkObjectScenario : Component
 	private ulong _expectedDigest;
 	private int _expectedCount;
 	private int _actualFakeConnections;
-	private bool LocalOnly => Scenario is Workload.LocalIdle or Workload.LocalMoving or Workload.LocalChanging;
+	private bool LocalOnly => Scenario is Workload.LocalIdle or Workload.LocalMoving or Workload.LocalChanging or Workload.LocalRigidbodySleeping or Workload.LocalRigidbodyDisabled;
+	private bool HasRigidbodies => Scenario is Workload.IdleRigidbodySleeping or Workload.IdleRigidbodyDisabled or Workload.LocalRigidbodySleeping or Workload.LocalRigidbodyDisabled;
+	private bool DisableMotion => Scenario is Workload.IdleRigidbodyDisabled or Workload.LocalRigidbodyDisabled;
 	private bool Moves => Scenario is Workload.Moving or Workload.LocalMoving or Workload.Mixed;
 	private bool Changes => Scenario is Workload.Changing or Workload.LocalChanging or Workload.SparseChanges or Workload.Mixed;
 	private bool Churns => Scenario is Workload.Lifecycle or Workload.Mixed;
@@ -189,6 +195,17 @@ public sealed partial class NetworkObjectScenario : Component
 			subject.Gate = go.Components.Create<VisibilityGate>();
 			go.Network.AlwaysTransmit = false;
 		}
+		if ( HasRigidbodies )
+		{
+			var collider = go.Components.Create<BoxCollider>();
+			collider.Scale = new Vector3( 16 );
+			var body = go.Components.Create<Rigidbody>( false );
+			body.Gravity = false;
+			body.MotionEnabled = !DisableMotion;
+			body.StartAsleep = !DisableMotion;
+			body.Enabled = true;
+			if ( !DisableMotion ) body.Sleeping = true;
+		}
 		if ( RenderSubjects )
 		{
 			var renderer = go.Components.Create<ModelRenderer>();
@@ -258,6 +275,16 @@ public sealed partial class NetworkObjectScenario : Component
 			Finish( false, "No additional client joined" );
 			return;
 		}
+		if ( HasRigidbodies && _subjects.Any( s =>
+		{
+			var body = s.Object.Components.Get<Rigidbody>();
+			return body is null || !body.PhysicsBody.IsValid() || body.Velocity != Vector3.Zero
+				|| body.AngularVelocity != Vector3.Zero || (DisableMotion ? body.MotionEnabled : !body.Sleeping);
+		} ) )
+		{
+			Finish( false, "Idle rigidbody state did not match requested motion/sleep state" );
+			return;
+		}
 		var expected = LocalOnly ? Array.Empty<GameObject>() : _subjects.Select( s => s.Object ).ToArray();
 		_expectedCount = expected.Length;
 		_expectedDigest = Digest( expected );
@@ -315,6 +342,14 @@ public sealed partial class NetworkObjectScenario : Component
 				Add( payload.Health.ToString() );
 				AddVector( payload.Target );
 				Add( payload.Flag.ToString() );
+			}
+			var body = go.Components.Get<Rigidbody>();
+			if ( body is not null )
+			{
+				Add( body.Id.ToString() );
+				Add( body.MotionEnabled.ToString() );
+				AddVector( body.Velocity );
+				AddVector( body.AngularVelocity );
 			}
 			foreach ( var child in go.Children.OrderBy( c => c.Name, StringComparer.Ordinal ) )
 			{
