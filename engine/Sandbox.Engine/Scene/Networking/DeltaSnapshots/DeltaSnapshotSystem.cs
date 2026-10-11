@@ -32,15 +32,49 @@ internal class DeltaSnapshotSystem
 
 	internal class ConnectionData
 	{
-		public List<SentCluster> SentClusters { get; set; } = new( 128 );
+		public List<SentCluster> SentClusters { get; } = new( 128 );
+		private readonly Dictionary<ushort, int> _sentClusterIndices = new();
+
+		internal bool HasSentCluster( ushort id ) => _sentClusterIndices.ContainsKey( id );
+
+		internal bool TryGetSentCluster( ushort id, out int index, out SentCluster sent )
+		{
+			if ( _sentClusterIndices.TryGetValue( id, out index ) )
+			{
+				sent = SentClusters[index];
+				return true;
+			}
+			sent = default;
+			return false;
+		}
+
+		internal void AddSentCluster( SentCluster sent )
+		{
+			_sentClusterIndices.Add( sent.Cluster.Id, SentClusters.Count );
+			SentClusters.Add( sent );
+		}
+
+		internal void RemoveSentCluster( int index )
+		{
+			_sentClusterIndices.Remove( SentClusters[index].Cluster.Id );
+			var last = SentClusters.Count - 1;
+			if ( index != last )
+			{
+				SentClusters[index] = SentClusters[last];
+				_sentClusterIndices[SentClusters[index].Cluster.Id] = index;
+			}
+			SentClusters.RemoveAt( last );
+		}
 		public Dictionary<Guid, List<DeltaSnapshot>> SentSnapshots { get; set; } = new( GuidComparer );
 		public Dictionary<Guid, RemoteSnapshotState> ReceivedSnapshotStates { get; set; } = new( GuidComparer );
 		public Dictionary<Guid, RemoteSnapshotState> RemoteSnapshotStates { get; set; } = new( GuidComparer );
 		public Connection Connection { get; private set; }
+		public int Index { get; }
 
-		public ConnectionData( Connection connection )
+		public ConnectionData( Connection connection, int index )
 		{
 			Connection = connection;
+			Index = index;
 		}
 
 		/// <summary>
@@ -89,6 +123,7 @@ internal class DeltaSnapshotSystem
 			}
 
 			SentClusters.Clear();
+			_sentClusterIndices.Clear();
 		}
 
 		/// <summary>
@@ -109,7 +144,7 @@ internal class DeltaSnapshotSystem
 				sentCluster.SentSnapshotIds.Clear();
 				ObjectPool<HashSet<(ushort, Guid)>>.Return( sentCluster.SentSnapshotIds );
 				sentCluster.Cluster.Release();
-				SentClusters.RemoveAt( i );
+				RemoveSentCluster( i );
 			}
 
 			foreach ( var list in SentSnapshots.Values )
@@ -129,6 +164,8 @@ internal class DeltaSnapshotSystem
 		}
 	}
 
+	private ConnectionIndices _connectionIndices = new();
+
 	private Dictionary<Guid, ConnectionData> Connections { get; set; } = new( GuidComparer );
 	private Dictionary<Guid, ushort> LastSentSnapshotIds { get; set; } = new( GuidComparer );
 	private float Time { get; set; }
@@ -139,10 +176,39 @@ internal class DeltaSnapshotSystem
 	/// <param name="target"></param>
 	public void RemoveConnection( Connection target )
 	{
-		if ( Connections.Remove( target.Id, out var data ) )
+		if ( !Connections.TryGetValue( target.Id, out var data ) ) return;
+
+		// Clear every current and retained receipt before this index can be recycled.
+		var scene = Game.ActiveScene;
+		if ( scene.IsValid() )
 		{
-			data.Clear();
+			foreach ( var obj in scene.networkedObjects ) obj.LocalSnapshotState.RemoveConnection( data.Index );
+			foreach ( var system in scene.GetSystems() ) system.LocalSnapshotState.RemoveConnection( data.Index );
 		}
+		foreach ( var peer in Connections.Values )
+		{
+			foreach ( var sent in peer.SentClusters )
+				foreach ( var snapshot in sent.Cluster.Snapshots ) ClearReceipt( snapshot, data.Index );
+			foreach ( var list in peer.SentSnapshots.Values )
+				foreach ( var snapshot in list ) ClearReceipt( snapshot, data.Index );
+		}
+		_pendingEmptyAcks.RemoveAll( ack => ReferenceEquals( ack.Target, data ) );
+		data.Clear();
+		Connections.Remove( target.Id );
+		_connectionIndices.Remove( target.Id );
+	}
+
+	private static void ClearReceipt( DeltaSnapshot snapshot, int index )
+	{
+		snapshot.LocalState?.RemoveConnection( index );
+		foreach ( ref var entry in CollectionsMarshal.AsSpan( snapshot.Entries ) ) entry.Connections.Remove( index );
+	}
+
+	private ConnectionMask GetActiveConnections( Connection[] connections )
+	{
+		ConnectionMask active = default;
+		foreach ( var connection in connections ) active.Add( GetConnection( connection ).Index );
+		return active;
 	}
 
 	/// <summary>
@@ -152,13 +218,25 @@ internal class DeltaSnapshotSystem
 	internal void Reset()
 	{
 		LastSentSnapshotIds.Clear();
+		var scene = Game.ActiveScene;
+		if ( scene.IsValid() )
+		{
+			foreach ( var obj in scene.networkedObjects ) obj.LocalSnapshotState.ClearConnections();
+			foreach ( var system in scene.GetSystems() ) system.LocalSnapshotState.ClearConnections();
+		}
 
 		foreach ( var connection in Connections.Values )
 		{
+			foreach ( var sent in connection.SentClusters )
+				foreach ( var snapshot in sent.Cluster.Snapshots ) snapshot.LocalState?.ClearConnections();
+			foreach ( var list in connection.SentSnapshots.Values )
+				foreach ( var snapshot in list ) snapshot.LocalState?.ClearConnections();
 			connection.Clear();
 		}
 
 		Connections.Clear();
+		_pendingEmptyAcks.Clear();
+		_connectionIndices = new();
 	}
 
 	/// <summary>
@@ -179,7 +257,7 @@ internal class DeltaSnapshotSystem
 	{
 		if ( !Connections.TryGetValue( connection.Id, out var data ) )
 		{
-			data = Connections[connection.Id] = new( connection );
+			data = Connections[connection.Id] = new( connection, _connectionIndices.GetOrAdd( connection.Id ) );
 		}
 
 		return data;
@@ -193,15 +271,19 @@ internal class DeltaSnapshotSystem
 		if ( cluster.Snapshots.Count == 0 )
 			return;
 
+		// A wrapped wire ID must not overwrite an outstanding cluster for this peer.
+		// Leave the newer values pending; a subsequent send uses another cluster ID.
+		if ( target.HasSentCluster( cluster.Id ) ) return;
+
 		var receivedSnapshotStates = target.ReceivedSnapshotStates;
-		var connectionId = target.Connection.Id;
+		var connectionIndex = target.Index;
 		var connection = target.Connection;
 
 		for ( var i = 0; i < cluster.Snapshots.Count; i++ )
 		{
 			var snapshot = cluster.Snapshots[i];
 
-			if ( snapshot.LocalState?.UpdatedConnections.Contains( connectionId ) ?? false )
+			if ( snapshot.LocalState?.UpdatedConnections.Contains( connectionIndex ) ?? false )
 				continue;
 
 			if ( !(snapshot.Source?.ShouldTransmit( connection ) ?? true) )
@@ -213,16 +295,17 @@ internal class DeltaSnapshotSystem
 			{
 				for ( var j = 0; j < snapshot.Entries.Count; j++ )
 				{
-					var entry = snapshot.Entries[j];
+					ref var entry = ref CollectionsMarshal.AsSpan( snapshot.Entries )[j];
 					var slot = entry.Slot;
 
-					if ( entry.LocalState?.Connections?.Contains( connectionId ) ?? false )
+					if ( entry.LocalState?.Connections.Contains( connectionIndex ) ?? false )
 					{
 						// We've already sent this value to this connection, but only skip
 						// if the prediction is still valid (waiting for ACK). If prediction
 						// expired without ACK, fall through to resend.
 						if ( state.TryGetHash( slot, out _, Time ) )
 							continue;
+						if ( SnapshotAckDiagnostics.Enabled ) SnapshotAckDiagnostics.ExpiredResends++;
 					}
 
 					var value = entry.Value;
@@ -239,7 +322,7 @@ internal class DeltaSnapshotSystem
 
 					state.AddPredicted( entry, snapshot.SnapshotId, Time );
 
-					entry.Connections?.Add( connectionId );
+					entry.Connections.Add( connectionIndex );
 				}
 			}
 			else
@@ -250,7 +333,7 @@ internal class DeltaSnapshotSystem
 					ObjectId = snapshot.ObjectId
 				};
 
-				foreach ( var entry in snapshot.Entries )
+				foreach ( ref var entry in CollectionsMarshal.AsSpan( snapshot.Entries ) )
 				{
 					var slot = entry.Slot;
 					var value = entry.Value;
@@ -258,7 +341,7 @@ internal class DeltaSnapshotSystem
 					state.AddPredicted( entry, snapshot.SnapshotId, Time );
 					dataToSend[slot] = value;
 
-					entry.Connections?.Add( connectionId );
+					entry.Connections.Add( connectionIndex );
 				}
 
 				receivedSnapshotStates[snapshot.ObjectId] = state;
@@ -310,7 +393,7 @@ internal class DeltaSnapshotSystem
 
 		System.Send( target.Connection, InternalMessageType.DeltaSnapshotCluster, writer.ToSpan(), flags );
 
-		target.SentClusters.Add( new SentCluster( cluster, sentSnapshotIds ) );
+		target.AddSentCluster( new SentCluster( cluster, sentSnapshotIds ) );
 		cluster.AddReference();
 
 		// For empty connections, we still want to "receive" acknowledgements for benchmarking purposes
@@ -322,12 +405,12 @@ internal class DeltaSnapshotSystem
 
 	private void SendSnapshot( ConnectionData target, DeltaSnapshot snapshot, NetFlags flags = NetFlags.UnreliableNoDelay, bool sendFullUpdate = false )
 	{
-		var connectionId = target.Connection.Id;
+		var connectionIndex = target.Index;
 		SnapshotData snapshotData = null;
 
 		if ( target.ReceivedSnapshotStates.TryGetValue( snapshot.ObjectId, out var state ) )
 		{
-			foreach ( var entry in snapshot.Entries )
+			foreach ( ref var entry in CollectionsMarshal.AsSpan( snapshot.Entries ) )
 			{
 				var slot = entry.Slot;
 				var value = entry.Value;
@@ -344,7 +427,7 @@ internal class DeltaSnapshotSystem
 
 				state.AddPredicted( entry, snapshot.SnapshotId, Time );
 
-				entry.Connections?.Add( connectionId );
+				entry.Connections.Add( connectionIndex );
 			}
 		}
 		else
@@ -352,7 +435,7 @@ internal class DeltaSnapshotSystem
 			snapshotData = SnapshotData.Pool.Rent();
 			state = new RemoteSnapshotState { ObjectId = snapshot.ObjectId };
 
-			foreach ( var entry in snapshot.Entries )
+			foreach ( ref var entry in CollectionsMarshal.AsSpan( snapshot.Entries ) )
 			{
 				var slot = entry.Slot;
 				var value = entry.Value;
@@ -360,7 +443,7 @@ internal class DeltaSnapshotSystem
 				state.AddPredicted( entry, snapshot.SnapshotId, Time );
 				snapshotData[slot] = value;
 
-				entry.Connections?.Add( connectionId );
+				entry.Connections.Add( connectionIndex );
 			}
 
 			target.ReceivedSnapshotStates[snapshot.ObjectId] = state;
@@ -401,25 +484,46 @@ internal class DeltaSnapshotSystem
 		snapshot.AddReference();
 	}
 
+	private static IDeltaSnapshot GetSnapshotSource( Scene scene, DeltaSnapshot snapshot )
+	{
+		var source = snapshot.Source;
+		var valid = source switch
+		{
+			NetworkObject obj => obj.IsValid && obj.GameObject.Scene == scene && ReferenceEquals( obj.GameObject._net, obj ),
+			GameObjectSystem system => system.Scene == scene,
+			_ => (source = FindSnapshotSource( scene, snapshot.ObjectId )) is not null
+		};
+		return valid && source.Id == snapshot.ObjectId && source.SnapshotVersion == snapshot.Version ? source : null;
+	}
+
+	private static IDeltaSnapshot FindSnapshotSource( Scene scene, Guid id )
+	{
+		IDeltaSnapshot source = scene.Directory.FindSystemByGuid( id );
+		if ( source is not null ) return source;
+
+		var go = scene.Directory.FindByGuid( id );
+		return go.IsValid() ? go._net : null;
+	}
+
 	private readonly HashSet<ushort> _invalidSnapshotIds = new( 32 );
 
 	public void OnDeltaSnapshotClusterAck( Connection source, ByteStream message )
 	{
+		if ( SnapshotAckDiagnostics.Enabled ) SnapshotAckDiagnostics.ClusterCalls++;
 		var scene = Game.ActiveScene;
 		if ( !scene.IsValid() ) return;
 
-		var connectionData = GetConnection( source );
+		if ( !Connections.TryGetValue( source.Id, out var connectionData ) ) return;
 
 		var clusterId = message.Read<ushort>();
-		var sentIndex = connectionData.SentClusters.FindIndex( c => c.Cluster.Id == clusterId );
-		if ( sentIndex < 0 ) return;
+		if ( SnapshotAckDiagnostics.Enabled ) SnapshotAckDiagnostics.LookupProbes++;
+		if ( !connectionData.TryGetSentCluster( clusterId, out var sentIndex, out var sentCluster ) ) return;
 
-		var sentCluster = connectionData.SentClusters[sentIndex];
 		var sentSnapshotIds = sentCluster.SentSnapshotIds;
 		var cluster = sentCluster.Cluster;
 
 		var invalidSnapshotCount = message.Read<ushort>();
-		var connectionId = source.Id;
+		var connectionIndex = connectionData.Index;
 
 		_invalidSnapshotIds.Clear();
 
@@ -438,39 +542,34 @@ internal class DeltaSnapshotSystem
 			if ( _invalidSnapshotIds.Contains( snapshot.SnapshotId ) )
 				continue;
 
-			IDeltaSnapshot snapshotter = scene.Directory.FindSystemByGuid( snapshot.ObjectId );
-
-			if ( snapshotter is null )
-			{
-				var go = scene.Directory.FindByGuid( snapshot.ObjectId );
-				if ( go.IsValid() )
-					snapshotter = go._net;
-			}
+			var snapshotter = GetSnapshotSource( scene, snapshot );
 
 			if ( snapshotter is null || snapshotter.SnapshotVersion != snapshot.Version )
 				continue;
 
 			if ( connectionData.ReceivedSnapshotStates.TryGetValue( snapshot.ObjectId, out var state ) )
 			{
-				foreach ( var entry in snapshot.Entries )
+				foreach ( ref var entry in CollectionsMarshal.AsSpan( snapshot.Entries ) )
 				{
-					if ( (!entry.Connections?.Contains( connectionId ) ?? false) )
+					if ( !entry.Connections.Contains( connectionIndex ) )
 						continue;
 
+					if ( SnapshotAckDiagnostics.Enabled ) SnapshotAckDiagnostics.RemoteSlotUpdates++;
 					state.Update( entry, snapshot.SnapshotId );
 				}
 			}
 			else
 			{
-				state = connectionData.ReceivedSnapshotStates[snapshot.ObjectId] = RemoteSnapshotState.From( connectionId, snapshot );
+				state = connectionData.ReceivedSnapshotStates[snapshot.ObjectId] = RemoteSnapshotState.From( connectionIndex, snapshot );
 			}
 
-			snapshotter.OnSnapshotAck( source, snapshot, state );
+			if ( SnapshotAckDiagnostics.Enabled ) SnapshotAckDiagnostics.SnapshotCallbacks++;
+			snapshotter.OnSnapshotAck( source, connectionIndex, snapshot, state );
 		}
 
 		sentCluster.SentSnapshotIds.Clear();
 		ObjectPool<HashSet<(ushort, Guid)>>.Return( sentCluster.SentSnapshotIds );
-		connectionData.SentClusters.RemoveAt( sentIndex );
+		connectionData.RemoveSentCluster( sentIndex );
 		cluster.Release();
 	}
 
@@ -523,14 +622,14 @@ internal class DeltaSnapshotSystem
 
 			if ( connectionData.RemoteSnapshotStates.TryGetValue( objectId, out var state ) )
 			{
-				foreach ( var entry in snapshot.Entries )
+				foreach ( ref var entry in CollectionsMarshal.AsSpan( snapshot.Entries ) )
 				{
 					state.Update( entry, snapshotId );
 				}
 			}
 			else
 			{
-				state = connectionData.RemoteSnapshotStates[objectId] = RemoteSnapshotState.From( source.Id, snapshot );
+				state = connectionData.RemoteSnapshotStates[objectId] = RemoteSnapshotState.From( -1, snapshot );
 			}
 
 			var finalSnapshot = state.ToDeltaSnapshot( snapshotId, version, snapshot.Keys, Time );
@@ -566,8 +665,8 @@ internal class DeltaSnapshotSystem
 
 		var objectId = message.Read<Guid>();
 		var snapshotId = message.Read<ushort>();
-		var connectionData = GetConnection( source );
-		var connectionId = source.Id;
+		if ( !Connections.TryGetValue( source.Id, out var connectionData ) ) return;
+		var connectionIndex = connectionData.Index;
 
 		if ( !connectionData.SentSnapshots.TryGetValue( objectId, out var sentSnapshots ) )
 			sentSnapshots = connectionData.SentSnapshots[objectId] = new();
@@ -575,33 +674,28 @@ internal class DeltaSnapshotSystem
 		var snapshot = sentSnapshots.FirstOrDefault( s => s.SnapshotId == snapshotId );
 		if ( snapshot is null ) return;
 
-		IDeltaSnapshot snapshotter = scene.Directory.FindSystemByGuid( snapshot.ObjectId );
-
-		if ( snapshotter is null )
-		{
-			var go = scene.Directory.FindByGuid( snapshot.ObjectId );
-			if ( go.IsValid() )
-				snapshotter = go._net;
-		}
+		var snapshotter = GetSnapshotSource( scene, snapshot );
 
 		if ( snapshotter is not null && snapshotter.SnapshotVersion == snapshot.Version )
 		{
 			if ( connectionData.ReceivedSnapshotStates.TryGetValue( objectId, out var state ) )
 			{
-				foreach ( var entry in snapshot.Entries )
+				foreach ( ref var entry in CollectionsMarshal.AsSpan( snapshot.Entries ) )
 				{
-					if ( (!entry.Connections?.Contains( connectionId ) ?? false) )
+					if ( !entry.Connections.Contains( connectionIndex ) )
 						continue;
 
+					if ( SnapshotAckDiagnostics.Enabled ) SnapshotAckDiagnostics.RemoteSlotUpdates++;
 					state.Update( entry, snapshot.SnapshotId );
 				}
 			}
 			else
 			{
-				state = connectionData.ReceivedSnapshotStates[objectId] = RemoteSnapshotState.From( connectionId, snapshot );
+				state = connectionData.ReceivedSnapshotStates[objectId] = RemoteSnapshotState.From( connectionIndex, snapshot );
 			}
 
-			snapshotter.OnSnapshotAck( source, snapshot, state );
+			if ( SnapshotAckDiagnostics.Enabled ) SnapshotAckDiagnostics.SnapshotCallbacks++;
+			snapshotter.OnSnapshotAck( source, connectionIndex, snapshot, state );
 		}
 
 		sentSnapshots.Remove( snapshot );
@@ -646,14 +740,15 @@ internal class DeltaSnapshotSystem
 
 		if ( connectionData.RemoteSnapshotStates.TryGetValue( objectId, out var state ) )
 		{
-			foreach ( var entry in snapshot.Entries )
+			foreach ( ref var entry in CollectionsMarshal.AsSpan( snapshot.Entries ) )
 			{
+				if ( SnapshotAckDiagnostics.Enabled ) SnapshotAckDiagnostics.RemoteSlotUpdates++;
 				state.Update( entry, snapshot.SnapshotId );
 			}
 		}
 		else
 		{
-			state = connectionData.RemoteSnapshotStates[objectId] = RemoteSnapshotState.From( source.Id, snapshot );
+			state = connectionData.RemoteSnapshotStates[objectId] = RemoteSnapshotState.From( -1, snapshot );
 		}
 
 		var finalSnapshot = state.ToDeltaSnapshot( snapshot.SnapshotId, version, snapshot.Keys, Time );
@@ -752,6 +847,7 @@ internal class DeltaSnapshotSystem
 	/// <param name="connections"></param>
 	public void Send( IEnumerable<IDeltaSnapshot> objects, Connection[] connections )
 	{
+		var activeConnections = GetActiveConnections( connections );
 		var currentCluster = DeltaSnapshotCluster.Pool.Rent();
 
 		foreach ( var nwo in objects )
@@ -773,28 +869,17 @@ internal class DeltaSnapshotSystem
 			var localSnapshotState = nwo.WriteSnapshotState();
 			nwo.SendNetworkUpdate();
 
+			localSnapshotState.BindConnections( _connectionIndices );
 			ClearRemovedSlots( localSnapshotState );
 
-			var allConnectionsAreUpdated = true;
-
-			foreach ( var connection in connections )
-			{
-				if ( localSnapshotState.UpdatedConnections.Contains( connection.Id ) )
-					continue;
-
-				allConnectionsAreUpdated = false;
-				break;
-			}
-
-			// Do we even need to send this to anybody?
-			if ( allConnectionsAreUpdated )
+			if ( localSnapshotState.UpdatedConnections.ContainsAll( activeConnections ) )
 				continue;
 
 			if ( localSnapshotState.Size == 0 )
 				continue;
 
 			var clonedSnapshot = DeltaSnapshot.Pool.Rent();
-			clonedSnapshot.CopyFrom( nwo, localSnapshotState, connections.Length );
+			clonedSnapshot.CopyFrom( nwo, localSnapshotState, activeConnections );
 
 			if ( currentCluster.Size + clonedSnapshot.Size >= DeltaSnapshotCluster.MaxSize )
 			{
@@ -852,7 +937,9 @@ internal class DeltaSnapshotSystem
 		var connections = filteredConnections as Connection[] ?? filteredConnections.ToArray();
 		var clonedSnapshot = DeltaSnapshot.Pool.Rent();
 
-		clonedSnapshot.CopyFrom( snapshotter, localSnapshotState, connections.Length );
+		var activeConnections = GetActiveConnections( connections );
+		localSnapshotState.BindConnections( _connectionIndices );
+		clonedSnapshot.CopyFrom( snapshotter, localSnapshotState, activeConnections );
 
 		foreach ( var target in connections )
 		{

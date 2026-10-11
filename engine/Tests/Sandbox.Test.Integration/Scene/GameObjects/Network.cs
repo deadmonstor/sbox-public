@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json.Nodes;
@@ -110,7 +110,10 @@ public partial class NetworkTest
 		IDeltaSnapshot networkObject = go._net;
 		var state = networkObject.WriteSnapshotState();
 		var snapshot = new DeltaSnapshot();
-		snapshot.CopyFrom( networkObject, state, 2 );
+		ConnectionMask active = default;
+		active.Add( 0 );
+		active.Add( 1 );
+		snapshot.CopyFrom( networkObject, state, active );
 
 		// Become the host
 		clientAndHost.BecomeHost();
@@ -576,7 +579,10 @@ public partial class NetworkTest
 		// client2 now owns it, let's have it record a snapshot in this state
 		var state = networkObject.WriteSnapshotState();
 		var snapshot = new DeltaSnapshot();
-		snapshot.CopyFrom( networkObject, state, 2 );
+		ConnectionMask active = default;
+		active.Add( 0 );
+		active.Add( 1 );
+		snapshot.CopyFrom( networkObject, state, active );
 
 		// Become client1 again
 		Connection.Local = client1;

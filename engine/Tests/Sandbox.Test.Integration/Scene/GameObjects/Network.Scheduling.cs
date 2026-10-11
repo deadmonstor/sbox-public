@@ -13,12 +13,16 @@ public partial class NetworkTest
 	{
 		var local = obj.LocalSnapshotState;
 		var snapshot = new DeltaSnapshot();
-		snapshot.CopyFrom( obj, local, 1 );
+		ConnectionMask active = default;
+		active.Add( SceneNetworkSystem.Instance.DeltaSnapshots.GetConnection( connection ).Index );
+		snapshot.CopyFrom( obj, local, active );
+		foreach ( ref var entry in System.Runtime.InteropServices.CollectionsMarshal.AsSpan( snapshot.Entries ) )
+			entry.Connections.Add( SceneNetworkSystem.Instance.DeltaSnapshots.GetConnection( connection ).Index );
 		var remote = new RemoteSnapshotState();
 		foreach ( var entry in local.Entries )
 			remote.Data[entry.Slot] = new RemoteSnapshotState.Entry( local.SnapshotId, entry.Value, entry.Hash );
-		((IDeltaSnapshot)obj).OnSnapshotAck( connection, snapshot, remote );
-		Assert.IsTrue( local.UpdatedConnections.Contains( connection.Id ) );
+		((IDeltaSnapshot)obj).OnSnapshotAck( connection, SceneNetworkSystem.Instance.DeltaSnapshots.GetConnection( connection ).Index, snapshot, remote );
+		Assert.IsTrue( local.IsUpdated( connection.Id ) );
 	}
 
 	static void SettleScheduledSnapshot( Scene scene, NetworkObject obj, Connection connection )
@@ -123,7 +127,7 @@ public partial class NetworkTest
 		values.Add( 2 );
 		go.Scene.SendScheduledSnapshots( SceneNetworkSystem.Instance, [peers.Client] );
 		Assert.AreNotEqual( id, go._net.LocalSnapshotState.SnapshotId );
-		if ( !visibility ) Assert.IsFalse( go._net.LocalSnapshotState.UpdatedConnections.Contains( peers.Client.Id ) );
+		if ( !visibility ) Assert.IsFalse( go._net.LocalSnapshotState.IsUpdated( peers.Client.Id ) );
 	}
 
 	[TestMethod]

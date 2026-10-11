@@ -200,7 +200,7 @@ public class SnapshotPreparationTest
 		var listHash = snapshot.Lookup[43].Hash;
 		var slot = "42.1".FastHash();
 		var deltaEntry = snapshot.Lookup[slot];
-		var connection = Guid.NewGuid();
+		var connection = 0;
 		deltaEntry.Connections.Add( connection );
 
 		list.Add( 2 );

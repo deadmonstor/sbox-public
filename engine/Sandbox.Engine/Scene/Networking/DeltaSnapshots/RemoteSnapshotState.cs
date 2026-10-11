@@ -177,7 +177,7 @@ internal class RemoteSnapshotState
 	/// <summary>
 	/// Build a new <see cref="RemoteSnapshotState"/> from the specified <see cref="DeltaSnapshot"/>.
 	/// </summary>
-	public static RemoteSnapshotState From( Guid sourceId, DeltaSnapshot delta )
+	public static RemoteSnapshotState From( int sourceIndex, DeltaSnapshot delta )
 	{
 		var snapshot = new RemoteSnapshotState
 		{
@@ -186,7 +186,7 @@ internal class RemoteSnapshotState
 
 		foreach ( var entry in delta.Entries )
 		{
-			if ( (!entry.Connections?.Contains( sourceId ) ?? false) )
+			if ( entry.LocalState is not null && !entry.Connections.Contains( sourceIndex ) )
 				continue;
 
 			snapshot.Update( entry, delta.SnapshotId );

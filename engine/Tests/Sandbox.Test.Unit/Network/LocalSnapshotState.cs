@@ -52,7 +52,7 @@ public class LocalSnapshotStateTest
 	[TestMethod]
 	public void UnsaltedMutationInvalidatesReceiptsAndUpdatesSize()
 	{
-		var connection = Guid.NewGuid();
+		var connection = 0;
 		var state = new LocalSnapshotState();
 		state.AddSerialized( 42, [1, 2] );
 		var entry = state.Lookup[42];

@@ -30,7 +30,7 @@ internal sealed partial class NetworkObject
 			if ( !_hasPreparedSnapshot || _scheduleRevision != _preparedScheduleRevision
 				|| dataTable != _preparedSnapshot.Table || dataTable.SnapshotRevision != _preparedSnapshot.Revision
 				|| _clearInterpolationFlag || _preparedSnapshot.ClearInterpolation
-				|| (LocalSnapshotState.Size > 0 && !LocalSnapshotState.UpdatedConnections.Contains( connection.Id )) )
+				|| (LocalSnapshotState.Size > 0 && !LocalSnapshotState.IsUpdated( connection.Id )) )
 				return true;
 		}
 

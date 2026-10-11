@@ -10,7 +10,7 @@ internal class LocalSnapshotState
 {
 	internal class Entry
 	{
-		public readonly HashSet<Guid> Connections = [];
+		public ConnectionMask Connections;
 		public int Slot;
 		public byte[] Value;
 		public ulong Hash;
@@ -19,7 +19,63 @@ internal class LocalSnapshotState
 	public readonly List<Entry> Entries = new( 16 );
 	public readonly HashSet<int> RemovedSlots = [];
 	public readonly Dictionary<int, Entry> Lookup = new( 16 );
-	public readonly HashSet<Guid> UpdatedConnections = [];
+	public ConnectionMask UpdatedConnections;
+	internal ConnectionIndices ConnectionIndices { get; private set; }
+
+	internal void BindConnections( ConnectionIndices indices )
+	{
+		if ( ReferenceEquals( ConnectionIndices, indices ) ) return;
+		ClearConnections();
+		ConnectionIndices = indices;
+	}
+
+	internal bool IsUpdated( Guid id ) => ConnectionIndices is not null
+		&& ConnectionIndices.TryGet( id, out var index ) && UpdatedConnections.Contains( index );
+
+	internal bool Acknowledge( int index, DeltaSnapshot snapshot, RemoteSnapshotState state )
+	{
+		foreach ( var sent in snapshot.Entries )
+		{
+			if ( !sent.Connections.Contains( index ) || !Lookup.TryGetValue( sent.Slot, out var entry ) ) continue;
+			if ( SnapshotAckDiagnostics.Enabled ) SnapshotAckDiagnostics.LocalSlotsVisited++;
+			// Update() already retained the newest ACK per slot, including ushort wrapping.
+			if ( state.Data.TryGetValue( entry.Slot, out var receipt ) && receipt.Hash == entry.Hash )
+			{
+				entry.Connections.Add( index );
+				if ( SnapshotAckDiagnostics.Enabled ) SnapshotAckDiagnostics.ReceiptAdds++;
+			}
+			else
+			{
+				entry.Connections.Remove( index );
+				if ( SnapshotAckDiagnostics.Enabled ) SnapshotAckDiagnostics.ReceiptRemoves++;
+			}
+		}
+
+		// Unsent slots can lose credit (uncull, change-back) while the peer still holds the value.
+		var complete = true;
+		foreach ( var entry in Entries )
+		{
+			if ( SnapshotAckDiagnostics.Enabled ) SnapshotAckDiagnostics.CompletionSlots++;
+			if ( entry.Connections.Contains( index ) ) continue;
+
+			if ( state.Data.TryGetValue( entry.Slot, out var receipt ) && receipt.Hash == entry.Hash )
+			{
+				entry.Connections.Add( index );
+				if ( SnapshotAckDiagnostics.Enabled ) SnapshotAckDiagnostics.ReceiptAdds++;
+				continue;
+			}
+
+			complete = false;
+			break;
+		}
+		if ( complete )
+		{
+			UpdatedConnections.Add( index );
+			return true;
+		}
+		UpdatedConnections.Remove( index );
+		return false;
+	}
 
 	public ushort SnapshotId { get; set; }
 	public ushort Version { get; set; }
@@ -106,11 +162,17 @@ internal class LocalSnapshotState
 	/// <param name="id"></param>
 	public void RemoveConnection( Guid id )
 	{
-		UpdatedConnections.Remove( id );
+		if ( ConnectionIndices is not null && ConnectionIndices.TryGet( id, out var index ) )
+			RemoveConnection( index );
+	}
+
+	internal void RemoveConnection( int index )
+	{
+		UpdatedConnections.Remove( index );
 
 		foreach ( var entry in Entries )
 		{
-			entry.Connections.Remove( id );
+			entry.Connections.Remove( index );
 		}
 	}
 

@@ -589,35 +589,14 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 		return GameObject.Scene.IsBBoxVisibleToConnection( target, worldBounds );
 	}
 
-	void IDeltaSnapshot.OnSnapshotAck( Connection source, DeltaSnapshot snapshot, RemoteSnapshotState state )
+	void IDeltaSnapshot.OnSnapshotAck( Connection source, int connectionIndex, DeltaSnapshot snapshot, RemoteSnapshotState state )
 	{
 		IDeltaSnapshot snapshotter = this;
 
 		if ( !snapshotter.ShouldTransmit( source ) )
 			return;
 
-		var hasFullSnapshotState = true;
-
-		foreach ( var entry in LocalSnapshotState.Entries )
-		{
-			if ( state.IsValueHashEqual( entry.Slot, entry.Hash, snapshot.SnapshotId ) )
-			{
-				entry.Connections.Add( source.Id );
-			}
-			else
-			{
-				entry.Connections.Remove( source.Id );
-				hasFullSnapshotState = false;
-			}
-		}
-
-		if ( hasFullSnapshotState )
-			LocalSnapshotState.UpdatedConnections.Add( source.Id );
-		else
-		{
-			LocalSnapshotState.UpdatedConnections.Remove( source.Id );
-			ScheduleSnapshot();
-		}
+		if ( !LocalSnapshotState.Acknowledge( connectionIndex, snapshot, state ) ) ScheduleSnapshot();
 	}
 
 	private const int SnapshotPositionSlot = 1;
