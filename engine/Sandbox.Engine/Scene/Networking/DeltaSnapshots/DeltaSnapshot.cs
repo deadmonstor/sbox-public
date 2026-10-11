@@ -42,15 +42,6 @@ internal class DeltaSnapshot : IObjectPoolEvent
 
 	void IObjectPoolEvent.OnReturned()
 	{
-		foreach ( var entry in Entries )
-		{
-			if ( entry.Connections is null )
-				continue;
-
-			entry.Connections.Clear();
-			ObjectPool<HashSet<Guid>>.Return( entry.Connections );
-		}
-
 		Lookup.Clear();
 		Entries.Clear();
 		LocalState = null;
@@ -61,7 +52,7 @@ internal class DeltaSnapshot : IObjectPoolEvent
 	public struct SnapshotDataEntry : IEquatable<SnapshotDataEntry>
 	{
 		public LocalSnapshotState.Entry LocalState;
-		public HashSet<Guid> Connections;
+		public ConnectionMask Connections;
 		public int Slot;
 		public byte[] Value;
 		public ulong Hash;
@@ -141,7 +132,7 @@ internal class DeltaSnapshot : IObjectPoolEvent
 	/// <summary>
 	/// Copy the data from a <see cref="LocalSnapshotState"/>.
 	/// </summary>
-	public void CopyFrom( IDeltaSnapshot snapshotter, LocalSnapshotState state, int connectionCount )
+	public void CopyFrom( IDeltaSnapshot snapshotter, LocalSnapshotState state, in ConnectionMask activeConnections )
 	{
 		LocalState = state;
 		Source = snapshotter;
@@ -154,12 +145,11 @@ internal class DeltaSnapshot : IObjectPoolEvent
 		{
 			// Conna: why bother processing this entry at all if all clients that we know
 			// of have the latest value.
-			if ( entry.Connections.Count == connectionCount )
+			if ( entry.Connections.ContainsAll( activeConnections ) )
 				continue;
 
 			var data = new SnapshotDataEntry
 			{
-				Connections = ObjectPool<HashSet<Guid>>.Get(),
 				LocalState = entry,
 				Slot = entry.Slot,
 				Value = entry.Value,

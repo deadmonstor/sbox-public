@@ -180,27 +180,9 @@ public abstract partial class GameObjectSystem : IDeltaSnapshot
 
 	internal readonly LocalSnapshotState LocalSnapshotState = new();
 
-	void IDeltaSnapshot.OnSnapshotAck( Connection source, DeltaSnapshot snapshot, RemoteSnapshotState state )
+	void IDeltaSnapshot.OnSnapshotAck( Connection source, int connectionIndex, DeltaSnapshot snapshot, RemoteSnapshotState state )
 	{
-		var hasFullSnapshotState = true;
-
-		foreach ( var entry in LocalSnapshotState.Entries )
-		{
-			if ( state.IsValueHashEqual( entry.Slot, entry.Hash, snapshot.SnapshotId ) )
-			{
-				entry.Connections.Add( source.Id );
-			}
-			else
-			{
-				entry.Connections.Remove( source.Id );
-				hasFullSnapshotState = false;
-			}
-		}
-
-		if ( hasFullSnapshotState )
-			LocalSnapshotState.UpdatedConnections.Add( source.Id );
-		else
-			LocalSnapshotState.UpdatedConnections.Remove( source.Id );
+		LocalSnapshotState.Acknowledge( connectionIndex, snapshot, state );
 	}
 
 	LocalSnapshotState IDeltaSnapshot.WriteSnapshotState()

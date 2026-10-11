@@ -46,7 +46,7 @@ internal interface IDeltaSnapshot
 	/// <summary>
 	/// Called when another client has acknowledged a delta snapshot.
 	/// </summary>
-	void OnSnapshotAck( Connection source, DeltaSnapshot snapshot, RemoteSnapshotState state );
+	void OnSnapshotAck( Connection source, int connectionIndex, DeltaSnapshot snapshot, RemoteSnapshotState state );
 
 	/// <summary>
 	/// Try to send a network update or do nothing if no update is required. This is most

@@ -767,11 +767,6 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 				no.RemoveConnection( client.Id );
 			}
 
-			foreach ( var system in Game.ActiveScene.GetSystems() )
-			{
-				system.LocalSnapshotState.RemoveConnection( client.Id );
-			}
-
 			if ( Networking.IsHost )
 			{
 				Platform.Chat.BroadcastPlayerLeave( client );

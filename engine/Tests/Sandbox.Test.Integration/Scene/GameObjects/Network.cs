@@ -12,7 +12,7 @@ namespace SceneTests.GameObjects;
 using static GlobalGameNamespace;
 
 [TestClass]
-public class NetworkTest
+public partial class NetworkTest
 {
 	private TypeLibrary _oldTypeLibrary;
 
@@ -68,7 +68,10 @@ public class NetworkTest
 		IDeltaSnapshot networkObject = go._net;
 		var state = networkObject.WriteSnapshotState();
 		var snapshot = new DeltaSnapshot();
-		snapshot.CopyFrom( networkObject, state, 2 );
+		ConnectionMask active = default;
+		active.Add( 0 );
+		active.Add( 1 );
+		snapshot.CopyFrom( networkObject, state, active );
 
 		// Become the host
 		clientAndHost.BecomeHost();
@@ -534,7 +537,10 @@ public class NetworkTest
 		// client2 now owns it, let's have it record a snapshot in this state
 		var state = networkObject.WriteSnapshotState();
 		var snapshot = new DeltaSnapshot();
-		snapshot.CopyFrom( networkObject, state, 2 );
+		ConnectionMask active = default;
+		active.Add( 0 );
+		active.Add( 1 );
+		snapshot.CopyFrom( networkObject, state, active );
 
 		// Become client1 again
 		Connection.Local = client1;
