@@ -845,14 +845,17 @@ sealed public partial class Rigidbody : Component, Component.ExecuteInEditor, IG
 			_body.EnableCollisionSounds = _isSimulatingPhysics && !RigidbodyFlags.Contains( RigidbodyFlags.DisableCollisionSounds );
 		}
 
+		// Keyframed proxy controllers also use gravity. Apply these settings when
+		// creating the body, even if the component properties were set while disabled.
+		_body.GravityEnabled = Gravity;
+		_body.GravityScale = GravityScale;
+
 		// All these properties only matter for dynamic.
 		if ( _body.BodyType == PhysicsBodyType.Dynamic )
 		{
 			_body.Locking = Locking;
 			_body.AngularDamping = AngularDamping;
 			_body.LinearDamping = LinearDamping;
-			_body.GravityEnabled = Gravity;
-			_body.GravityScale = GravityScale;
 			_body.Mass = MassOverride;
 			_body.ScaleInertia( InertiaScale );
 			_body.OverrideMassCenter = OverrideMassCenter;

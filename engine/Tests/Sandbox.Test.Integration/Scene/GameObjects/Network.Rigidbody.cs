@@ -13,8 +13,6 @@ public partial class NetworkTest
 	{
 		var scene = new Scene { PhysicsMode = mode };
 		using var scope = scene.Push();
-		// Proxy controllers use keyframed bodies; isolate target following from world gravity.
-		scene.PhysicsWorld.Gravity = Vector3.Zero;
 		using var peers = new ClientAndHost( TypeLibrary );
 		peers.BecomeClient();
 		var go = new GameObject();
@@ -22,8 +20,11 @@ public partial class NetworkTest
 		go.Components.Create<BoxCollider>().Scale = new Vector3( 16 );
 		var rb = go.Components.Create<Rigidbody>( false );
 		rb.Gravity = false;
+		rb.GravityScale = 0.5f;
 		rb.Enabled = true;
 		Assert.IsTrue( rb.IsProxy );
+		Assert.IsFalse( rb.PhysicsBody.GravityEnabled, "A proxy body must apply gravity settings configured before enabling." );
+		Assert.AreEqual( 0.5f, rb.PhysicsBody.GravityScale );
 		var now = Time.NowDouble;
 
 		void Step()

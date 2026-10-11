@@ -9,6 +9,7 @@ public class RigidbodyIdleTest
 		go.Components.Create<BoxCollider>().Scale = new Vector3( 16 );
 		var rb = go.Components.Create<Rigidbody>( false );
 		rb.Gravity = false;
+		rb.GravityScale = 0.5f;
 		rb.MotionEnabled = motionEnabled;
 		rb.StartAsleep = true;
 		rb.Enabled = true;
@@ -25,6 +26,8 @@ public class RigidbodyIdleTest
 		var rb = CreateBody( scene, motionEnabled );
 		rb.UpdateTransformFromBody();
 		rb.UpdateTransformFromBody();
+		Assert.IsFalse( rb.PhysicsBody.GravityEnabled, "Gravity configured before enabling must apply to both dynamic and keyframed bodies." );
+		Assert.AreEqual( 0.5f, rb.PhysicsBody.GravityScale );
 		rb.PhysicsBody.Position = new Vector3( 20, 30, 40 );
 		rb.UpdateTransformFromBody();
 		Assert.IsTrue( rb.WorldPosition.AlmostEqual( new Vector3( 20, 30, 40 ) ) );
