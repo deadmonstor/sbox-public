@@ -874,6 +874,11 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 					if ( go._net?.Owner == Connection.Local.Id )
 						continue;
 
+					// Objects we have but haven't networked yet are initialized from this snapshot, so they need
+					// their table reapplied and ownership initialization completed like anything we create.
+					if ( go._net is null )
+						created.Add( (go, oc) );
+
 					spawn.Add( (go, oc) );
 					continue;
 				}
@@ -953,6 +958,12 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 		foreach ( var (go, msg) in created )
 		{
 			go._net?.ReapplyCreateTable( msg );
+		}
+
+		// Restore every table before ownership callbacks can inspect other newly created objects.
+		foreach ( var (go, _) in created )
+		{
+			go._net?.CompleteOwnershipInitialization();
 		}
 	}
 
@@ -1348,6 +1359,7 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 		}
 
 		go._net?.ReapplyCreateTable( message );
+		go._net?.CompleteOwnershipInitialization();
 	}
 
 	private void OnNetworkTableChanges( SceneNetworkTableMsg message, Connection source, Guid msgId )

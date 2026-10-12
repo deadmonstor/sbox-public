@@ -54,7 +54,8 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 			UpdateIsOwner();
 			UpdateIsProxy();
 
-			OnOwnerChanged( field, oldOwner );
+			if ( _ownershipInitialized )
+				OnOwnerChanged( field, oldOwner );
 		}
 	}
 
@@ -104,6 +105,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 	bool _clearInterpolationFlag;
 	bool _hasNetworkDestroyed;
 	bool _initialized;
+	bool _ownershipInitialized;
 
 	internal void OnHotload()
 	{
@@ -144,6 +146,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 
 		// Keep track of us
 		GameObject.Scene.RegisterNetworkedObject( this );
+		CompleteOwnershipInitialization();
 
 		// Call OnAwake on everything. We allow you to enable here because if you're the
 		// host spawning this object for other connections, then you probably want to act
@@ -159,6 +162,20 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 
 		// Tell the world that we're here
 		BroadcastNetworkSpawn( owner );
+	}
+
+	/// <summary>
+	/// Dispatch initial ownership/control notifications once the initial sync state is ready.
+	/// Receivers call this after deserialization and reapplication of the create table.
+	/// </summary>
+	internal void CompleteOwnershipInitialization()
+	{
+		if ( _ownershipInitialized || !GameObject.IsValid() )
+			return;
+
+		_ownershipInitialized = true;
+		if ( Owner != Guid.Empty )
+			OnOwnerChanged( Owner, Guid.Empty );
 	}
 
 	/// <summary>
