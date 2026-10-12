@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
+using ProfileMetric = Sandbox.Network.SnapshotProfileCapture.Metric;
 
 namespace Sandbox.Network;
 
@@ -106,6 +107,7 @@ internal class DeltaSnapshotSystem
 				if ( sentCluster.Cluster.TimeSinceCreated <= 5f )
 					continue;
 
+				NetworkDebugSystem.SnapshotProfiler?.Record( ProfileMetric.ClusterPruned, Connection.Id );
 				sentCluster.SentSnapshotIds.Clear();
 				ObjectPool<HashSet<(ushort, Guid)>>.Return( sentCluster.SentSnapshotIds );
 				sentCluster.Cluster.Release();
@@ -120,6 +122,7 @@ internal class DeltaSnapshotSystem
 					if ( snapshot.TimeSinceCreated <= 5f )
 						continue;
 
+					NetworkDebugSystem.SnapshotProfiler?.Record( ProfileMetric.SnapshotPruned, Connection.Id, snapshot.ObjectId, snapshot.Version );
 					snapshot.Release();
 					list.RemoveAt( i );
 				}
@@ -190,6 +193,8 @@ internal class DeltaSnapshotSystem
 	private void SendCluster( ConnectionData target, DeltaSnapshotCluster cluster,
 		NetFlags flags = NetFlags.Unreliable | NetFlags.SendImmediate )
 	{
+		var profiler = NetworkDebugSystem.SnapshotProfiler;
+		using var timing = profiler?.Measure( ProfileMetric.SendTicks, target.Connection.Id );
 		if ( cluster.Snapshots.Count == 0 )
 			return;
 
@@ -202,10 +207,16 @@ internal class DeltaSnapshotSystem
 			var snapshot = cluster.Snapshots[i];
 
 			if ( snapshot.LocalState?.UpdatedConnections.Contains( connectionId ) ?? false )
+			{
+				profiler?.Record( ProfileMetric.Acknowledged, connectionId, snapshot.ObjectId, snapshot.Version );
 				continue;
+			}
 
 			if ( !(snapshot.Source?.ShouldTransmit( connection ) ?? true) )
+			{
+				profiler?.Record( ProfileMetric.Filtered, connectionId, snapshot.ObjectId, snapshot.Version );
 				continue;
+			}
 
 			SnapshotData dataToSend = null;
 
@@ -222,7 +233,11 @@ internal class DeltaSnapshotSystem
 						// if the prediction is still valid (waiting for ACK). If prediction
 						// expired without ACK, fall through to resend.
 						if ( state.TryGetHash( slot, out _, Time ) )
+						{
+							profiler?.Record( ProfileMetric.ReceiptPending, connectionId, snapshot.ObjectId, snapshot.Version, slot );
 							continue;
+						}
+						profiler?.Record( ProfileMetric.ReceiptExpired, connectionId, snapshot.ObjectId, snapshot.Version, slot );
 					}
 
 					var value = entry.Value;
@@ -231,7 +246,10 @@ internal class DeltaSnapshotSystem
 					{
 						// Nothing to be done here, we have this value...
 						if ( entry.Hash == oldHash )
+						{
+							profiler?.Record( ProfileMetric.BaselineMatch, connectionId, snapshot.ObjectId, snapshot.Version, slot );
 							continue;
+						}
 					}
 
 					dataToSend ??= SnapshotData.Pool.Rent();
@@ -283,18 +301,23 @@ internal class DeltaSnapshotSystem
 
 		writer.Write( cluster.Id );
 		writer.Write( (ushort)ClusterBuffer.Count );
+		profiler?.Record( ProfileMetric.SharedHeaderBytes, connectionId, value: writer.Position );
 
 		foreach ( var (snapshot, dataToSend) in ClusterBuffer )
 		{
+			var headerStart = profiler is null ? 0 : writer.Position;
 			writer.Write( snapshot.Version );
 			writer.Write( snapshot.SnapshotId );
 			writer.Write( snapshot.ObjectId );
 			writer.Write( (ushort)dataToSend.Count );
+			profiler?.Record( ProfileMetric.ObjectHeaderBytes, connectionId, snapshot.ObjectId, snapshot.Version, value: writer.Position - headerStart );
 
 			foreach ( var (slot, value) in dataToSend )
 			{
+				var fieldStart = profiler is null ? 0 : writer.Position;
 				writer.Write( slot );
 				writer.WriteArray( value );
+				profiler?.Record( ProfileMetric.FieldBytes, connectionId, snapshot.ObjectId, snapshot.Version, slot, writer.Position - fieldStart );
 			}
 
 			dataToSend.Release();
@@ -309,6 +332,7 @@ internal class DeltaSnapshotSystem
 		ClusterBuffer.Clear();
 
 		System.Send( target.Connection, InternalMessageType.DeltaSnapshotCluster, writer.ToSpan(), flags );
+		profiler?.Record( ProfileMetric.MessageBytes, connectionId, value: writer.Length );
 
 		target.SentClusters.Add( new SentCluster( cluster, sentSnapshotIds ) );
 		cluster.AddReference();
@@ -322,6 +346,8 @@ internal class DeltaSnapshotSystem
 
 	private void SendSnapshot( ConnectionData target, DeltaSnapshot snapshot, NetFlags flags = NetFlags.UnreliableNoDelay, bool sendFullUpdate = false )
 	{
+		var profiler = NetworkDebugSystem.SnapshotProfiler;
+		using var timing = profiler?.Measure( ProfileMetric.SendTicks, target.Connection.Id, snapshot.ObjectId );
 		var connectionId = target.Connection.Id;
 		SnapshotData snapshotData = null;
 
@@ -336,7 +362,10 @@ internal class DeltaSnapshotSystem
 				{
 					// Nothing to be done here, we have this value...
 					if ( entry.Hash == oldHash )
+					{
+						profiler?.Record( ProfileMetric.BaselineMatch, connectionId, snapshot.ObjectId, snapshot.Version, slot );
 						continue;
+					}
 				}
 
 				snapshotData ??= SnapshotData.Pool.Rent();
@@ -381,16 +410,20 @@ internal class DeltaSnapshotSystem
 		writer.Write( snapshot.Version );
 		writer.Write( snapshot.SnapshotId );
 		writer.Write( (ushort)snapshotData.Count );
+		profiler?.Record( ProfileMetric.ObjectHeaderBytes, connectionId, snapshot.ObjectId, snapshot.Version, value: writer.Position );
 
 		foreach ( var (slot, value) in snapshotData )
 		{
+			var fieldStart = profiler is null ? 0 : writer.Position;
 			writer.Write( slot );
 			writer.WriteArray( value );
+			profiler?.Record( ProfileMetric.FieldBytes, connectionId, snapshot.ObjectId, snapshot.Version, slot, writer.Position - fieldStart );
 		}
 
 		snapshotData.Release();
 
 		System.Send( target.Connection, InternalMessageType.DeltaSnapshot, writer.ToSpan(), flags );
+		profiler?.Record( ProfileMetric.MessageBytes, connectionId, snapshot.ObjectId, snapshot.Version, value: writer.Length );
 
 		if ( !target.SentSnapshots.TryGetValue( snapshot.ObjectId, out var sentSnapshots ) )
 		{
@@ -405,6 +438,8 @@ internal class DeltaSnapshotSystem
 
 	public void OnDeltaSnapshotClusterAck( Connection source, ByteStream message )
 	{
+		var profiler = NetworkDebugSystem.SnapshotProfiler;
+		using var timing = profiler?.Measure( ProfileMetric.AckTicks, source.Id );
 		var scene = Game.ActiveScene;
 		if ( !scene.IsValid() ) return;
 
@@ -412,7 +447,11 @@ internal class DeltaSnapshotSystem
 
 		var clusterId = message.Read<ushort>();
 		var sentIndex = connectionData.SentClusters.FindIndex( c => c.Cluster.Id == clusterId );
-		if ( sentIndex < 0 ) return;
+		if ( sentIndex < 0 )
+		{
+			profiler?.Record( ProfileMetric.AckUnmatched, source.Id );
+			return;
+		}
 
 		var sentCluster = connectionData.SentClusters[sentIndex];
 		var sentSnapshotIds = sentCluster.SentSnapshotIds;
@@ -436,7 +475,10 @@ internal class DeltaSnapshotSystem
 
 			// Did the client reject this particular snapshot? Maybe the game object didn't exist yet.
 			if ( _invalidSnapshotIds.Contains( snapshot.SnapshotId ) )
+			{
+				profiler?.Record( ProfileMetric.SnapshotRejected, connectionId, snapshot.ObjectId, snapshot.Version );
 				continue;
+			}
 
 			IDeltaSnapshot snapshotter = scene.Directory.FindSystemByGuid( snapshot.ObjectId );
 
@@ -561,6 +603,8 @@ internal class DeltaSnapshotSystem
 
 	public void OnDeltaSnapshotAck( Connection source, ByteStream message )
 	{
+		var profiler = NetworkDebugSystem.SnapshotProfiler;
+		using var timing = profiler?.Measure( ProfileMetric.AckTicks, source.Id );
 		var scene = Game.ActiveScene;
 		if ( !scene.IsValid() ) return;
 
@@ -573,7 +617,11 @@ internal class DeltaSnapshotSystem
 			sentSnapshots = connectionData.SentSnapshots[objectId] = new();
 
 		var snapshot = sentSnapshots.FirstOrDefault( s => s.SnapshotId == snapshotId );
-		if ( snapshot is null ) return;
+		if ( snapshot is null )
+		{
+			profiler?.Record( ProfileMetric.AckUnmatched, source.Id, objectId );
+			return;
+		}
 
 		IDeltaSnapshot snapshotter = scene.Directory.FindSystemByGuid( snapshot.ObjectId );
 
@@ -752,6 +800,7 @@ internal class DeltaSnapshotSystem
 	/// <param name="connections"></param>
 	public void Send( IEnumerable<IDeltaSnapshot> objects, Connection[] connections )
 	{
+		var profiler = NetworkDebugSystem.SnapshotProfiler;
 		var currentCluster = DeltaSnapshotCluster.Pool.Rent();
 
 		foreach ( var nwo in objects )
@@ -759,18 +808,30 @@ internal class DeltaSnapshotSystem
 			// Don't send updates about objects we don't own. The host can always send updates though
 			// because there may be FromHost sync vars.
 			if ( nwo.IsProxy && !Networking.IsHost )
+			{
+				profiler?.Record( ProfileMetric.NotAuthoritative, objectId: nwo.Id );
 				continue;
+			}
 
-			var isAnyVisible = nwo.UpdateTransmitState( connections );
+			bool isAnyVisible;
+			using ( profiler?.Measure( ProfileMetric.RelevancyTicks, objectId: nwo.Id ) )
+			{
+				isAnyVisible = nwo.UpdateTransmitState( connections );
+			}
 
 			// No point doing anything else if no connections can even see this object.
 			if ( !isAnyVisible )
 			{
+				profiler?.Record( ProfileMetric.NotRelevant, objectId: nwo.Id );
 				nwo.SendNetworkUpdate( true );
 				continue;
 			}
 
-			var localSnapshotState = nwo.WriteSnapshotState();
+			LocalSnapshotState localSnapshotState;
+			using ( profiler?.Measure( ProfileMetric.PreparationTicks, objectId: nwo.Id ) )
+			{
+				localSnapshotState = nwo.WriteSnapshotState();
+			}
 			nwo.SendNetworkUpdate();
 
 			ClearRemovedSlots( localSnapshotState );
@@ -788,10 +849,16 @@ internal class DeltaSnapshotSystem
 
 			// Do we even need to send this to anybody?
 			if ( allConnectionsAreUpdated )
+			{
+				profiler?.Record( ProfileMetric.Acknowledged, objectId: nwo.Id );
 				continue;
+			}
 
 			if ( localSnapshotState.Size == 0 )
+			{
+				profiler?.Record( ProfileMetric.Empty, objectId: nwo.Id );
 				continue;
+			}
 
 			var clonedSnapshot = DeltaSnapshot.Pool.Rent();
 			clonedSnapshot.CopyFrom( nwo, localSnapshotState, connections.Length );
@@ -840,13 +907,21 @@ internal class DeltaSnapshotSystem
 	{
 		if ( snapshotter is null ) return;
 
-		var localSnapshotState = snapshotter.WriteSnapshotState();
+		var profiler = NetworkDebugSystem.SnapshotProfiler;
+		LocalSnapshotState localSnapshotState;
+		using ( profiler?.Measure( ProfileMetric.PreparationTicks, objectId: snapshotter.Id ) )
+		{
+			localSnapshotState = snapshotter.WriteSnapshotState();
+		}
 		snapshotter.SendNetworkUpdate();
 
 		ClearRemovedSlots( localSnapshotState );
 
 		if ( localSnapshotState.Size == 0 )
+		{
+			profiler?.Record( ProfileMetric.Empty, objectId: snapshotter.Id );
 			return;
+		}
 
 		var filteredConnections = System.GetFilteredConnections();
 		var connections = filteredConnections as Connection[] ?? filteredConnections.ToArray();
