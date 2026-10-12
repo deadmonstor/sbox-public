@@ -36,6 +36,149 @@ public class NetworkTest
 	}
 
 	[TestMethod]
+	public void ClientOwnedCullStateSurvivesHostRelay()
+	{
+		using var scope = new Scene().Push();
+		using var clientAndHost = new ClientAndHost( TypeLibrary );
+
+		clientAndHost.BecomeHost();
+		var receiver = new TestConnection( Guid.NewGuid() );
+		Networking.System.OnConnected( receiver );
+		receiver.State = Connection.ChannelState.Connected;
+
+		clientAndHost.BecomeClient();
+		var go = new GameObject();
+		go.NetworkSpawn();
+		var target = new MockConnection( receiver.Id );
+
+		// The receiving client knows the owner independently of its host connection.
+		Networking.System.OnConnected( clientAndHost.Client );
+		clientAndHost.Host.Messages.Clear();
+		clientAndHost.Client.Messages.Clear();
+		receiver.Messages.Clear();
+
+		Assert.IsTrue( go.Active );
+		RelayCullState( true );
+		Assert.IsTrue( go.IsNetworkCulled );
+		Assert.IsFalse( go.Active );
+
+		RelayCullState( false );
+		Assert.IsFalse( go.IsNetworkCulled );
+		Assert.IsTrue( go.Active );
+
+		void RelayCullState( bool isCulled )
+		{
+			clientAndHost.BecomeClient();
+			go.Network.SetCullState( target, isCulled );
+
+			clientAndHost.BecomeHost();
+			clientAndHost.ProcessMessages();
+			clientAndHost.Host.Messages.Clear();
+
+			clientAndHost.BecomeClient();
+			Connection.Local = receiver;
+
+			foreach ( var message in receiver.Messages )
+			{
+				using var reader = ByteStream.CreateReader( message.Raw );
+				Networking.System.HandleIncomingMessage( new NetworkSystem.NetworkMessage
+				{
+					Source = clientAndHost.Host,
+					Data = reader,
+				} );
+			}
+
+			receiver.Messages.Clear();
+		}
+	}
+
+	[TestMethod]
+	[DataRow( false )]
+	[DataRow( true )]
+	public void UnresolvedRawRelaySenderDoesNotChangeHostVisibilityOrigins( bool internalWrapper )
+	{
+		using var scope = new Scene().Push();
+		using var clientAndHost = new ClientAndHost( TypeLibrary );
+		clientAndHost.BecomeClient();
+
+		var originalOrigin = new Vector3( 1f, 2f, 3f );
+		clientAndHost.Host.VisibilityOrigins = [originalOrigin];
+
+		using var payload = ByteStream.Create( 32 );
+		payload.Write( InternalMessageType.ClientTick );
+		payload.Write( (char)1 );
+		payload.Write( 4f );
+		payload.Write( 5f );
+		payload.Write( 6f );
+
+		// A delayed relay can arrive after the original sender is no longer known.
+		var senderId = Guid.NewGuid();
+		Assert.IsNull( Connection.Find( senderId ) );
+		if ( internalWrapper )
+		{
+			clientAndHost.Client.SendMessage( new TargetedInternalMessage
+			{
+				SenderId = senderId,
+				TargetId = clientAndHost.Client.Id,
+				Data = payload.ToArray(),
+				Flags = (byte)NetFlags.Reliable,
+			} );
+		}
+		else
+		{
+			clientAndHost.Client.SendMessage( new TargetedMessage
+			{
+				SenderId = senderId,
+				TargetId = clientAndHost.Client.Id,
+				Message = payload.ToArray(),
+				Flags = (byte)NetFlags.Reliable,
+			} );
+		}
+
+		clientAndHost.ProcessMessages();
+
+		CollectionAssert.AreEqual( new[] { originalOrigin }, clientAndHost.Host.VisibilityOrigins );
+	}
+
+	[TestMethod]
+	[DataRow( false )]
+	[DataRow( true )]
+	public void UnresolvedPackedRelaySenderIsNotTreatedAsHost( bool encoded )
+	{
+		using var scope = new Scene().Push();
+		using var clientAndHost = new ClientAndHost( TypeLibrary );
+		clientAndHost.BecomeClient();
+
+		// Only the host may set server data, so this applies only if the relay is mistaken for the sender.
+		var key = Guid.NewGuid().ToString();
+		var data = new ServerDataMsg { Name = key, Value = "spoofed" };
+
+		object message = data;
+		if ( encoded )
+		{
+			var bs = ByteStream.Create( 64 );
+			bs.Write( InternalMessageType.Packed );
+			TypeLibrary.ToBytes( data, ref bs );
+			message = bs.ToArray();
+			bs.Dispose();
+		}
+
+		var senderId = Guid.NewGuid();
+		Assert.IsNull( Connection.Find( senderId ) );
+		clientAndHost.Client.SendMessage( new TargetedMessage
+		{
+			SenderId = senderId,
+			TargetId = clientAndHost.Client.Id,
+			Message = message,
+			Flags = (byte)NetFlags.Reliable,
+		} );
+
+		clientAndHost.ProcessMessages();
+
+		Assert.AreEqual( "", Networking.GetData( key ) );
+	}
+
+	[TestMethod]
 	public void DisableTransformSync()
 	{
 		Assert.IsNotNull( TypeLibrary.GetType<ModelRenderer>(), "TypeLibrary hasn't been given the game assembly" );

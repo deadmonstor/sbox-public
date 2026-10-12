@@ -68,7 +68,7 @@ public class NetworkRecursionTest
 		Assert.AreEqual( 0, client.Messages.Count, "A deeply nested targeted message must not reach its innermost payload." );
 	}
 
-	// TargetedMessage dispatches its nested handler directly, bypassing HandleIncomingMessage.
+	// TargetedMessage unwraps its payload in its own handler, so it needs its own depth coverage.
 	[TestMethod]
 	public void NestedTargetedMessageIsDepthLimited()
 	{

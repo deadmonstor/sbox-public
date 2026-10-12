@@ -215,8 +215,9 @@ internal partial class NetworkSystem
 		// This targeted message is intended for us!
 		if ( data.TargetId == Guid.Empty || data.TargetId == Connection.Local.Id )
 		{
-			var senderConnection = Connection.Find( data.SenderId );
-			senderConnection ??= source;
+			var senderConnection = FindTargetedSender( data.SenderId );
+			if ( senderConnection is null )
+				return;
 
 			DispatchNested( data.Data, senderConnection, depth );
 		}
@@ -245,28 +246,18 @@ internal partial class NetworkSystem
 		// This targeted message is intended for us!
 		if ( data.TargetId == Guid.Empty || data.TargetId == Connection.Local.Id )
 		{
-			var senderConnection = Connection.Find( data.SenderId );
-			senderConnection ??= source;
+			var senderConnection = FindTargetedSender( data.SenderId );
+			if ( senderConnection is null )
+				return;
 
 			object messageData = data.Message;
 
+			// Encoded payloads go through normal dispatch as the original sender, so raw internal messages
+			// are handled and packed ones deserialize under the sender's script trust instead of the relay's.
 			if ( messageData is byte[] arr )
 			{
-				var stream = ByteStream.CreateReader( arr );
-
-				if ( stream.TryRead<InternalMessageType>( out var type ) )
-				{
-					if ( type == InternalMessageType.Packed )
-						messageData = TypeLibrary.FromBytes<object>( ref stream );
-				}
-				else
-				{
-					Log.Warning( "Failed to read InternalMessageType from targeted message data" );
-					stream.Dispose();
-					return;
-				}
-
-				stream.Dispose();
+				DispatchNested( arr, senderConnection, depth );
+				return;
 			}
 
 			if ( messageData is null )
@@ -293,6 +284,20 @@ internal partial class NetworkSystem
 			var target = FindConnection( data.TargetId );
 			target?.SendMessage( data, (NetFlags)data.Flags );
 		}
+	}
+
+	/// <summary>
+	/// Resolve the original sender of a relayed message. Never fall back to the relaying connection:
+	/// handlers would treat the message as coming from the host.
+	/// </summary>
+	static Connection FindTargetedSender( Guid senderId )
+	{
+		var sender = Connection.Find( senderId );
+
+		if ( sender is null && Networking.Debug )
+			Log.Warning( $"Dropping targeted message from unknown sender {senderId}" );
+
+		return sender;
 	}
 
 	RealTimeSince timeSinceTick = 100f;
