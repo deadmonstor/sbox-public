@@ -36,6 +36,156 @@ public class NetworkTest
 	}
 
 	[TestMethod]
+	[DataRow( false )]
+	[DataRow( true )]
+	public void InitialOwnershipCallbackCanWriteSyncValue( bool client )
+	{
+		using var scope = new Scene().Push();
+		using var clientAndHost = new ClientAndHost( TypeLibrary );
+		clientAndHost.Become( client ? clientAndHost.Client : clientAndHost.Host );
+
+		var go = new GameObject();
+		var component = go.Components.Create<OwnershipLifecycleComponent>();
+		component.Value = 12;
+		component.WriteOnChange = true;
+
+		go.NetworkSpawn();
+
+		CollectionAssert.AreEqual( new[] { 12 }, component.OwnerValues );
+		Assert.AreEqual( 13, component.Value );
+		Assert.AreEqual( Connection.Local.Id, component.LastOwnerId );
+		Assert.IsFalse( component.ProxyAtOwnershipChange );
+		if ( client )
+			CollectionAssert.AreEqual( new[] { 13 }, component.ControlValues );
+	}
+
+	[TestMethod]
+	public void LaterOwnershipTransfersRemainImmediate()
+	{
+		using var scope = new Scene().Push();
+		using var clientAndHost = new ClientAndHost( TypeLibrary );
+		clientAndHost.BecomeClient();
+
+		var go = new GameObject();
+		var component = go.Components.Create<OwnershipLifecycleComponent>();
+		component.Value = 12;
+		go.NetworkSpawn();
+
+		go._net.Owner = clientAndHost.Host.Id;
+		Assert.AreEqual( clientAndHost.Host.Id, component.LastOwnerId );
+		Assert.IsTrue( component.ProxyAtOwnershipChange );
+		Assert.AreEqual( 1, component.StopControlCount );
+
+		component.WriteOnChange = true;
+		go._net.Owner = clientAndHost.Client.Id;
+		CollectionAssert.AreEqual( new[] { 12, 12, 12 }, component.OwnerValues );
+		CollectionAssert.AreEqual( new[] { 12, 13 }, component.ControlValues );
+		Assert.AreEqual( 13, component.Value );
+		Assert.AreEqual( clientAndHost.Host.Id, component.PreviousOwnerId );
+		Assert.IsFalse( component.ProxyAtOwnershipChange );
+	}
+
+	[TestMethod]
+	[DataRow( 0, false )]
+	[DataRow( 0, true )]
+	[DataRow( 1, false )]
+	[DataRow( 1, true )]
+	[DataRow( 2, false )]
+	[DataRow( 2, true )]
+	public async Task RemoteOwnershipCallbacksSeeInitialSyncValues( int delivery, bool localOwner )
+	{
+		using var senderScope = new Scene().Push();
+		using var clientAndHost = new ClientAndHost( TypeLibrary );
+		clientAndHost.BecomeHost();
+
+		var owner = localOwner ? clientAndHost.Client : clientAndHost.Host;
+		var go = new GameObject();
+		var component = go.Components.Create<OwnershipLifecycleComponent>();
+		component.Value = 42;
+
+		// Single creates carry snapshot children; batches/snapshots also carry separate roots.
+		var peer = delivery == 0 ? new GameObject( go ) : new GameObject();
+		var peerComponent = peer.Components.Create<OwnershipLifecycleComponent>();
+		peerComponent.Value = 17;
+		component.Peer = peerComponent;
+
+		using ( SceneNetworkSystem.SuppressSpawnMessages() )
+		{
+			go.NetworkSpawn( owner );
+			if ( delivery != 0 )
+				peer.NetworkSpawn( owner );
+		}
+
+		var objectId = go.Id;
+		var create = go._net.GetCreateMessage();
+		var peerCreate = delivery == 0 ? default : peer._net.GetCreateMessage();
+		var snapshot = new SnapshotMsg { GameObjectSystems = [], NetworkObjects = new List<object>() };
+		if ( delivery == 2 )
+			SceneNetworkSystem.Instance.GetSnapshot( default, ref snapshot );
+
+		clientAndHost.Client.Messages.Clear();
+		using var receiverScope = new Scene().Push();
+		clientAndHost.BecomeClient();
+
+		if ( delivery == 2 )
+		{
+			await SceneNetworkSystem.Instance.SetSnapshotAsync( snapshot );
+		}
+		else
+		{
+			if ( delivery == 0 )
+				clientAndHost.Client.SendMessage( create );
+			else
+				clientAndHost.Client.SendMessage( new ObjectCreateBatchMsg { CreateMsgs = [create, peerCreate] } );
+
+			clientAndHost.ProcessMessages();
+		}
+
+		var received = Game.ActiveScene.Directory.FindByGuid( objectId ).Components.Get<OwnershipLifecycleComponent>();
+		CollectionAssert.AreEqual( new[] { 42 }, received.OwnerValues );
+		CollectionAssert.AreEqual( new[] { 17 }, received.PeerValues );
+		Assert.AreEqual( owner.Id, received.LastOwnerId );
+		Assert.AreEqual( !localOwner, received.ProxyAtOwnershipChange );
+		if ( localOwner )
+			CollectionAssert.AreEqual( new[] { 42 }, received.ControlValues );
+		else
+			Assert.AreEqual( 0, received.ControlValues.Count );
+	}
+
+	[TestMethod]
+	public async Task ResyncCompletesOwnershipForExistingUnnetworkedObjects()
+	{
+		using var scope = new Scene().Push();
+		using var clientAndHost = new ClientAndHost( TypeLibrary );
+		clientAndHost.BecomeHost();
+
+		var go = new GameObject();
+		go.Components.Create<OwnershipLifecycleComponent>().Value = 42;
+		go.NetworkSpawn( clientAndHost.Host );
+		var objectId = go.Id;
+
+		var snapshot = SnapshotMsg.Create();
+		SceneNetworkSystem.Instance.GetSnapshot( clientAndHost.Client, ref snapshot );
+
+		// We already have an object with this id, but it isn't networked yet. The resync networks it in place.
+		clientAndHost.BecomeClient();
+		go.DestroyImmediate();
+		var existing = new GameObject();
+		existing.SetDeterministicId( objectId );
+		var received = existing.Components.Create<OwnershipLifecycleComponent>();
+
+		await SceneNetworkSystem.Instance.ResyncFromHostAsync( new TestConnection( Guid.NewGuid() ), clientAndHost.Host, snapshot );
+
+		Assert.AreSame( existing, Game.ActiveScene.Directory.FindByGuid( objectId ) );
+		CollectionAssert.AreEqual( new[] { 42 }, received.OwnerValues );
+		Assert.AreEqual( clientAndHost.Host.Id, received.LastOwnerId );
+
+		existing._net.Owner = clientAndHost.Client.Id;
+		Assert.AreEqual( clientAndHost.Client.Id, received.LastOwnerId );
+		CollectionAssert.AreEqual( new[] { 42 }, received.ControlValues );
+	}
+
+	[TestMethod]
 	public void DisableTransformSync()
 	{
 		Assert.IsNotNull( TypeLibrary.GetType<ModelRenderer>(), "TypeLibrary hasn't been given the game assembly" );
@@ -1062,6 +1212,51 @@ public class NetworkTest
 		public bool Visible;
 
 		public bool IsVisibleToConnection( Connection connection, in BBox worldBounds ) => Visible;
+	}
+
+	private class OwnershipLifecycleComponent : Component, IGameObjectNetworkEvents
+	{
+		[Sync] public int Value { get; set; }
+		[Property] public OwnershipLifecycleComponent Peer { get; set; }
+
+		public bool WriteOnChange;
+		public readonly List<int> OwnerValues = [];
+		public readonly List<int> PeerValues = [];
+		public readonly List<int> ControlValues = [];
+		public Guid LastOwnerId;
+		public Guid PreviousOwnerId;
+		public bool ProxyAtOwnershipChange;
+		public int StopControlCount;
+
+		public void NetworkOwnerChanged( Connection newOwner, Connection previousOwner )
+		{
+			OwnerValues.Add( Value );
+			PeerValues.Add( Peer?.Value ?? -1 );
+			LastOwnerId = newOwner?.Id ?? Guid.Empty;
+			PreviousOwnerId = previousOwner?.Id ?? Guid.Empty;
+			ProxyAtOwnershipChange = IsProxy;
+			if ( WriteOnChange )
+				WriteSyncedValue( Value + 1 );
+		}
+
+		// Test components aren't passed through game-code rewriting. Exercise the real sync setter.
+		void WriteSyncedValue( int value )
+		{
+			__sync_SetValue( new WrappedPropertySet<int>
+			{
+				Object = this,
+				Value = value,
+				Getter = () => Value,
+				Setter = v => Value = v,
+				MemberIdent = $"{typeof( OwnershipLifecycleComponent ).FullName}.{nameof( Value )}".FastHash(),
+				TypeName = nameof( OwnershipLifecycleComponent ),
+				PropertyName = nameof( Value ),
+				Attributes = [new SyncAttribute()],
+			} );
+		}
+
+		public void StartControl() => ControlValues.Add( Value );
+		public void StopControl() => StopControlCount++;
 	}
 
 	private class NetworkTestComponent : Component

@@ -11,7 +11,9 @@ public interface IGameObjectNetworkEvents : ISceneEvent<IGameObjectNetworkEvents
 	internal void BeforeDropOwnership() { }
 
 	/// <summary>
-	/// Called when the owner of a network GameObject is changed
+	/// Called when the owner of a network GameObject is changed.
+	/// Initial ownership/control notifications run after sync properties are registered and
+	/// received initial sync values are applied. Subsequent ownership changes notify immediately.
 	/// </summary>
 	void NetworkOwnerChanged( Connection newOwner, Connection previousOwner ) { }
 
