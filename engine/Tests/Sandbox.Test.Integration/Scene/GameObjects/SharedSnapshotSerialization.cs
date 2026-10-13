@@ -53,6 +53,7 @@ public class SharedSnapshotSerializationTest
 				using var payload = envelope.ReadByteStream( envelope.Read<int>() );
 				payload.Read<ushort>();
 				Assert.AreEqual( (ushort)1, payload.Read<ushort>() );
+				Assert.AreEqual( snapshots.SendTime, payload.Read<double>() );
 				payload.Read<ushort>();
 				payload.Read<ushort>();
 				Assert.AreEqual( go.Id, payload.Read<Guid>() );
