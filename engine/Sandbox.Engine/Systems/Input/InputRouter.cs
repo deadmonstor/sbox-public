@@ -16,6 +16,31 @@ internal static partial class InputRouter
 	/// </summary>
 	public static bool MouseCursorVisible { get; private set; }
 
+	static GlobalContext _focusedWorld;
+
+	internal static GlobalContext FocusedWorld
+	{
+		get => _focusedWorld;
+		set
+		{
+			if ( _focusedWorld == value ) return;
+
+			var previous = _focusedWorld;
+			_focusedWorld = value;
+			Sandbox.Input.ReleaseOwnedBy( previous );
+		}
+	}
+
+	static InputContext GameInputContext
+	{
+		get
+		{
+			if ( FocusedWorld is not null ) return FocusedWorld.InputContext;
+			if ( IGameInstance.Current is null ) return null;
+			return IGameInstanceDll.Current.InputContext;
+		}
+	}
+
 	/// <summary>
 	/// The mouse cursor position. Or the last position if it's now invisible.
 	/// </summary>
@@ -106,7 +131,7 @@ internal static partial class InputRouter
 				{
 					var context = _next++ == 0
 						? IMenuDll.Current?.InputContext
-						: (IGameInstance.Current is not null ? IGameInstanceDll.Current.InputContext : null);
+						: GameInputContext;
 
 					if ( context is null ) continue;
 

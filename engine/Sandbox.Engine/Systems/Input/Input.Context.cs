@@ -1,4 +1,5 @@
 ﻿using NativeEngine;
+using Sandbox.Engine;
 
 namespace Sandbox;
 
@@ -12,6 +13,27 @@ public static partial class Input
 	// weak list of contexts
 	static List<WeakReference<Context>> contexts = new List<WeakReference<Context>>();
 	static IDisposable defaultContextScope;
+
+	static bool ReceivesDeviceInput( Context context )
+	{
+		return context.Owner == InputRouter.FocusedWorld;
+	}
+
+	internal static void ReleaseOwnedBy( GlobalContext owner )
+	{
+		foreach ( var e in Contexts )
+		{
+			if ( e.Owner != owner ) continue;
+
+			e.ActionsCurrent = default;
+			e.ActionsPrevious = default;
+			e.AccumActionsPressed = default;
+			e.AccumActionsReleased = default;
+			e.KeysCurrent.Clear();
+			e.AccumKeysPressed.Clear();
+			e.AccumKeysReleased.Clear();
+		}
+	}
 
 	/// <summary>
 	/// Get all of the contexts
@@ -53,6 +75,8 @@ public static partial class Input
 	{
 		public string Name { get; private set; }
 
+		internal GlobalContext Owner { get; set; }
+
 		//
 		// These are accumulated values. We collect these during input, then on
 		// Flip we put these into the actual values and reset.
@@ -85,6 +109,7 @@ public static partial class Input
 		public static Context Create( string name )
 		{
 			var context = new Context( name );
+			context.Owner = GlobalContext.Current.IsSecondaryWorld ? GlobalContext.Current : null;
 			contexts.Add( new( context ) );
 			return context;
 		}

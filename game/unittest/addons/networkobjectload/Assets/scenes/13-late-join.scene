@@ -1,0 +1,186 @@
+{
+  "__guid": "67426bf2-311b-4e87-bfd6-4392fb214b6b",
+  "GameObjects": [
+    {
+      "__guid": "29e71ff5-c9bf-48ac-8729-f389aa2c554c",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Scenario Controller",
+      "Position": "0,0,0",
+      "Rotation": "0,0,0,1",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "NetworkObjectLoad.NetworkObjectScenario",
+          "__guid": "d6e99b3a-ae0d-4896-bcdc-7ddfd7cd9366",
+          "__enabled": true,
+          "Flags": 0,
+          "Scenario": "LateJoin",
+          "Population": 1000,
+          "MinimumClients": 1,
+          "PropertyGroups": 1,
+          "ActiveFraction": 0.1,
+          "SpawnPerTick": 100,
+          "ChildrenPerObject": 0,
+          "WarmupTicks": 500,
+          "RunTicks": 1500,
+          "LifecycleIntervalTicks": 50,
+          "LifecycleBurst": 10,
+          "RpcsPerTick": 0,
+          "SettleSeconds": 5,
+          "TimeoutSeconds": 120,
+          "RenderSubjects": false,
+          "FakeConnections": 0
+        }
+      ],
+      "Children": []
+    },
+    {
+      "__guid": "dfebf8f9-17fd-4264-9c52-ef5badb30f1b",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Lobby",
+      "Position": "0,0,0",
+      "Rotation": "0,0,0,1",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "Sandbox.NetworkHelper",
+          "__guid": "4f3fa620-daea-4de4-88cf-040cc963ba9c",
+          "__enabled": true,
+          "Flags": 0,
+          "StartServer": true
+        }
+      ],
+      "Children": []
+    },
+    {
+      "__guid": "5a602533-db96-4c5f-961a-33f23c40d687",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Status HUD",
+      "Position": "0,0,0",
+      "Rotation": "0,0,0,1",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "Sandbox.ScreenPanel",
+          "__guid": "98c5d4a9-4dec-48f1-b971-601667772ef6",
+          "__enabled": true,
+          "Flags": 0
+        },
+        {
+          "__type": "NetworkObjectLoad.NetworkLoadHud",
+          "__guid": "e81fbee3-fe15-4746-9bf5-e1897226749c",
+          "__enabled": true,
+          "Flags": 0
+        }
+      ],
+      "Children": []
+    },
+    {
+      "__guid": "9f0203d5-8f1c-4ff1-8ee0-13b529ba5741",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Camera",
+      "Position": "-600,0,380",
+      "Rotation": "0,0.259,0,0.966",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "Sandbox.CameraComponent",
+          "__guid": "9243f8ea-ec6a-4998-8def-beefb98640ae",
+          "__enabled": true,
+          "Flags": 0,
+          "IsMainCamera": true,
+          "FieldOfView": 60,
+          "ZNear": 1,
+          "ZFar": 10000,
+          "BackgroundColor": "0.025,0.035,0.06,1"
+        }
+      ],
+      "Children": []
+    },
+    {
+      "__guid": "f44ddca1-bdec-47da-b54c-2780fa30cfc0",
+      "__version": 2,
+      "Flags": 0,
+      "Name": "Light",
+      "Position": "0,0,0",
+      "Rotation": "0,0,0,1",
+      "Scale": "1,1,1",
+      "Tags": "",
+      "Enabled": true,
+      "NetworkMode": 2,
+      "NetworkFlags": 0,
+      "NetworkOrphaned": 0,
+      "NetworkTransmit": true,
+      "OwnerTransfer": 1,
+      "Components": [
+        {
+          "__type": "Sandbox.DirectionalLight",
+          "__guid": "55e6d508-4495-485a-8f0e-6feb90e55417",
+          "__enabled": true,
+          "Flags": 0,
+          "LightColor": "1,1,1,1",
+          "Shadows": false
+        }
+      ],
+      "Children": []
+    }
+  ],
+  "SceneProperties": {
+    "FixedUpdateFrequency": 50,
+    "MaxFixedUpdates": 5,
+    "NetworkFrequency": 60,
+    "NetworkInterpolation": true,
+    "ThreadedAnimation": true,
+    "TimeScale": 1,
+    "UseFixedUpdate": true,
+    "NavMesh": {
+      "Enabled": false,
+      "IncludeStaticBodies": true,
+      "IncludeKeyframedBodies": true,
+      "EditorAutoUpdate": true,
+      "AgentHeight": 64,
+      "AgentRadius": 16,
+      "AgentStepSize": 18,
+      "AgentMaxSlope": 40,
+      "ExcludedBodies": "",
+      "IncludedBodies": ""
+    }
+  },
+  "Title": "13-late-join",
+  "Description": "An additional client joins the populated scene during the workload.",
+  "ResourceVersion": 1,
+  "__references": [],
+  "__version": 1
+}

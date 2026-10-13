@@ -17,6 +17,22 @@ internal static class SteamCallbacks
 		SteamFriends.OnFriendRichPresenceUpdate += SteamFriends_OnPersonaStateChange;
 		SteamFriends.OnGameRichPresenceJoinRequested += SteamFriends_OnGameRichPresenceJoinRequested;
 		SteamFriends.OnGameLobbyJoinRequested += SteamFriends_OnGameLobbyJoinRequested;
+		Dispatch.Install<NewUrlLaunchParameters_t>( _ => OnNewUrlLaunchParameters() );
+	}
+
+	private static void OnNewUrlLaunchParameters()
+	{
+		var apps = NativeEngine.Steam.SteamApps();
+		if ( !apps.IsValid ) return;
+
+		var arguments = Utility.CommandLine.Parse( apps.GetCommandLine() );
+		var gameIdent = arguments.GetValueOrDefault( "rungame" )?.TrimQuoted();
+		if ( string.IsNullOrWhiteSpace( gameIdent ) ) return;
+
+		using var scope = GlobalContext.MenuScope();
+		var referrer = Api.Activity.NormalizeWebReferrer( arguments.GetValueOrDefault( "webreferrer" )?.TrimQuoted() );
+		Discovery.Clicked( new DiscoveryContext { Surface = "web", Referrer = referrer }, gameIdent );
+		Game.Overlay.ShowGameModal( gameIdent );
 	}
 
 	private static void SteamFriends_OnGameRichPresenceJoinRequested( Steamworks.Friend friend, string connectStr )

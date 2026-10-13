@@ -144,6 +144,14 @@ internal static class EngineLoop
 		UpdateInput();
 
 		//
+		// Refresh before any game code runs this frame, so OnStart and OnUpdate never see a stale size
+		//
+		using ( Performance.Scope( "Update Screen Size" ) )
+		{
+			Screen.UpdateFromEngine();
+		}
+
+		//
 		// Dispatch callbacks for any changed files
 		//
 		FileWatch.Tick();

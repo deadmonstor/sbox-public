@@ -158,7 +158,7 @@ internal static partial class InputRouter
 				return;
 
 			// Let the game input get first dibs
-			if ( IGameInstance.Current is not null && IGameInstanceDll.Current.InputContext.In_Escape() )
+			if ( GameInputContext?.In_Escape() ?? false )
 			{
 				return;
 			}

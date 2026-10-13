@@ -12,6 +12,7 @@ internal sealed class TestConnection : Connection
 	public record struct Message( byte[] Raw, InternalMessageType Type, object? Payload = null );
 
 	public List<Message> Messages { get; } = new();
+	public byte[] LastEncoded { get; private set; } = Array.Empty<byte>();
 
 	public override bool IsHost { get; }
 
@@ -37,6 +38,7 @@ internal sealed class TestConnection : Connection
 
 	internal override void InternalSend( byte[] data, NetFlags flags )
 	{
+		LastEncoded = data;
 		if ( data[0] == FlagChunk )
 			throw new NotImplementedException( "TestConnection does not support chunked messages" );
 

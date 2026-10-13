@@ -1,0 +1,14 @@
+!.sbproj
+!*.ps1
+!ProjectSettings/*.config
+!code/*.scss
+.verification/
+*.csproj
+*.slnx
+*.scene_c
+*.scene_d
+*.meta
+obj/
+bin/
+.vscode/
+.sbox/
