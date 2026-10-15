@@ -93,7 +93,7 @@ public sealed partial class PlayerController : Component
 		// TODO: move to MoveMode?
 		// TODO: frame rate dependent
 
-		renderer.LocalPosition = bodyDuckOffset;
+		renderer.LocalPosition = bodyDuckOffset + WorldRotation.Inverse * _predictionVisualOffset;
 		bodyDuckOffset = bodyDuckOffset.LerpTo( 0, Time.Delta * 5.0f );
 
 		Mode?.UpdateAnimator( renderer );

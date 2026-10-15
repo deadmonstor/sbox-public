@@ -87,9 +87,13 @@ public sealed partial class PlayerController : Component, IScenePhysicsEvents, C
 	}
 
 	[Sync]
-	public Vector3 WishVelocity { get; set; }
+	public Vector3 WishVelocity
+	{
+		get => _predictionActive ? _predictionState.WishVelocity : field;
+		set;
+	}
 
-	public bool IsOnGround => GroundObject.IsValid();
+	public bool IsOnGround => _predictionActive ? _predictionState.Grounded : GroundObject.IsValid();
 
 	/// <summary>
 	/// Not touching the ground, and not swimming or climbing
@@ -173,6 +177,7 @@ public sealed partial class PlayerController : Component, IScenePhysicsEvents, C
 				if ( Renderer is not null )
 					Renderer.WorldRotation = new Angles( 0, EyeAngles.yaw, 0 );
 			}
+			UpdatePredictionMode();
 		}
 	}
 
@@ -189,6 +194,7 @@ public sealed partial class PlayerController : Component, IScenePhysicsEvents, C
 
 	protected override void OnDisabled()
 	{
+		StopPrediction();
 		base.OnDisabled();
 
 		DisableAnimationEvents();
@@ -203,6 +209,11 @@ public sealed partial class PlayerController : Component, IScenePhysicsEvents, C
 
 	void IScenePhysicsEvents.PrePhysicsStep()
 	{
+		if ( _predictionActive )
+		{
+			PredictionPrePhysicsStep();
+			return;
+		}
 		UpdateBody();
 
 		if ( IsProxy )
@@ -214,6 +225,12 @@ public sealed partial class PlayerController : Component, IScenePhysicsEvents, C
 
 	void IScenePhysicsEvents.PostPhysicsStep()
 	{
+		// Prediction finalizes contacts in Prediction.FinishFixedUpdate.
+		if ( _predictionActive )
+		{
+			return;
+		}
+
 		Velocity = Body.Velocity - GroundVelocity;
 		UpdateGroundVelocity();
 
@@ -256,6 +273,32 @@ public sealed partial class PlayerController : Component, IScenePhysicsEvents, C
 	/// </summary>
 	public void Jump( Vector3 velocity )
 	{
+		if ( _predictionActive )
+		{
+			// Authoritative impulses start a new timeline.
+			if ( !IsPredictionAuthority || !velocity.IsFinite )
+			{
+				return;
+			}
+
+			var predictedVelocity = _predictionState.Velocity;
+			if ( predictedVelocity.Dot( velocity ) < 0 )
+			{
+				predictedVelocity = predictedVelocity.SubtractDirection( velocity.Normal, 1 );
+			}
+
+			_predictionState = _predictionState with
+			{
+				Velocity = predictedVelocity.AddClamped( velocity, velocity.Length ),
+				Grounded = false,
+				Ground = Guid.Empty,
+				UngroundTime = 0.2f
+			};
+			ResetPredictionTimeline();
+			ApplyPredictionState( true );
+			return;
+		}
+
 		PreventGrounding( 0.2f );
 
 		var currentVel = Body.Velocity;

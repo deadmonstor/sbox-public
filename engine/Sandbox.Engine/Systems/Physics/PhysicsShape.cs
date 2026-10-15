@@ -4,9 +4,13 @@ namespace Sandbox;
 /// Represents a basic, convex shape. A <see cref="PhysicsBody">PhysicsBody</see> consists of one or more of these.
 /// </summary>
 [Expose]
-public sealed partial class PhysicsShape : IValid
+public sealed class PhysicsShape : IValid
 {
 	internal PhysicsShapeInternal _shape;
+
+	internal uint GeometryRevision { get; private set; }
+
+	internal bool TracesIgnored { get; private set; }
 
 	internal PhysicsShape( PhysicsShapeInternal shape )
 	{
@@ -115,7 +119,14 @@ public sealed partial class PhysicsShape : IValid
 		set => _shape?.Friction = value;
 	}
 
-	internal bool IgnoreTraces { set => _shape?.IgnoreTraces = value; }
+	internal bool IgnoreTraces
+	{
+		set
+		{
+			TracesIgnored = value;
+			_shape?.IgnoreTraces = value;
+		}
+	}
 	internal bool HasNoMass { set => _shape?.HasNoMass = value; }
 
 	/// <summary>
@@ -169,22 +180,38 @@ public sealed partial class PhysicsShape : IValid
 	/// <summary>
 	/// Recreate the collision mesh (Only if this physics shape is type Mesh)
 	/// </summary>
-	public void UpdateMesh( List<Vector3> vertices, List<int> indices ) => _shape?.UpdateMesh( vertices, indices );
+	public void UpdateMesh( List<Vector3> vertices, List<int> indices )
+	{
+		GeometryRevision++;
+		_shape?.UpdateMesh( vertices, indices );
+	}
 
 	/// <summary>
 	/// Recreate the mesh of the shape (Only if this physics shape is type Mesh)
 	/// </summary>
-	public void UpdateMesh( Span<Vector3> vertices, Span<int> indices ) => _shape?.UpdateMesh( vertices, indices );
+	public void UpdateMesh( Span<Vector3> vertices, Span<int> indices )
+	{
+		GeometryRevision++;
+		_shape?.UpdateMesh( vertices, indices );
+	}
 
 	/// <summary>
 	/// Recreate the hull of the shape (Only if this physics shape is type Hull)
 	/// </summary>
-	public void UpdateHull( Vector3 position, Rotation rotation, Span<Vector3> points ) => _shape?.UpdateHull( position, rotation, points );
+	public void UpdateHull( Vector3 position, Rotation rotation, Span<Vector3> points )
+	{
+		GeometryRevision++;
+		_shape?.UpdateHull( position, rotation, points );
+	}
 
 	/// <summary>
 	/// Update a plane shape's center, rotation and size.
 	/// </summary>
-	public void UpdatePlane( Vector3 center, Rotation rotation, Vector2 size ) => _shape?.UpdatePlane( center, rotation, size );
+	public void UpdatePlane( Vector3 center, Rotation rotation, Vector2 size )
+	{
+		GeometryRevision++;
+		_shape?.UpdatePlane( center, rotation, size );
+	}
 
 	/// <summary>
 	/// Triangulate this shape.
@@ -204,7 +231,9 @@ public sealed partial class PhysicsShape : IValid
 	// --- internal surface used by the engine through the public shape type ---
 
 	internal PhysicsShapeType ShapeType => _shape?.ShapeType ?? default;
+
 	internal BBox LocalBounds => _shape?.LocalBounds ?? default;
+
 	internal BBox BuildBounds() => _shape?.BuildBounds() ?? default;
 
 	internal int BoneIndex
@@ -229,11 +258,28 @@ public sealed partial class PhysicsShape : IValid
 		set => _shape?.RollingResistance = value;
 	}
 
-	internal void UpdateSphereShape( Vector3 center, float radius ) => _shape?.UpdateSphereShape( center, radius );
-	internal void UpdateCapsuleShape( Vector3 center1, Vector3 center2, float radius ) => _shape?.UpdateCapsuleShape( center1, center2, radius );
-	internal void UpdateBoxShape( Vector3 center, Rotation rotation, Vector3 extents ) => _shape?.UpdateBoxShape( center, rotation, extents );
+	internal void UpdateSphereShape( Vector3 center, float radius )
+	{
+		GeometryRevision++;
+		_shape?.UpdateSphereShape( center, radius );
+	}
+
+	internal void UpdateCapsuleShape( Vector3 center1, Vector3 center2, float radius )
+	{
+		GeometryRevision++;
+		_shape?.UpdateCapsuleShape( center1, center2, radius );
+	}
+
+	internal void UpdateBoxShape( Vector3 center, Rotation rotation, Vector3 extents )
+	{
+		GeometryRevision++;
+		_shape?.UpdateBoxShape( center, rotation, extents );
+	}
+
 	internal void UpdateSurface() => _shape?.UpdateSurface();
+
 	internal IEnumerable<Line> GetOutline() => _shape?.GetOutline();
+
 	internal bool IsTouching( PhysicsShape shape, bool triggersOnly ) => _shape?.IsTouching( shape, triggersOnly ) ?? false;
 
 	// --- obsolete tag helpers (kept for source compatibility) ---

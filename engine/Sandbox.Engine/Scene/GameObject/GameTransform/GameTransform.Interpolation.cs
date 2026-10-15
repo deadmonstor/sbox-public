@@ -13,6 +13,10 @@ public partial class GameTransform
 	InterpolationBuffer<RotationState> _rotationBuffer;
 	InterpolationBuffer<Vector3State> _scaleBuffer;
 
+	// Ownership can belong to a client while the host simulates and publishes transforms.
+	bool IsNetworkTransformProxy => GameObject.IsProxy
+		&& ((GameObject.Network.Flags & NetworkFlags.HostTransformAuthority) == 0 || !Networking.IsHost);
+
 	InterpolationSystem InterpolationSystem
 	{
 		get
@@ -50,7 +54,7 @@ public partial class GameTransform
 	{
 		get
 		{
-			if ( !GameObject.IsProxy )
+			if ( !IsNetworkTransformProxy )
 				return _targetLocal;
 
 			var flags = GameObject.Network?.Flags ?? NetworkFlags.None;
@@ -222,7 +226,7 @@ public partial class GameTransform
 
 	internal void Update( double now, double cullBefore )
 	{
-		if ( GameObject.IsProxy )
+		if ( IsNetworkTransformProxy )
 		{
 			InterpolateProxy( now, cullBefore );
 			return;

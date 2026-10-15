@@ -22,7 +22,11 @@ public sealed partial class PlayerController : Component
 	/// True if this player is ducking
 	/// </summary>
 	[Sync]
-	public bool IsDucking { get; set; }
+	public bool IsDucking
+	{
+		get => _predictionActive ? _predictionState.Ducking : field;
+		set;
+	}
 
 	/// <summary>
 	/// The distance from the top of the head to the closest ceiling.
@@ -36,6 +40,12 @@ public sealed partial class PlayerController : Component
 
 		if ( Scene.IsEditor )
 			return;
+
+		if ( _predictionActive )
+		{
+			_predictionVisualOffset *= MathF.Exp( -Time.Delta * 15 );
+			PresentPredictionJump();
+		}
 
 		UpdateEyeTransform();
 
@@ -60,11 +70,24 @@ public sealed partial class PlayerController : Component
 		{
 			UpdateAnimation( Renderer );
 		}
+		else if ( _predictionActive && Renderer.IsValid() )
+		{
+			Renderer.LocalPosition = bodyDuckOffset + WorldRotation.Inverse * _predictionVisualOffset;
+		}
 	}
 
 	protected override void OnFixedUpdate()
 	{
-		if ( Scene.IsEditor ) return;
+		if ( Scene.IsEditor )
+		{
+			return;
+		}
+
+		if ( UpdatePredictionMode() )
+		{
+			PredictionFixedUpdate();
+			return;
+		}
 
 		UpdateHeadroom();
 		UpdateFalling();

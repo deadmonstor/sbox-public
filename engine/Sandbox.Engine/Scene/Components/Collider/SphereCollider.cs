@@ -91,8 +91,7 @@ public sealed class SphereCollider : Collider
 
 			var radius = Radius * world.UniformScale;
 
-			if ( Shape?._shape is PhysicsShape3d shape3d )
-				shape3d.native.UpdateSphereShape( local.PointToWorld( Center ), radius );
+			Shape.UpdateSphereShape( local.PointToWorld( Center ), radius );
 		}
 		else
 		{

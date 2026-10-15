@@ -171,6 +171,7 @@ public partial struct SceneTrace
 	internal bool IncludePhysicsWorld;
 	internal ImmutableArray<GameObject> IgnoreSingleObject = ImmutableArray<GameObject>.Empty;
 	internal ImmutableArray<GameObject> IgnoreHierarchy = ImmutableArray<GameObject>.Empty;
+	internal HashSet<PhysicsShape> IgnoreLagCompensatedShapes;
 
 	internal SceneTrace( Scene scene )
 	{
@@ -189,6 +190,7 @@ public partial struct SceneTrace
 		{
 			if ( !IgnoreSingleObject.IsEmpty ) return true;
 			if ( !IgnoreHierarchy.IsEmpty ) return true;
+			if ( IgnoreLagCompensatedShapes is not null ) return true;
 
 			return false;
 		}
@@ -682,17 +684,20 @@ public partial struct SceneTrace
 
 	[ThreadStatic] static ImmutableArray<GameObject> _traceIgnoreSingle;
 	[ThreadStatic] static ImmutableArray<GameObject> _traceIgnoreHierarchy;
+	[ThreadStatic] static HashSet<PhysicsShape> _traceIgnoreLagCompensatedShapes;
 
 	internal static void SetTraceFilter( in SceneTrace trace )
 	{
 		_traceIgnoreSingle = trace.IgnoreSingleObject;
 		_traceIgnoreHierarchy = trace.IgnoreHierarchy;
+		_traceIgnoreLagCompensatedShapes = trace.IgnoreLagCompensatedShapes;
 	}
 
 	internal static void ClearTraceFilter()
 	{
 		_traceIgnoreSingle = default;
 		_traceIgnoreHierarchy = default;
+		_traceIgnoreLagCompensatedShapes = null;
 	}
 
 
@@ -702,6 +707,8 @@ public partial struct SceneTrace
 	/// </summary>
 	static bool FilterCallbackPhysicsShape( PhysicsShape shape )
 	{
+		if ( _traceIgnoreLagCompensatedShapes?.Contains( shape ) == true )
+			return false;
 		var colliderObject = shape.Collider?.GameObject;
 		var bodyObject = shape.Body?.GameObject;
 
