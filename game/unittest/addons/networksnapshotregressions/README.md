@@ -10,6 +10,8 @@ Three separate scenes for regressions in [347523ac](https://github.com/Facepunch
 
 The scenes contain a camera, a lobby helper, a controller and a text HUD. Multiplayer actors are spawned at runtime. No external assets are needed.
 
+Before testing, confirm the HUD shows the scene's numbered title (`01`, `02` or `03`) and host/client role. The HUD queries the controller's `IReproStatus` interface directly; the scene index does not include the base `Component` type.
+
 ## 01 — Host-only hotload desync
 
 Open `Assets/scenes/01-hotload-desync.scene`. Join one client and wait for the warmup to finish and both HUDs to show the settled value `239`.
