@@ -1,0 +1,25 @@
+{
+  "Title": "Network Snapshot Regressions",
+  "Type": "game",
+  "Org": "local",
+  "Ident": "networksnapshotregressions",
+  "Schema": 1,
+  "IncludeSourceFiles": false,
+  "Resources": null,
+  "PackageReferences": [],
+  "EditorReferences": null,
+  "Mounts": null,
+  "IsStandaloneOnly": false,
+  "AI": {
+    "EnableMcpCommunication": true
+  },
+  "Metadata": {
+    "MaxPlayers": 3,
+    "MinPlayers": 1,
+    "TickRate": 50,
+    "GameNetworkType": "Multiplayer",
+    "MapSelect": "Unrestricted",
+    "CsProjName": "",
+    "StartupScene": "scenes/01-hotload-desync.scene"
+  }
+}
