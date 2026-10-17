@@ -409,12 +409,12 @@ internal class DeltaSnapshotSystem
 	}
 
 	/// <summary>
-	/// Reset all connection data for the snapshot system. This might happen when a hotload
-	/// occurs, or the host changes.
+	/// Reset all connection data for the snapshot system after a hotload or host change.
+	/// Sender snapshot ids must keep increasing: peers that did not reset still use them to reject stale values.
 	/// </summary>
 	internal void Reset()
 	{
-		LastSentSnapshotIds.Clear();
+		// Keep live objects' sender sequences. ClearNetworkObject releases them when an object is cleared.
 
 		foreach ( var connection in Connections.Values )
 		{
@@ -436,7 +436,8 @@ internal class DeltaSnapshotSystem
 	}
 
 	/// <summary>
-	/// Locally clear any stored snapshot information about a networked object.
+	/// Locally clear any stored snapshot information about a networked object, including its sender sequence.
+	/// Object removal or a snapshot version change permits a new sequence; a connection reset alone does not.
 	/// </summary>
 	internal void ClearNetworkObject( NetworkObject nwo )
 	{
@@ -952,7 +953,7 @@ internal class DeltaSnapshotSystem
 	}
 
 	/// <summary>
-	/// Create a new snapshot id for the provided <see cref="NetworkObject"/>.
+	/// Create the next snapshot id for an object. Its sequence survives connection resets until the object is cleared.
 	/// </summary>
 	public uint CreateSnapshotId( Guid objectId )
 	{
