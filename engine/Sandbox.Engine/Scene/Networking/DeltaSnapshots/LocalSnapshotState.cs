@@ -81,7 +81,7 @@ internal class LocalSnapshotState
 	internal int NetIndex { get; set; } = -1;
 
 	public uint SnapshotId { get; set; }
-	public ushort Version { get; set; }
+	public SnapshotVersion Version { get; set; }
 	public Guid ObjectId { get; set; }
 	public int Size { get; private set; }
 

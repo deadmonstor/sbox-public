@@ -149,7 +149,7 @@ public class SnapshotEncodingTest
 		var library = new TypeLibrary();
 		library.AddAssembly( typeof( Scene ).Assembly, false );
 		var serializer = library.CreateDetachedSerializer( typeof( InitialSnapshotResponse ), typeof( SnapshotMsg ),
-			typeof( SnapshotMsg.GameObjectSystemData ), typeof( ObjectCreateMsg ) );
+			typeof( SnapshotMsg.GameObjectSystemData ), typeof( ObjectCreateMsg ), typeof( SnapshotVersion ) );
 		var capture = new SnapshotCapture { SceneJson = new Lazy<string>( () => "{}" ) };
 		capture.AddObject( new JsonObject { ["Name"] = "Captured" } );
 		capture.Snapshot.NetworkObjects.Add( new ObjectCreateMsg { Guid = Guid.NewGuid(), TableData = [1, 2, 3] } );

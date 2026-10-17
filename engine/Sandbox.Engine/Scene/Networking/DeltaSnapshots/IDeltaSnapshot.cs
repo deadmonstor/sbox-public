@@ -15,7 +15,7 @@ internal interface IDeltaSnapshot
 	/// <summary>
 	/// Current snapshot version for this object.
 	/// </summary>
-	ushort SnapshotVersion { get; }
+	SnapshotVersion SnapshotVersion { get; }
 
 	/// <summary>
 	/// Called when a snapshot is received by a <see cref="Connection"/>.

@@ -26,7 +26,7 @@ public class ConnectionWireTest
 		new Random( 42 ).NextBytes( table );
 		capture.Snapshot.NetworkObjects.Add( new ObjectCreateMsg { TableData = table } );
 		var serializer = library.CreateDetachedSerializer( typeof( InitialSnapshotResponse ), typeof( SnapshotMsg ),
-			typeof( SnapshotMsg.GameObjectSystemData ), typeof( ObjectCreateMsg ) );
+			typeof( SnapshotMsg.GameObjectSystemData ), typeof( ObjectCreateMsg ), typeof( SnapshotVersion ) );
 		var packets = Task.Run( () => capture.Encode( serializer, s => new InitialSnapshotResponse { Snapshot = s }, NetFlags.Reliable ) ).GetAwaiter().GetResult();
 		serializer.Dispose();
 		Assert.IsTrue( packets.Length > 1 );

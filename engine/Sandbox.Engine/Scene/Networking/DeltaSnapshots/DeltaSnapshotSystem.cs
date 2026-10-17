@@ -98,7 +98,7 @@ internal class DeltaSnapshotSystem
 	/// A value we sent, applied to <see cref="ObjectState.Acked"/> when its packet is acknowledged. No references,
 	/// thousands are in flight.
 	/// </summary>
-	internal readonly record struct SentValue( int NetIndex, int Resets, int Index, long Change, uint SnapshotId, ushort Version );
+	internal readonly record struct SentValue( int NetIndex, int Resets, int Index, long Change, uint SnapshotId, SnapshotVersion Version );
 
 	internal sealed class SentPacket
 	{
@@ -863,7 +863,7 @@ internal class DeltaSnapshotSystem
 
 			for ( var i = 0; i < count; i++ )
 			{
-				var version = reader.Read<ushort>();
+				var version = reader.Read<SnapshotVersion>();
 				var snapshotId = reader.Read<uint>();
 				var objectId = reader.Read<Guid>();
 
@@ -920,7 +920,7 @@ internal class DeltaSnapshotSystem
 		try
 		{
 			var objectId = reader.Read<Guid>();
-			var version = reader.Read<ushort>();
+			var version = reader.Read<SnapshotVersion>();
 			var snapshotId = reader.Read<uint>();
 			var time = connectionData.ToLocalTime( reader.Read<double>() );
 
@@ -1374,7 +1374,7 @@ internal class DeltaSnapshotSystem
 	/// <summary>
 	/// The object's snapshot version in <see cref="GetFullSnapshotData"/>, after its id.
 	/// </summary>
-	internal static ushort ReadVersion( byte[] snapshotData ) => BinaryPrimitives.ReadUInt16LittleEndian( snapshotData.AsSpan( 16 ) );
+	internal static SnapshotVersion ReadVersion( byte[] snapshotData ) => MemoryMarshal.Read<SnapshotVersion>( snapshotData.AsSpan( 16 ) );
 
 	/// <summary>
 	/// A <see cref="InternalMessageType.DeltaSnapshot"/> of these entries.
@@ -1382,7 +1382,7 @@ internal class DeltaSnapshotSystem
 	ByteStream WriteSnapshot( LocalSnapshotState local, List<LocalSnapshotState.Entry> entries )
 	{
 		// Object id, version, snapshot id, send time, count, then a slot and a length prefixed value each
-		var size = 16 + 2 + 4 + 8 + 2;
+		var size = 16 + Unsafe.SizeOf<SnapshotVersion>() + 4 + 8 + 2;
 		foreach ( var entry in entries )
 			size += 4 + 4 + entry.Value.Length;
 

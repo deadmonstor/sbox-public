@@ -292,13 +292,13 @@ public partial class GameObject
 	}
 
 	/// <summary>
-	/// Ownership changes propose a new (version, owner) and every peer keeps the greatest, the higher owner id
-	/// winning a tie. Changes that race each other arrive in a different order on each peer, but end the same everywhere.
+	/// Ownership changes propose a new (ownership generation, owner), independent of refreshes. Every peer keeps
+	/// the greatest proposal, the higher owner id winning a tie, regardless of message arrival order.
 	/// </summary>
 	void ApplyOwnership( ushort snapshotVersion, Guid owner )
 	{
-		var version = (ushort)(snapshotVersion + 1);
-		var ahead = (short)(version - _net.LocalSnapshotState.Version);
+		var version = new SnapshotVersion( snapshotVersion, 0 ).NextOwnership();
+		var ahead = (short)(version.Ownership - _net.LocalSnapshotState.Version.Ownership);
 
 		if ( ahead < 0 )
 			return;
@@ -663,9 +663,9 @@ public partial class GameObject
 		public NetworkOrphaned NetworkOrphaned => go.NetworkOrphaned;
 
 		/// <summary>
-		/// Current snapshot version. This usually changes when the owner changes.
+		/// Current ownership and refresh generations for this object's snapshots.
 		/// </summary>
-		internal ushort SnapshotVersion => go._net?.SnapshotVersion ?? 0;
+		internal SnapshotVersion SnapshotVersion => go._net?.SnapshotVersion ?? default;
 
 		/// <summary>
 		/// Network flags which describe the behavior of this networked object.
@@ -848,7 +848,7 @@ public partial class GameObject
 			if ( !Active ) return false;
 			if ( IsOwner ) return false;
 
-			var snapshotVersion = go.Network.SnapshotVersion;
+			var snapshotVersion = go.Network.SnapshotVersion.Ownership;
 
 			if ( !Networking.IsHost && go.OwnerTransfer == OwnerTransfer.Request )
 			{
@@ -875,7 +875,7 @@ public partial class GameObject
 
 			if ( !Active ) return false;
 
-			var snapshotVersion = go.Network.SnapshotVersion;
+			var snapshotVersion = go.Network.SnapshotVersion.Ownership;
 
 			if ( !IsProxy )
 			{
@@ -907,7 +907,7 @@ public partial class GameObject
 				UpdateStateBeforeOwnerChange();
 			}
 
-			go.Msg_AssignOwnership( connectionId, go.Network.SnapshotVersion );
+			go.Msg_AssignOwnership( connectionId, go.Network.SnapshotVersion.Ownership );
 			return true;
 		}
 
@@ -942,7 +942,7 @@ public partial class GameObject
 		{
 			if ( !Active ) return false;
 
-			var snapshotVersion = go.Network.SnapshotVersion;
+			var snapshotVersion = go.Network.SnapshotVersion.Ownership;
 
 			if ( !IsProxy )
 			{

@@ -28,7 +28,7 @@ public abstract partial class GameObjectSystem : IDeltaSnapshot
 	bool IDeltaSnapshot.IsProxy => !Networking.IsHost;
 	bool IDeltaSnapshot.ShouldTransmit( Connection target ) => true;
 	bool IDeltaSnapshot.UpdateTransmitState( Connection[] targets ) => true;
-	ushort IDeltaSnapshot.SnapshotVersion => 0;
+	SnapshotVersion IDeltaSnapshot.SnapshotVersion => default;
 
 	/// <summary>
 	/// Should only be called by <see cref="GameObjectDirectory.Add( GameObjectSystem )"/>.

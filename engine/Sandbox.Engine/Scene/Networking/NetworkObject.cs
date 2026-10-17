@@ -92,7 +92,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 	/// <summary>
 	/// Current snapshot version for this networked object.
 	/// </summary>
-	public ushort SnapshotVersion => LocalSnapshotState.Version;
+	public SnapshotVersion SnapshotVersion => LocalSnapshotState.Version;
 
 	bool _clearInterpolationFlag;
 	bool _hasNetworkDestroyed;
@@ -267,7 +267,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 	// values are sent again once it has the refresh.
 	LocalSnapshotState WriteRefreshSnapshot()
 	{
-		LocalSnapshotState.Version++;
+		LocalSnapshotState.Version = LocalSnapshotState.Version.NextRefresh();
 		return ((IDeltaSnapshot)this).WriteSnapshotState();
 	}
 
@@ -285,6 +285,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 		var msg = new ObjectRefreshMsg
 		{
 			Guid = GameObject.Id,
+			Owner = Owner,
 			Parent = GameObject.Parent.Id,
 			JsonData = GameObject.Serialize( _refreshSerializeOptions ).ToJsonString(),
 			BlobData = blobs.ToByteArray(),
@@ -335,6 +336,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 			var msg = new ObjectRefreshDescendantMsg
 			{
 				GameObjectId = GameObject.Id,
+				Owner = Owner,
 				ParentId = go.Parent.Id,
 				JsonData = go.Serialize( _refreshDescendantSerializeOptions ).ToJsonString(),
 				BlobData = blobs.ToByteArray(),
@@ -374,6 +376,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 				JsonData = component.Serialize( _componentRefreshSerializeOptions ).ToJsonString(),
 				BlobData = blobs.ToByteArray(),
 				GameObjectId = component.GameObject.Id,
+				Owner = Owner,
 				TableData = WriteReliableData(),
 				Snapshot = system.DeltaSnapshots.GetFullSnapshotData( snapshot )
 			};
@@ -762,6 +765,9 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 		var scene = Game.ActiveScene;
 		if ( !scene.IsValid() ) return;
 
+		if ( message.Owner != Owner || DeltaSnapshotSystem.ReadVersion( message.Snapshot ).Ownership != SnapshotVersion.Ownership )
+			return;
+
 		var oldTransform = GameObject.Transform.TargetLocal;
 		using ( BlobDataSerializer.LoadFromMemory( message.BlobData ) )
 		{
@@ -801,15 +807,18 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot
 
 	internal void UpdateFromRefresh( Connection source, byte[] tableData, byte[] snapshotData )
 	{
+		var version = DeltaSnapshotSystem.ReadVersion( snapshotData );
+		if ( version.Ownership != SnapshotVersion.Ownership )
+			return;
+
 		RegisterPropertiesRecursive();
 
 		var system = SceneNetworkSystem.Instance;
 		if ( system is null ) return;
 
 		ReadDataTable( tableData );
-		// Owner and host can refresh at once, an older refresh must not roll the version back
-		var version = DeltaSnapshotSystem.ReadVersion( snapshotData );
-		if ( (short)(version - LocalSnapshotState.Version) > 0 )
+		// Owner and host can refresh at once; an older refresh must not roll back this ownership's refresh generation.
+		if ( (short)(version.Refresh - LocalSnapshotState.Version.Refresh) > 0 )
 			LocalSnapshotState.Version = version;
 
 		var bs = ByteStream.CreateReader( snapshotData );

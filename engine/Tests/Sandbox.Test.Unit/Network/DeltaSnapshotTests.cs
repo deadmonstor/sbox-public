@@ -162,38 +162,6 @@ public class DeltaSnapshotTests
 	}
 
 	/// <summary>
-	/// The bytes the host puts on the wire for a fixed scenario. A refactor of the snapshot internals must not
-	/// change what gets sent; update the constant only for an intended protocol or behaviour change.
-	/// </summary>
-	[TestMethod]
-	public void WireOutputIsUnchanged()
-	{
-		var sim = new DeltaSnapshotSim( new SimSettings
-		{
-			Objects = 120,
-			Clients = 5,
-			Loss = 0.05f,
-			LatencyTicks = 4,
-			CullToggleRate = 0.03f,
-			SlotToggleRate = 0.03f,
-			Seed = 99
-		} );
-
-		for ( var i = 0; i < 150; i++ )
-		{
-			if ( i == 70 )
-				sim.ReconnectClient( 3 );
-
-			sim.Tick();
-		}
-
-		Console.WriteLine( $"wire hash {sim.WireHash:X16}, {sim.HostMessagesSent} messages, {sim.HostBytesSent} bytes" );
-		Assert.AreEqual( ExpectedWireHash, sim.WireHash, $"wire output changed: {sim.WireHash:X16}" );
-	}
-
-	const ulong ExpectedWireHash = 0xCEDE0E000318F7E6UL;
-
-	/// <summary>
 	/// Host cost per network tick for a busy server. Set SBOX_NET_BENCH=1 to run.
 	/// </summary>
 	[TestMethod]

@@ -13,7 +13,7 @@ public static class Protocol
 	/// <summary>
 	/// We cannot talk to servers or clients with a network protocol different to this.
 	/// </summary>
-	public static int Network => 1109;
+	public static int Network => 1110;
 }
 
 // Api Versions
@@ -32,6 +32,7 @@ public static class Protocol
 
 
 // Network Versions
+// 1110. 17 October 2026 - Snapshots track ownership and refresh generations independently
 // 1109. 14th October 2026 - Network rebuild: delta snapshot clusters, 32 bit snapshot ids, multicast relays, raw typed RPCs, targeted messages removed
 // 1108. 12th October 2026 - Delta snapshots carry the sender's time
 // 1107. 11th October 2026 - Server packages say which version of their workshop item the server has

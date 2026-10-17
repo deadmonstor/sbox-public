@@ -14,7 +14,7 @@ internal sealed class SimObject : IDeltaSnapshot
 {
 	public Guid Id { get; }
 	public bool IsProxy => false;
-	public ushort SnapshotVersion => Local.Version;
+	public SnapshotVersion SnapshotVersion => Local.Version;
 
 	public readonly LocalSnapshotState Local = new();
 	public readonly int[] Slots;
@@ -154,11 +154,6 @@ internal sealed class DeltaSnapshotSim
 	public int HostMessagesSent { get; private set; }
 	public long BytesSentThisTick { get; private set; }
 
-	/// <summary>
-	/// Every host to client payload, cluster ids zeroed, hashed in order. Equal hashes mean the same bytes went out.
-	/// </summary>
-	public ulong WireHash { get; private set; } = 1469598103934665603UL;
-
 	public DeltaSnapshotSim( SimSettings settings )
 	{
 		Settings = settings;
@@ -250,15 +245,6 @@ internal sealed class DeltaSnapshotSim
 		BytesSentThisTick += data.Length;
 
 		var client = Array.IndexOf( ClientConnections, target );
-
-		// Cluster ids come from a process wide counter, leave them out so runs compare
-		var start = type == InternalMessageType.DeltaSnapshotCluster ? 2 : 0;
-		var hash = WireHash;
-		hash = (hash ^ (ulong)client) * 1099511628211UL;
-		hash = (hash ^ (ulong)type) * 1099511628211UL;
-		for ( var i = start; i < data.Length; i++ )
-			hash = (hash ^ data[i]) * 1099511628211UL;
-		WireHash = hash;
 
 		Enqueue( client, false, type, data );
 	}

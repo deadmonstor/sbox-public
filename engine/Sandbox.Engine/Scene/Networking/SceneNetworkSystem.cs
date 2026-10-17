@@ -1077,6 +1077,9 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 		if ( !root._net.HasControl( source ) && !source.IsHost )
 			return;
 
+		if ( message.Owner != root._net.Owner || DeltaSnapshotSystem.ReadVersion( message.Snapshot ).Ownership != root._net.SnapshotVersion.Ownership )
+			return;
+
 		var gameObjectJson = JsonNode.Parse( message.JsonData ).AsObject();
 
 		if ( !gameObjectJson.TryGetPropertyValue( GameObject.JsonKeys.Id, out var childId ) )
@@ -1138,6 +1141,9 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 
 		// Only the owner or the host can do this.
 		if ( !root._net.HasControl( source ) && !source.IsHost )
+			return;
+
+		if ( message.Owner != root._net.Owner || DeltaSnapshotSystem.ReadVersion( message.Snapshot ).Ownership != root._net.SnapshotVersion.Ownership )
 			return;
 
 		var componentJson = JsonNode.Parse( message.JsonData ).AsObject();
@@ -1539,6 +1545,7 @@ struct ObjectRefreshDescendantMsg
 	public byte[] BlobData { get; set; }
 	public byte[] TableData { get; set; }
 	public byte[] Snapshot { get; set; }
+	public Guid Owner { get; set; }
 	public Guid ParentId { get; set; }
 	public Guid GameObjectId { get; set; }
 }
@@ -1554,6 +1561,7 @@ struct ObjectRefreshComponentMsg
 	public byte[] BlobData { get; set; }
 	public byte[] TableData { get; set; }
 	public byte[] Snapshot { get; set; }
+	public Guid Owner { get; set; }
 	public Guid GameObjectId { get; set; }
 }
 
@@ -1569,6 +1577,7 @@ struct ObjectRefreshMsg
 	public byte[] BlobData { get; set; }
 	public byte[] TableData { get; set; }
 	public byte[] Snapshot { get; set; }
+	public Guid Owner { get; set; }
 	public Guid Parent { get; set; }
 	public Guid Guid { get; set; }
 }
@@ -1613,7 +1622,7 @@ struct ObjectCreateBatchMsg
 [Expose]
 struct ObjectCreateMsg
 {
-	public ushort SnapshotVersion { get; set; }
+	public SnapshotVersion SnapshotVersion { get; set; }
 	public string JsonData { get; set; }
 	public byte[] BlobData { get; set; }
 	public Transform Transform { get; set; }

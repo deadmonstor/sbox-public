@@ -24,7 +24,7 @@ public abstract partial class Connection
 		}
 
 		var serializer = System.TypeLibrary.CreateDetachedSerializer( typeof( T ), typeof( SnapshotMsg ),
-			typeof( SnapshotMsg.GameObjectSystemData ), typeof( ObjectCreateMsg ) );
+			typeof( SnapshotMsg.GameObjectSystemData ), typeof( ObjectCreateMsg ), typeof( SnapshotVersion ) );
 		var cancellation = (snapshotCancellation ??= new()).Token;
 		QueueSend( Task.Run( () =>
 		{
