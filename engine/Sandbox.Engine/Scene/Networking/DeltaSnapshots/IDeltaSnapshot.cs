@@ -62,7 +62,7 @@ internal interface IDeltaSnapshot
 
 	/// <summary>
 	/// Try to send a network update or do nothing if no update is required. This is most
-	/// likely called after WriteSnapshotState.
+	/// likely called after WriteSnapshotState. Must also flush pending reliable changes without recipients.
 	/// </summary>
 	internal void SendNetworkUpdate( bool queryValues = false );
 }

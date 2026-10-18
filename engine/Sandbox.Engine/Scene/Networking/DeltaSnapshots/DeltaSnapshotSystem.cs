@@ -1050,12 +1050,6 @@ internal class DeltaSnapshotSystem
 			if ( !nwo.IsValid )
 				continue;
 
-			if ( connections.Length == 0 )
-			{
-				nwo.IsFullyUpdated = true;
-				continue;
-			}
-
 			var revision = nwo.DirtyRevision;
 			nwo.IsFullyUpdated = false;
 
@@ -1064,6 +1058,14 @@ internal class DeltaSnapshotSystem
 			if ( nwo.IsProxy && !Networking.IsHost )
 			{
 				nwo.IsFullyUpdated = true;
+				continue;
+			}
+
+			if ( connections.Length == 0 )
+			{
+				// Discard reliable collection deltas even without recipients: future peers get a full baseline.
+				nwo.SendNetworkUpdate( true );
+				nwo.IsFullyUpdated = revision == nwo.DirtyRevision;
 				continue;
 			}
 

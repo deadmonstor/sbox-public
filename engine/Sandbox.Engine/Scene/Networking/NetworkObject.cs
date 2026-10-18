@@ -250,6 +250,13 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 
 	internal uint DirtyRevision { get; private set; }
 
+	private RealTimeUntil _timeUntilDormancy;
+
+	/// <summary>
+	/// Keep processing for one real-time second after the latest notified or queried change to avoid repeated sleep/wake scheduling.
+	/// </summary>
+	internal bool CanSleep => _timeUntilDormancy;
+
 	/// <summary>
 	/// Wake this object and keep it pending until its current state is acknowledged.
 	/// </summary>
@@ -261,6 +268,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 
 		DirtyRevision = unchecked(DirtyRevision + 1);
 		IsFullyUpdated = false;
+		_timeUntilDormancy = 1f;
 		_nextDormancyProbe = 0f;
 		SetDeltaDormant( false );
 		GameObject.Scene.MarkNetworkObjectDirty( this );
@@ -454,7 +462,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 	private readonly Dictionary<Guid, CullState> _cullStates = new();
 	private readonly SnapshotValueCache _snapshotCache = new();
 	private TimeUntil _nextUpdateCachedBounds;
-	private TimeUntil _nextDormancyProbe;
+	private RealTimeUntil _nextDormancyProbe;
 	private BBox _cachedLocalBounds;
 
 	/// <summary>
@@ -463,7 +471,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 	private const float CullDelay = 2f;
 
 	/// <summary>
-	/// Allow culling to finish before suspending visibility checks.
+	/// Allow culling to finish before suspending visibility checks. Probes use real time even while paused.
 	/// </summary>
 	private const float DormancyThreshold = 3f;
 
@@ -475,6 +483,12 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 		{
 			SetDeltaDormant( false );
 			return true;
+		}
+
+		if ( !CanSleep )
+		{
+			SetDeltaDormant( false );
+			return false;
 		}
 
 		var timeNow = Time.Now;
@@ -783,7 +797,8 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 			LocalSnapshotState.AddCached( _snapshotCache, SnapshotEnabledSlot, GameObject.Enabled );
 		}
 
-		dataTable.QueryValues();
+		if ( dataTable.QueryValues() )
+			_timeUntilDormancy = 1f;
 		if ( !IsValid ) return null;
 		dataTable.WriteSnapshotState( LocalSnapshotState );
 
@@ -794,8 +809,8 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 
 	void IDeltaSnapshot.SendNetworkUpdate( bool queryValues )
 	{
-		if ( queryValues )
-			dataTable.QueryValues( true );
+		if ( queryValues && dataTable.QueryValues( true ) )
+			_timeUntilDormancy = 1f;
 
 		if ( !IsValid ) return;
 

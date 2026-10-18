@@ -5,16 +5,16 @@ sealed partial class NetworkDebugSystem
 	[ConVar( "net_debug_dormancy", ConVarFlags.Protected | ConVarFlags.Cheat, Help = "Show network object names, dormancy states and observed state ages. Ages start when enabled, not at the historical state change." )]
 	private static bool DebugDormancy { get; set; }
 
-	[ConVar( "net_debug_dormancy_distance", ConVarFlags.Protected | ConVarFlags.Cheat, Help = "Maximum distance for network dormancy labels, in world units." )]
+	[ConVar( "net_debug_dormancy_distance", ConVarFlags.Protected, Help = "Maximum distance for network dormancy labels, in world units." )]
 	private static float DebugDormancyDistance { get; set; } = 1024f;
 
-	[ConVar( "net_debug_dormancy_max_labels", ConVarFlags.Protected | ConVarFlags.Cheat, Help = "Maximum number of network dormancy labels, nearest visible objects first." )]
+	[ConVar( "net_debug_dormancy_max_labels", ConVarFlags.Protected, Help = "Maximum number of network dormancy labels, nearest visible objects first." )]
 	private static int DebugDormancyMaxLabels { get; set; } = 64;
 
 	private enum DormancyState
 	{
 		RemoteUnknown,
-		AwakeDirty,
+		AwakeGrace,
 		PendingAck,
 		AckClean,
 		VisibilitySleep
@@ -50,15 +50,14 @@ sealed partial class NetworkDebugSystem
 		if ( obj.IsProxy ) return DormancyState.RemoteUnknown;
 		if ( obj.IsDeltaDormant ) return DormancyState.VisibilitySleep;
 		if ( !obj.IsDirty ) return DormancyState.AckClean;
-		return obj.IsFullyUpdated ? DormancyState.AwakeDirty : DormancyState.PendingAck;
+		return obj.IsFullyUpdated ? DormancyState.AwakeGrace : DormancyState.PendingAck;
 	}
 
 	private void DrawDormancy()
 	{
 		if ( !DebugDormancy )
 		{
-			// Release all records once on disable; the normal disabled path does no work.
-			if ( _dormancyTracking is not null ) _dormancyTracking = null;
+			_dormancyTracking = null;
 			return;
 		}
 
@@ -128,6 +127,7 @@ sealed partial class NetworkDebugSystem
 					DormancyState.RemoteUnknown => ("proxy (remote unknown)", Color.Gray),
 					DormancyState.VisibilitySleep => ("visibility sleep", Color.Orange),
 					DormancyState.AckClean => ("ACK clean", Color.Green),
+					DormancyState.AwakeGrace => ("awake grace", Color.Yellow),
 					DormancyState.PendingAck => ("pending ACK", Color.Yellow),
 					_ => ("dirty", Color.Yellow)
 				};

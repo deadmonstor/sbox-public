@@ -49,7 +49,6 @@ public partial class Scene : GameObject
 		system?.DeltaSnapshots?.ClearNetworkObject( obj );
 
 		networkedObjects.Remove( obj );
-		_dirtyNetworkObjects.Remove( obj );
 		obj.IsDirty = false;
 	}
 
@@ -57,6 +56,7 @@ public partial class Scene : GameObject
 
 	/// <summary>
 	/// Send any pending network updates at our desired <see cref="NetworkRate"/>.
+	/// Retire destroyed pending objects even when no network system is active.
 	/// </summary>
 	internal void SceneNetworkUpdate()
 	{
@@ -64,7 +64,10 @@ public partial class Scene : GameObject
 		GetAll( _networkMapInstanceCache );
 
 		if ( SceneNetworkSystem.Instance is not { } system )
+		{
+			_dirtyNetworkObjects.RemoveAll( static obj => !obj.IsValid );
 			return;
+		}
 
 		var now = RealTime.NowDouble;
 		if ( now < _nextNetworkUpdate )
@@ -132,7 +135,7 @@ public partial class Scene : GameObject
 
 		_dirtyNetworkObjects.RemoveAll( static obj =>
 		{
-			if ( !obj.IsFullyUpdated && !obj.IsDeltaDormant && obj.IsValid )
+			if ( obj.IsValid && !obj.IsDeltaDormant && (!obj.IsFullyUpdated || !obj.CanSleep) )
 				return false;
 
 			obj.IsDirty = false;

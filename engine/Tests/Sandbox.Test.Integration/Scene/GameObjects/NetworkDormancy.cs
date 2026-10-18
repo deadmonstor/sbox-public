@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -10,8 +11,7 @@ namespace SceneTests.GameObjects;
 using static GlobalGameNamespace;
 
 /// <summary>
-/// ACK-clean objects sleep automatically; visibility dormancy additionally stops visibility work
-/// until the next probe. Exercise the real cluster sender and acknowledge its wire messages.
+/// Exercise dormancy scheduling with the real cluster sender and acknowledgements of its wire messages.
 /// </summary>
 [TestClass]
 public class NetworkDormancyTest
@@ -21,6 +21,9 @@ public class NetworkDormancyTest
 	private float _oldTimeNow;
 	private double _oldTimeNowDouble;
 	private double? _oldRealTime;
+	private Scene _scene;
+	private IDisposable _scope;
+	private ClientAndHost _peers;
 
 	[TestInitialize]
 	public void TestInitialize()
@@ -28,398 +31,421 @@ public class NetworkDormancyTest
 		_oldTypeLibrary = Game.TypeLibrary;
 		Game.TypeLibrary = SharedTypeLibrary.EngineAndTests;
 		JsonUpgrader.UpdateUpgraders( Game.TypeLibrary );
+
 		_oldTimeNow = Time.Now;
 		_oldTimeNowDouble = Time.NowDouble;
 		_oldRealTime = RealTime.SimulatedNow;
 		SetTime( StartTime );
+
+		_scene = new Scene();
+		_scope = _scene.Push();
+
+		_peers = new ClientAndHost( TypeLibrary );
+		_peers.BecomeHost();
 	}
 
 	[TestCleanup]
 	public void TestCleanup()
 	{
+		_peers.Dispose();
+		_scope.Dispose();
+
 		Game.TypeLibrary = _oldTypeLibrary;
 		Time.Now = _oldTimeNow;
 		Time.NowDouble = _oldTimeNowDouble;
 		RealTime.SimulatedNow = _oldRealTime;
 	}
 
-	[TestMethod]
-	public void AcknowledgedVisibleObjectAutomaticallySleeps()
-	{
-		var scene = new Scene();
-		using var scope = scene.Push();
-		using var peers = new ClientAndHost( TypeLibrary );
-		peers.BecomeHost();
-		var go = new GameObject();
-		go.NetworkSpawn();
-		Settle( scene, peers.Client );
-
-		Assert.IsTrue( go._net.IsFullyUpdated );
-		Assert.IsFalse( go._net.IsDirty, "An acknowledged object must leave the send set automatically" );
-		Assert.IsFalse( go.Network.IsDeltaDormant, "Visibility dormancy is distinct from ACK-clean sleep" );
-		peers.Client.Messages.Clear();
-		for ( var i = 0; i < 5; i++ )
-			UpdateScene( scene );
-		Assert.IsFalse( go._net.IsDirty );
-		Assert.AreEqual( 0, ClusterCount( peers.Client ), "Idle objects must not send more snapshot clusters" );
-	}
-
-	[TestMethod]
-	public void UnacknowledgedFinalStateStaysScheduledAndRetries()
-	{
-		var scene = new Scene();
-		using var scope = scene.Push();
-		using var peers = new ClientAndHost( TypeLibrary );
-		peers.BecomeHost();
-		var go = new GameObject();
-		go.NetworkSpawn();
-		Settle( scene, peers.Client );
-
-		go.WorldPosition = new Vector3( 0f, 0f, 128f );
-		peers.Client.Messages.Clear();
-		UpdateScene( scene );
-		Assert.IsTrue( ClusterCount( peers.Client ) > 0 );
-		Assert.IsFalse( go._net.IsFullyUpdated );
-		Assert.IsTrue( go._net.IsDirty );
-
-		// Lose the final update, not just its acknowledgement. Nothing changes afterward to wake it.
-		peers.Client.Messages.Clear();
-		SetTime( StartTime + 1f );
-		UpdateScene( scene );
-		Assert.IsTrue( ClusterCount( peers.Client ) > 0, "The unacknowledged final state must be retransmitted" );
-		Assert.IsTrue( go._net.IsDirty );
-		Acknowledge( peers.Client );
-		UpdateScene( scene );
-		Assert.IsTrue( go._net.IsFullyUpdated );
-		Assert.IsFalse( go._net.IsDirty );
-	}
-
-	[TestMethod]
-	public void OldAcknowledgementCannotPutNewStateToSleep()
-	{
-		var scene = new Scene();
-		using var scope = scene.Push();
-		using var peers = new ClientAndHost( TypeLibrary );
-		peers.BecomeHost();
-		var go = new GameObject();
-		go.NetworkSpawn();
-		UpdateScene( scene );
-		go.WorldPosition = Vector3.Up * 128f;
-		Acknowledge( peers.Client );
-		UpdateScene( scene );
-		Assert.IsTrue( go._net.IsDirty, "An ACK for the old position must not acknowledge the new position" );
-		Assert.IsFalse( go._net.IsFullyUpdated );
-		Assert.IsTrue( ClusterCount( peers.Client ) > 0 );
-		Settle( scene, peers.Client );
-		Assert.IsFalse( go._net.IsDirty );
-	}
-
 	[DataTestMethod]
 	[DataRow( "Transform" )]
-	[DataRow( "Sync" )]
+	[DataRow( "Nested" )]
 	[DataRow( "Enabled" )]
 	[DataRow( "Parent" )]
 	[DataRow( "NetList" )]
 	[DataRow( "NetDictionary" )]
-	public void SleepingObjectWakesOnReplicatedChange( string change )
+	[DataRow( "Query" )]
+	[DataRow( "List" )]
+	[DataRow( "Dictionary" )]
+	public void ReplicatedChangesWakeImmediatelyAndRestartGrace( string change )
 	{
-		var scene = new Scene();
-		using var scope = scene.Push();
-		using var peers = new ClientAndHost( TypeLibrary );
-		peers.BecomeHost();
 		var parent = new GameObject();
 		parent.NetworkSpawn();
-		var go = new GameObject();
-		var controller = go.Components.Create<CharacterController>();
+
+		var go = change == "Nested" ? new GameObject( parent ) : new GameObject();
 		var containers = go.Components.Create<DormancyTestComponent>();
 		containers.SyncList = new NetList<int>();
 		containers.SyncDictionary = new NetDictionary<int, int>();
 		go.NetworkSpawn();
-		Settle( scene, peers.Client );
-		Assert.IsFalse( go._net.IsDirty );
 
-		switch ( change )
-		{
-			case "Transform": go.WorldPosition = Vector3.Up * 128f; break;
-			case "Sync": controller.Velocity = Vector3.Up * 100f; break;
-			case "Enabled": go.Enabled = false; break;
-			case "Parent": go.Parent = parent; break;
-			case "NetList": containers.SyncList.Add( 1 ); break;
-			case "NetDictionary": containers.SyncDictionary[1] = 2; break;
-		}
-
-		peers.Client.Messages.Clear();
-		UpdateScene( scene );
-		if ( change is "NetList" or "NetDictionary" )
-			Assert.IsTrue( peers.Client.Messages.Any( x => x.Payload is ObjectNetworkTableMsg ),
-				$"{change} must send its reliable container delta" );
-		else
-			Assert.IsTrue( ClusterCount( peers.Client ) > 0, $"{change} must reach the sender" );
-		Settle( scene, peers.Client );
-		Assert.IsFalse( go._net.IsDirty );
-	}
-
-	[DataTestMethod]
-	[DataRow( "Transform" )]
-	[DataRow( "Enabled" )]
-	[DataRow( "Parent" )]
-	public void NestedNetworkObjectWakesItsOwnSnapshot( string change )
-	{
-		var scene = new Scene();
-		using var scope = scene.Push();
-		using var peers = new ClientAndHost( TypeLibrary );
-		peers.BecomeHost();
-		var parent = new GameObject();
-		parent.NetworkSpawn();
-		var otherParent = new GameObject();
-		otherParent.NetworkSpawn();
-		var child = new GameObject( parent );
-		var component = child.Components.Create<DormancyTestComponent>();
-		child.NetworkSpawn();
-		Settle( scene, peers.Client );
-		Assert.IsFalse( child._net.IsDirty );
-
-		switch ( change )
-		{
-			case "Transform": child.LocalPosition = Vector3.Up; break;
-			case "Enabled": child.Enabled = false; break;
-			case "Parent": child.Parent = otherParent; break;
-		}
-
-		Assert.IsTrue( child._net.IsDirty, "A nested network object owns its own snapshot" );
-		peers.Client.Messages.Clear();
-		UpdateScene( scene );
-		Assert.IsTrue( ClusterCount( peers.Client ) > 0 );
-		Settle( scene, peers.Client );
-		Assert.IsFalse( child._net.IsDirty );
-	}
-
-	[DataTestMethod]
-	[DataRow( "Query" )]
-	[DataRow( "List" )]
-	[DataRow( "Dictionary" )]
-	public void PollingWakesSleepingObjectForRepeatedChanges( string kind )
-	{
-		var scene = new Scene();
-		using var scope = scene.Push();
-		using var peers = new ClientAndHost( TypeLibrary );
-		peers.BecomeHost();
-		var go = new GameObject();
-		go.NetworkSpawn();
-		object value = kind switch
+		object value = change switch
 		{
 			"List" => new List<int>(),
 			"Dictionary" => new Dictionary<int, int>(),
 			_ => 0
 		};
-		go._net.dataTable.Register( 100, new NetworkTable.Entry
-		{
-			TargetType = value.GetType(),
-			NeedsQuery = true,
-			GetValue = () => value
-		} );
-		Settle( scene, peers.Client );
 
-		for ( var i = 1; i <= 2; i++ )
+		if ( change is "Query" or "List" or "Dictionary" )
+			RegisterQuery( go, value.GetType(), () => value );
+
+		Settle();
+		Assert.IsFalse( go._net.IsDirty );
+
+		var now = RealTime.NowDouble;
+
+		for ( var step = 1; step <= 2; step++ )
 		{
-			Assert.IsFalse( go._net.IsDirty );
-			switch ( value )
+			if ( step == 2 )
 			{
-				case List<int> list: list.Add( i ); break;
-				case Dictionary<int, int> dictionary: dictionary[i] = i; break;
-				default: value = i; break;
+				RealTime.SimulatedNow = now + 0.75;
+				UpdateScene();
+
+				Assert.IsTrue( go._net.IsDirty, "Acknowledgement must not end the awake grace" );
 			}
-			peers.Client.Messages.Clear();
-			UpdateScene( scene );
-			Assert.IsTrue( ClusterCount( peers.Client ) > 0, $"Polling must detect {kind} mutation {i}" );
-			Assert.IsTrue( go._net.IsDirty, "A changed polled value must remain scheduled until acknowledged" );
-			Settle( scene, peers.Client );
+
+			switch ( change )
+			{
+				case "Transform" or "Nested": go.LocalPosition = Vector3.Up * 128f * step; break;
+				case "Enabled": go.Enabled = step == 2; break;
+				case "Parent": go.Parent = step == 1 ? parent : null; break;
+				case "NetList": containers.SyncList.Add( step ); break;
+				case "NetDictionary": containers.SyncDictionary[step] = step; break;
+				case "List": ((List<int>)value).Add( step ); break;
+				case "Dictionary": ((Dictionary<int, int>)value)[step] = step; break;
+				default: value = step; break;
+			}
+
+			_peers.Client.Messages.Clear();
+			UpdateScene();
+
+			Assert.IsTrue( change is "NetList" or "NetDictionary"
+				? _peers.Client.Messages.Any( x => x.Payload is ObjectNetworkTableMsg )
+				: ClusterCount( _peers.Client ) > 0, $"{change} change {step} must send immediately" );
+			Assert.IsTrue( go._net.IsDirty, "A change must stay scheduled until acknowledged" );
+
+			if ( change == "Nested" )
+				Assert.IsFalse( parent._net.IsDirty, "The child must own its snapshot" );
+
+			Acknowledge( _peers.Client );
+			UpdateScene();
+
+			Assert.IsTrue( go._net.IsFullyUpdated );
 		}
+
+		RealTime.SimulatedNow = now + 1.25;
+		UpdateScene();
+
+		Assert.IsTrue( go._net.IsDirty, "The latest change must restart the grace period" );
+
+		RealTime.SimulatedNow = now + 1.8;
+		UpdateScene();
+
+		Assert.IsFalse( go._net.IsDirty, "Must sleep after a second without changes, even with game time frozen" );
+
+		for ( var i = 0; i < 3; i++ )
+			UpdateScene();
+
+		Assert.AreEqual( 0, ClusterCount( _peers.Client ), "Idle objects must not resend acknowledged state" );
 	}
 
 	[TestMethod]
-	public void HiddenObjectSleepsAndVisibilityProbeWakesIt()
+	public void ObjectStaysScheduledUntilLatestStateIsAcknowledged()
 	{
-		var scene = new Scene();
-		using var scope = scene.Push();
-		using var peers = new ClientAndHost( TypeLibrary );
-		peers.BecomeHost();
+		var go = new GameObject();
+		go.NetworkSpawn();
+		Settle();
+
+		go.WorldPosition = Vector3.Up * 128f;
+		UpdateScene();
+
+		go.WorldPosition = Vector3.Up * 256f;
+		Acknowledge( _peers.Client );
+		UpdateScene();
+
+		Assert.IsFalse( go._net.IsFullyUpdated, "An ACK for the old position must not acknowledge the new position" );
+		Assert.IsTrue( ClusterCount( _peers.Client ) > 0 );
+
+		_peers.Client.Messages.Clear();
+		SetTime( Time.Now + 1.1f );
+		UpdateScene();
+
+		Assert.IsTrue( ClusterCount( _peers.Client ) > 0, "The lost final update must be retransmitted" );
+		Assert.IsTrue( go._net.IsDirty );
+
+		Acknowledge( _peers.Client );
+		UpdateScene();
+
+		Assert.IsTrue( go._net.IsFullyUpdated );
+		Assert.IsFalse( go._net.IsDirty );
+	}
+
+	[TestMethod]
+	public void VisibilityProbeWakesHiddenObjectWhileGameTimeIsPaused()
+	{
 		var go = new GameObject();
 		var visibility = go.Components.Create<VisibilityController>();
 		go.NetworkSpawn();
 		go.Network.AlwaysTransmit = false;
-		var targets = new Connection[] { peers.Client };
-		Send( go, targets );
-		for ( var i = 1; i <= 40 && !go.Network.IsDeltaDormant; i++ )
+
+		for ( var i = 0; i < 45; i++ )
 		{
 			SetTime( StartTime + i * 0.1f );
-			Send( go, targets );
+			UpdateScene();
+			Acknowledge( _peers.Client );
 		}
+
+		go.WorldPosition = Vector3.Up * 50f;
+		for ( var i = 0; i < 15 && !go.Network.IsDeltaDormant; i++ )
+		{
+			SetTime( Time.Now + 0.1f );
+			UpdateScene();
+		}
+
 		Assert.IsTrue( go.Network.IsDeltaDormant );
 
+		_peers.Client.Messages.Clear();
 		visibility.Visible = true;
-		SetTime( Time.Now + 0.3f );
-		Assert.IsTrue( go._net.ProbeVisibility( targets ) );
-		Assert.IsFalse( go.Network.IsDeltaDormant );
-		Assert.IsTrue( go._net.IsDirty );
-		peers.Client.Messages.Clear();
-		Send( go, targets );
-		Assert.IsTrue( ClusterCount( peers.Client ) > 0 );
+		var now = RealTime.NowDouble;
+
+		for ( var i = 1; i <= 4; i++ )
+		{
+			RealTime.SimulatedNow = now + i * 0.25;
+			UpdateScene();
+		}
+
+		Assert.IsFalse( go.Network.IsDeltaDormant, "Visibility must wake in real time even while paused" );
+		Assert.IsTrue( ClusterCount( _peers.Client ) > 0 );
+	}
+
+	[DataTestMethod]
+	[DataRow( false )]
+	[DataRow( true )]
+	public void ChangesWhileAloneAreNotReplayedAfterJoinBaseline( bool dictionary )
+	{
+		var go = new GameObject();
+		go.NetworkSpawn();
+
+		using IDisposable source = dictionary ? new NetDictionary<int, int>() : new NetList<int>();
+		using IDisposable replica = dictionary ? new NetDictionary<int, int>() : new NetList<int>();
+
+		go._net.dataTable.Register( 100, new NetworkTable.Entry
+		{
+			TargetType = source.GetType(),
+			GetValue = () => source
+		} );
+
+		using var receiver = new NetworkTable();
+		receiver.Register( 100, new NetworkTable.Entry
+		{
+			TargetType = replica.GetType(),
+			GetValue = () => replica
+		} );
+
+		void Apply( byte[] data )
+		{
+			var reader = ByteStream.CreateReader( data );
+			receiver.Read( ref reader );
+			reader.Dispose();
+		}
+
+		Settle();
+		_peers.Client.State = Connection.ChannelState.Unconnected;
+		UpdateScene();
+
+		if ( source is NetList<int> list )
+			list.Add( 10 );
+		else
+			((NetDictionary<int, int>)source)[1] = 10;
+
+		UpdateScene();
+
+		Assert.IsFalse( ((INetworkSerializer)source).HasChanges, "No-recipient changes must be retired before a peer joins" );
+
+		var baseline = ByteStream.Create( 256 );
+		go._net.dataTable.WriteAllReliable( ref baseline );
+		Apply( baseline.ToArray() );
+		baseline.Dispose();
+
+		_peers.Client.Messages.Clear();
+		_peers.Client.State = Connection.ChannelState.Connected;
+		UpdateScene();
+
+		foreach ( var message in _peers.Client.Messages.Select( x => x.Payload ).OfType<ObjectNetworkTableMsg>() )
+			Apply( message.TableData );
+
+		CollectionAssert.AreEqual( ((IEnumerable)source).Cast<object>().ToArray(), ((IEnumerable)replica).Cast<object>().ToArray() );
 	}
 
 	[TestMethod]
 	public void NewConnectionAndReconnectionReceiveSleepingObject()
 	{
-		var scene = new Scene();
-		using var scope = scene.Push();
-		using var peers = new ClientAndHost( TypeLibrary );
-		peers.BecomeHost();
 		var go = new GameObject();
 		go.NetworkSpawn();
-		Settle( scene, peers.Client );
+		Settle();
+
 		var latecomer = new TestConnection( Guid.NewGuid() );
 		var network = SceneNetworkSystem.Instance.NetworkSystem;
 		network.OnConnected( latecomer );
 		latecomer.State = Connection.ChannelState.Connected;
-		var targets = new Connection[] { peers.Client, latecomer };
-		Send( go, targets );
+
+		UpdateScene();
 		Assert.IsTrue( ClusterCount( latecomer ) > 0, "A new connection must receive an already sleeping object" );
 		Assert.IsFalse( go._net.IsFullyUpdated );
-		Acknowledge( latecomer );
-		Send( go, targets );
-		Assert.IsTrue( go._net.IsFullyUpdated );
+
+		Settle( latecomer );
+		Assert.IsFalse( go._net.IsDirty );
 
 		go._net.RemoveConnection( latecomer.Id );
 		SceneNetworkSystem.Instance.DeltaSnapshots.RemoveConnection( latecomer );
 		network.OnDisconnected( latecomer );
-		Send( go, new Connection[] { peers.Client } );
+		UpdateScene();
+
 		var reconnected = new TestConnection( latecomer.Id );
 		network.OnConnected( reconnected );
-		typeof( Connection ).GetProperty( nameof( Connection.Id ) ).SetValue( reconnected, latecomer.Id );
 		reconnected.State = Connection.ChannelState.Connected;
-		Send( go, new Connection[] { peers.Client, reconnected } );
-		Assert.IsTrue( ClusterCount( reconnected ) > 0, "A reconnected peer must not inherit its previous acknowledgements" );
+		UpdateScene();
+
+		Assert.IsTrue( ClusterCount( reconnected ) > 0, "A reconnected peer must not inherit old acknowledgements" );
 		Assert.IsFalse( go._net.IsFullyUpdated );
 	}
 
 	[DataTestMethod]
 	[DataRow( false )]
 	[DataRow( true )]
-	public void ScenePollingToleratesObjectsDestroyedByGetters( bool destroySelf )
+	public void DestroyedPendingObjectsAreRetired( bool offline )
 	{
-		var scene = new Scene();
-		using var scope = scene.Push();
-		using var peers = new ClientAndHost( TypeLibrary );
-		peers.BecomeHost();
-		var objects = new[] { new GameObject(), new GameObject() };
-		var shouldDestroy = false;
-		var destroyed = false;
-		foreach ( var go in objects )
+		var survivor = new GameObject();
+		survivor.NetworkSpawn();
+		Settle();
+
+		var pending = (List<NetworkObject>)typeof( Scene )
+			.GetField( "_dirtyNetworkObjects", BindingFlags.Instance | BindingFlags.NonPublic ).GetValue( _scene );
+		var system = SceneNetworkSystem.Instance;
+
+		try
 		{
-			go.NetworkSpawn();
-			go._net.dataTable.Register( 100, new NetworkTable.Entry
+			if ( offline )
+				SceneNetworkSystem.Instance = null;
+
+			for ( var i = 0; i < 4; i++ )
 			{
-				TargetType = typeof( int ),
-				NeedsQuery = true,
-				GetValue = () =>
-				{
-					if ( shouldDestroy && !destroyed )
-					{
-						destroyed = true;
-						(destroySelf ? go : objects.First( x => x != go )).DestroyImmediate();
-					}
-					return 0;
-				}
-			} );
+				var go = new GameObject();
+				go.Components.Create<DormancyTestComponent>();
+				go.NetworkSpawn();
+				go.DestroyImmediate();
+			}
+
+			survivor.WorldPosition = Vector3.Up * 128f;
+			_peers.Client.Messages.Clear();
+			UpdateScene();
+
+			CollectionAssert.AreEqual( new[] { survivor._net }, pending.ToArray(), "Cleanup must retain only live pending state" );
 		}
-		Settle( scene, peers.Client );
-		Assert.IsTrue( objects.All( x => !x._net.IsDirty ) );
-		shouldDestroy = true;
-		UpdateScene( scene );
-		Assert.IsTrue( destroyed, "Clean objects with Query getters must still be polled" );
-		Assert.AreEqual( 1, scene.NetworkObjectCount );
+		finally
+		{
+			SceneNetworkSystem.Instance = system;
+		}
+
+		UpdateScene();
+
+		Assert.AreEqual( 1, _scene.NetworkObjectCount );
+		Assert.IsTrue( ClusterCount( _peers.Client ) > 0, "Surviving pending state must replicate" );
+
+		Settle();
+
+		Assert.AreEqual( 0, pending.Count, "Acknowledged survivors and destroyed entries must leave the pending list" );
 	}
 
 	[DataTestMethod]
-	[DataRow( false )]
-	[DataRow( true )]
-	public void SnapshotSendingToleratesObjectsDestroyedByGetters( bool destroySelf )
+	[DataRow( false, false )]
+	[DataRow( false, true )]
+	[DataRow( true, false )]
+	[DataRow( true, true )]
+	public void QueryGetterCanDestroyNetworkObjects( bool sleeping, bool destroySelf )
 	{
-		var scene = new Scene();
-		using var scope = scene.Push();
-		using var peers = new ClientAndHost( TypeLibrary );
-		peers.BecomeHost();
-		var subject = new GameObject();
-		var victim = new GameObject();
-		subject.NetworkSpawn();
-		victim.NetworkSpawn();
-		var snapshots = new IDeltaSnapshot[] { subject._net, victim._net };
+		var objects = new[] { new GameObject(), new GameObject() };
 		var armed = false;
 		var destroyed = false;
-		subject._net.dataTable.Register( 100, new NetworkTable.Entry
+
+		foreach ( var go in objects )
 		{
-			TargetType = typeof( int ),
-			NeedsQuery = true,
-			GetValue = () =>
+			go.NetworkSpawn();
+			RegisterQuery( go, typeof( int ), () =>
 			{
-				if ( !armed ) return 0;
-				destroyed = true;
-				(destroySelf ? subject : victim).DestroyImmediate();
-				return 1;
-			}
-		} );
+				if ( armed && !destroyed )
+				{
+					destroyed = true;
+					(destroySelf ? go : objects.First( x => x != go )).DestroyImmediate();
+				}
+
+				return 0;
+			} );
+		}
+
+		Settle();
+		Assert.IsTrue( objects.All( x => !x._net.IsDirty ) );
+
+		if ( !sleeping )
+		{
+			foreach ( var go in objects )
+				go.WorldPosition = Vector3.Up;
+		}
+
 		armed = true;
-		SceneNetworkSystem.Instance.DeltaSnapshots.Send( snapshots, new Connection[] { peers.Client } );
+		UpdateScene();
+
 		Assert.IsTrue( destroyed );
-		Assert.AreEqual( 1, scene.NetworkObjectCount );
-		Assert.IsFalse( snapshots[destroySelf ? 0 : 1].IsValid );
+		Assert.AreEqual( 1, _scene.NetworkObjectCount );
 	}
 
 	[TestMethod]
 	public void MutationAfterCaptureCannotBeDroppedByAcknowledgements()
 	{
-		var scene = new Scene();
-		using var scope = scene.Push();
-		using var peers = new ClientAndHost( TypeLibrary );
-		peers.BecomeHost();
 		var subject = new GameObject();
 		var later = new GameObject();
 		subject.NetworkSpawn();
 		later.NetworkSpawn();
+
 		var armed = false;
-		later._net.dataTable.Register( 100, new NetworkTable.Entry
+		RegisterQuery( later, typeof( int ), () =>
 		{
-			TargetType = typeof( int ),
-			NeedsQuery = true,
-			GetValue = () =>
+			if ( armed )
 			{
-				if ( armed )
-				{
-					armed = false;
-					subject.WorldPosition = Vector3.Up * 256f;
-				}
-				return 0;
+				armed = false;
+				subject.WorldPosition = Vector3.Up * 256f;
 			}
+
+			return 0;
 		} );
-		Settle( scene, peers.Client );
+
+		Settle();
 
 		subject.WorldPosition = Vector3.Up * 128f;
-		Send( subject, new Connection[] { peers.Client } );
-		Acknowledge( peers.Client );
+		var targets = new Connection[] { _peers.Client };
+		SceneNetworkSystem.Instance.DeltaSnapshots.Send( new IDeltaSnapshot[] { subject._net }, targets );
+		Acknowledge( _peers.Client );
 
-		// The earlier object's captured state is acknowledged, but a later getter changes it.
 		armed = true;
-		SceneNetworkSystem.Instance.DeltaSnapshots.Send(
-			new IDeltaSnapshot[] { subject._net, later._net }, new Connection[] { peers.Client } );
-		Assert.IsFalse( subject._net.IsFullyUpdated, "The earlier capture cannot acknowledge the later mutation" );
-		Assert.IsTrue( subject._net.IsDirty );
+		SceneNetworkSystem.Instance.DeltaSnapshots.Send( new IDeltaSnapshot[] { subject._net, later._net }, targets );
 
-		peers.Client.Messages.Clear();
-		UpdateScene( scene );
-		Assert.IsTrue( ClusterCount( peers.Client ) > 0, "The later mutation must still be transmitted" );
-		Settle( scene, peers.Client );
+		Assert.IsFalse( subject._net.IsFullyUpdated, "An earlier capture cannot acknowledge a later mutation" );
+
+		_peers.Client.Messages.Clear();
+		UpdateScene();
+
+		Assert.IsTrue( ClusterCount( _peers.Client ) > 0, "The later mutation must still be transmitted" );
+
+		Settle();
+
 		Assert.IsFalse( subject._net.IsDirty );
 	}
+
+	private static void RegisterQuery( GameObject go, Type type, Func<object> getter )
+		=> go._net.dataTable.Register( 100, new NetworkTable.Entry
+		{
+			TargetType = type,
+			NeedsQuery = true,
+			GetValue = getter
+		} );
 
 	private static void SetTime( float now )
 	{
@@ -428,44 +454,48 @@ public class NetworkDormancyTest
 		RealTime.SimulatedNow = now;
 	}
 
-	private static void UpdateScene( Scene scene )
+	private void UpdateScene()
 	{
 		// Bypass only the real-time rate limiter, not the scene scheduler or sender.
 		typeof( Scene ).GetField( "_nextNetworkUpdate", BindingFlags.Instance | BindingFlags.NonPublic )
-			.SetValue( scene, double.NegativeInfinity );
-		scene.SceneNetworkUpdate();
-	}
+			.SetValue( _scene, double.NegativeInfinity );
 
-	private static void Send( GameObject go, Connection[] targets )
-		=> SceneNetworkSystem.Instance.DeltaSnapshots.Send( new IDeltaSnapshot[] { go._net }, targets );
+		_scene.SceneNetworkUpdate();
+	}
 
 	private static int ClusterCount( TestConnection connection )
 		=> connection.Messages.Count( x => x.Type == InternalMessageType.DeltaSnapshotCluster );
 
-	private static void Settle( Scene scene, TestConnection connection )
+	private void Settle( params TestConnection[] extra )
 	{
 		for ( var i = 0; i < 3; i++ )
 		{
-			UpdateScene( scene );
-			Acknowledge( connection );
+			UpdateScene();
+			Acknowledge( _peers.Client );
+
+			foreach ( var connection in extra )
+				Acknowledge( connection );
 		}
-		UpdateScene( scene );
+
+		SetTime( (float)RealTime.NowDouble + 1.1f );
+		UpdateScene();
 	}
 
 	private static void Acknowledge( TestConnection connection )
 	{
 		connection.ProcessMessages( InternalMessageType.DeltaSnapshotCluster, reader =>
 		{
-			// The receiver accepts every object in this cluster. Use the actual sent cluster id,
-			// not the sender's private per-object ACK arrays or snapshot generation counters.
-			reader.Read<int>(); // GameNetworkSystem's payload-length envelope.
+			reader.Read<int>();
+
 			using var ack = ByteStream.Create( 6 );
 			ack.Write( (ushort)1 );
 			ack.Write( reader.Read<ushort>() );
 			ack.Write( (ushort)0 );
+
 			using var incoming = ByteStream.CreateReader( ack.ToSpan() );
 			SceneNetworkSystem.Instance.DeltaSnapshots.OnDeltaSnapshotClusterAck( connection, incoming );
 		} );
+
 		connection.Messages.Clear();
 	}
 
