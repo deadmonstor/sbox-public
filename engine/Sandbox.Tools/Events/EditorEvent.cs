@@ -14,11 +14,13 @@ public static partial class EditorEvent
 
 
 	static Sandbox.Internal.EventSystem eventManager;
+	static readonly HashSet<Assembly> registeredAssemblies = new();
 
 	internal static void Init()
 	{
 		eventManager?.Dispose();
 		eventManager = new Sandbox.Internal.EventSystem();
+		registeredAssemblies.Clear();
 	}
 
 
@@ -29,6 +31,7 @@ public static partial class EditorEvent
 	internal static void UnregisterAssembly( Assembly outgoing )
 	{
 		eventManager.UnregisterAssembly( outgoing );
+		registeredAssemblies.Remove( outgoing );
 	}
 
 	/// <summary>
@@ -38,7 +41,10 @@ public static partial class EditorEvent
 	internal static void RegisterAssembly( Assembly incoming )
 	{
 		eventManager.RegisterAssembly( incoming );
+		registeredAssemblies.Add( incoming );
 	}
+
+	internal static bool IsAssemblyRegistered( Assembly assembly ) => registeredAssemblies.Contains( assembly );
 
 	/// <summary>
 	/// Register an object, start receiving events

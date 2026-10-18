@@ -143,11 +143,13 @@ public partial class Panel : IPanel, IValid, IComponent
 	internal virtual void AddToLists()
 	{
 		Sandbox.Event.Register( this );
+		Sandbox.Engine.IToolsDll.Current?.RegisterEventListener( this );
 	}
 
 	internal virtual void RemoveFromLists()
 	{
 		Sandbox.Event.Unregister( this );
+		Sandbox.Engine.IToolsDll.Current?.UnregisterEventListener( this );
 	}
 
 	/// <summary>
