@@ -2,7 +2,7 @@ namespace Sandbox;
 
 sealed partial class NetworkDebugSystem
 {
-	[ConVar( "net_debug_dormancy", ConVarFlags.Protected | ConVarFlags.Cheat, Help = "Show observed network dormancy labels. Ages start when enabled, not at the historical mutation or sleep time." )]
+	[ConVar( "net_debug_dormancy", ConVarFlags.Protected | ConVarFlags.Cheat, Help = "Show network object names, dormancy states and observed state ages. Ages start when enabled, not at the historical state change." )]
 	private static bool DebugDormancy { get; set; }
 
 	[ConVar( "net_debug_dormancy_distance", ConVarFlags.Protected | ConVarFlags.Cheat, Help = "Maximum distance for network dormancy labels, in world units." )]
@@ -22,10 +22,8 @@ sealed partial class NetworkDebugSystem
 
 	private struct DormancyObservation
 	{
-		public uint Revision;
 		public DormancyState State;
 		public double StateSince;
-		public double RevisionSince;
 		public ulong Seen;
 	}
 
@@ -83,10 +81,8 @@ sealed partial class NetworkDebugSystem
 			{
 				observation = new DormancyObservation
 				{
-					Revision = obj.DirtyRevision,
 					State = state,
-					StateSince = now,
-					RevisionSince = now
+					StateSince = now
 				};
 			}
 
@@ -94,12 +90,6 @@ sealed partial class NetworkDebugSystem
 			{
 				observation.State = state;
 				observation.StateSince = now;
-			}
-
-			if ( observation.Revision != obj.DirtyRevision )
-			{
-				observation.Revision = obj.DirtyRevision;
-				observation.RevisionSince = now;
 			}
 
 			observation.Seen = frame;
@@ -135,17 +125,13 @@ sealed partial class NetworkDebugSystem
 				var observation = tracking.Observations[obj.Id];
 				var (text, color) = observation.State switch
 				{
-					DormancyState.RemoteUnknown => ("proxy: remote sender state unavailable", Color.Gray),
-					DormancyState.VisibilitySleep => (obj.IsDirty ? "visibility-dormant / dirty" : "visibility-dormant / ACK clean", Color.Orange),
-					DormancyState.AckClean => ("ACK-clean dormant", Color.Green),
-					DormancyState.PendingAck => ("awake / pending ACK", Color.Yellow),
-					_ => ("awake / dirty scheduled", Color.Yellow)
+					DormancyState.RemoteUnknown => ("proxy (remote unknown)", Color.Gray),
+					DormancyState.VisibilitySleep => ("visibility sleep", Color.Orange),
+					DormancyState.AckClean => ("ACK clean", Color.Green),
+					DormancyState.PendingAck => ("pending ACK", Color.Yellow),
+					_ => ("dirty", Color.Yellow)
 				};
-				var owner = obj.Owner == Guid.Empty ? "unowned" : obj.Owner.ToString( "N" )[..8];
-				var message = $"{obj.GameObject.Name} [{obj.Id.ToString( "N" )[..8]}]\n"
-					+ $"{text}\nowner: {owner} | local owner: {obj.IsOwner} | local authority: {!obj.IsProxy}\n"
-					+ $"observed state: {now - observation.StateSince:0.0}s | local revision unchanged: {now - observation.RevisionSince:0.0}s\n"
-					+ "ages observed since enabling / first seen (not historical)";
+				var message = $"{obj.GameObject.Name}\n{text} | observed {now - observation.StateSince:0.0}s";
 
 				using ( Gizmo.ObjectScope( obj, new Transform( label.Position ) ) )
 				{
