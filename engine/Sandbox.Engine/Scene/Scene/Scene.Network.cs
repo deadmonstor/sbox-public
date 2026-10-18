@@ -14,10 +14,32 @@ public partial class Scene : GameObject
 	public float NetworkRate => 1.0f / ProjectSettings.Networking.UpdateRate.Clamp( 1, 500 );
 
 	internal readonly HashSet<NetworkObject> networkedObjects = new();
+	readonly List<NetworkObject> _dirtyNetworkObjects = new();
+	readonly List<NetworkObject> _networkPollBuffer = new();
+	RealTimeSince _timeSinceDormancyProbe;
+
+	/// <summary>
+	/// The number of registered network objects in this scene.
+	/// </summary>
+	public int NetworkObjectCount => networkedObjects.Count;
+
+	/// <summary>
+	/// The number of objects whose visibility checks are suspended between dormancy probes.
+	/// Acknowledged, visible objects also skip snapshot capture, but are not included here.
+	/// </summary>
+	public int NetworkDormantObjectCount => networkedObjects.Count( x => x.IsDeltaDormant );
+
+	internal void MarkNetworkObjectDirty( NetworkObject obj )
+	{
+		if ( obj.IsDirty ) return;
+		obj.IsDirty = true;
+		_dirtyNetworkObjects.Add( obj );
+	}
 
 	internal void RegisterNetworkedObject( NetworkObject obj )
 	{
 		networkedObjects.Add( obj );
+		MarkNetworkObjectDirty( obj );
 	}
 
 	internal void UnregisterNetworkObject( NetworkObject obj )
@@ -27,6 +49,8 @@ public partial class Scene : GameObject
 		system?.DeltaSnapshots?.ClearNetworkObject( obj );
 
 		networkedObjects.Remove( obj );
+		_dirtyNetworkObjects.Remove( obj );
+		obj.IsDirty = false;
 	}
 
 	double _nextNetworkUpdate;
@@ -58,7 +82,28 @@ public partial class Scene : GameObject
 		// The array is only rebuilt when the connections change
 		system.CollectConnections( _sendConnectionList, Connection.ChannelState.Connected );
 		if ( !CollectionsMarshal.AsSpan( _sendConnectionList ).SequenceEqual( _sendConnections ) )
+		{
+			var hasNewConnection = false;
+			foreach ( var connection in _sendConnectionList )
+			{
+				if ( Array.IndexOf( _sendConnections, connection ) < 0 )
+				{
+					hasNewConnection = true;
+					break;
+				}
+			}
+
 			_sendConnections = _sendConnectionList.ToArray();
+
+			// Leaving peers don't need a baseline; a new or reconnected peer does.
+			if ( hasNewConnection )
+			{
+				foreach ( var obj in networkedObjects )
+					obj.MarkDirty();
+			}
+		}
+
+		PollCleanNetworkObjects( _sendConnections );
 
 		// Partition objects into dirty (pending changes) and clean (fully ACK'd).
 		// Dirty objects are processed first so they end up in earlier clusters,
@@ -66,7 +111,7 @@ public partial class Scene : GameObject
 		_snapshotObjects.Clear();
 		_cleanSnapshotObjects.Clear();
 
-		foreach ( var n in networkedObjects )
+		foreach ( var n in _dirtyNetworkObjects )
 		{
 			if ( n.LocalSnapshotState.AckedByConnections < 0 )
 				_snapshotObjects.Add( n );
@@ -85,7 +130,42 @@ public partial class Scene : GameObject
 
 		system.DeltaSnapshots.Send( CollectionsMarshal.AsSpan( _snapshotObjects ), _sendConnections );
 
+		_dirtyNetworkObjects.RemoveAll( static obj =>
+		{
+			if ( !obj.IsFullyUpdated && !obj.IsDeltaDormant && obj.IsValid )
+				return false;
+
+			obj.IsDirty = false;
+			return true;
+		} );
+
 		system.DeltaSnapshots.Tick();
+	}
+
+	private void PollCleanNetworkObjects( Connection[] connections )
+	{
+		var probeVisibility = _timeSinceDormancyProbe >= NetworkObject.DormancyProbeInterval;
+		if ( probeVisibility )
+			_timeSinceDormancyProbe = 0f;
+
+		_networkPollBuffer.Clear();
+		foreach ( var obj in networkedObjects )
+		{
+			if ( !obj.IsDirty )
+				_networkPollBuffer.Add( obj );
+		}
+
+		// Getters can spawn or destroy objects, so never enumerate the live registration set here.
+		foreach ( var obj in _networkPollBuffer )
+		{
+			if ( !obj.IsValid || obj.PollQueryValues() )
+				continue;
+
+			if ( probeVisibility && obj.IsValid )
+				obj.ProbeVisibility( connections );
+		}
+
+		_networkPollBuffer.Clear();
 	}
 
 	/// <summary>

@@ -1031,7 +1031,7 @@ internal class DeltaSnapshotSystem
 		_connectionSet++;
 	}
 
-	private readonly List<(IDeltaSnapshot Source, LocalSnapshotState Local)> _pending = new();
+	private readonly List<(IDeltaSnapshot Source, LocalSnapshotState Local, uint Revision)> _pending = new();
 	private readonly List<int> _cleanCounts = new();
 	private readonly List<LocalSnapshotState.Entry> _needed = new();
 	private ushort _nextClusterId;
@@ -1047,12 +1047,29 @@ internal class DeltaSnapshotSystem
 
 		foreach ( var nwo in objects )
 		{
+			if ( !nwo.IsValid )
+				continue;
+
+			if ( connections.Length == 0 )
+			{
+				nwo.IsFullyUpdated = true;
+				continue;
+			}
+
+			var revision = nwo.DirtyRevision;
+			nwo.IsFullyUpdated = false;
+
 			// Don't send updates about objects we don't own. The host can always send updates though
 			// because there may be FromHost sync vars.
 			if ( nwo.IsProxy && !Networking.IsHost )
+			{
+				nwo.IsFullyUpdated = true;
 				continue;
+			}
 
 			var isAnyVisible = nwo.UpdateTransmitState( connections );
+			if ( !nwo.IsValid )
+				continue;
 
 			// No point doing anything else if no connections can even see this object.
 			if ( !isAnyVisible )
@@ -1062,16 +1079,23 @@ internal class DeltaSnapshotSystem
 			}
 
 			var local = nwo.WriteSnapshotState();
+			if ( !nwo.IsValid || local is null )
+				continue;
 			nwo.SendNetworkUpdate();
+			if ( !nwo.IsValid )
+				continue;
 
 			ClearRemovedSlots( local );
 
 			// Do we even need to send this to anybody?
 			if ( local.AckedByConnections == _connectionSet || local.Size == 0 )
+			{
+				nwo.IsFullyUpdated = revision == nwo.DirtyRevision;
 				continue;
+			}
 
 			AssignNetIndex( local );
-			_pending.Add( (nwo, local) );
+			_pending.Add( (nwo, local, revision) );
 			_cleanCounts.Add( 0 );
 		}
 
@@ -1098,7 +1122,10 @@ internal class DeltaSnapshotSystem
 
 		for ( var i = 0; i < _pending.Count; i++ )
 		{
-			_pending[i].Local.AckedByConnections = _cleanCounts[i] == connections.Length ? _connectionSet : -1;
+			var (source, local, revision) = _pending[i];
+			var clean = _cleanCounts[i] == connections.Length;
+			local.AckedByConnections = clean ? _connectionSet : -1;
+			source.IsFullyUpdated = clean && revision == source.DirtyRevision;
 		}
 	}
 
@@ -1119,7 +1146,7 @@ internal class DeltaSnapshotSystem
 		{
 			for ( var i = 0; i < _pending.Count; i++ )
 			{
-				var (source, local) = _pending[i];
+				var (source, local, _) = _pending[i];
 
 				// Culled for this connection: nothing to send and nothing to wait for
 				if ( !source.ShouldTransmit( connection ) )
@@ -1302,10 +1329,12 @@ internal class DeltaSnapshotSystem
 	/// </summary>
 	public void SendFull( IDeltaSnapshot snapshotter )
 	{
-		if ( snapshotter is null ) return;
+		if ( snapshotter is null || !snapshotter.IsValid ) return;
 
 		var local = snapshotter.WriteSnapshotState();
+		if ( !snapshotter.IsValid || local is null ) return;
 		snapshotter.SendNetworkUpdate();
+		if ( !snapshotter.IsValid ) return;
 
 		ClearRemovedSlots( local );
 

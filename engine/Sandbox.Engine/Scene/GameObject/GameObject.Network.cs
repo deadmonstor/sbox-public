@@ -445,7 +445,8 @@ public partial class GameObject
 			return;
 		}
 
-		net.dataTable.UpdateSlotHash( slot, p.Value );
+		if ( net.dataTable.UpdateSlotHash( slot, p.Value ) )
+			net.MarkDirty();
 		p.Setter( p.Value );
 	}
 
@@ -666,6 +667,13 @@ public partial class GameObject
 		/// Current snapshot version. This usually changes when the owner changes.
 		/// </summary>
 		internal ushort SnapshotVersion => go._net?.SnapshotVersion ?? 0;
+
+		/// <summary>
+		/// Whether visibility checks are suspended because this object has been invisible
+		/// to every recipient. Visibility is periodically probed, and local changes wake it.
+		/// False when this object is not networked; acknowledged visible objects are not included.
+		/// </summary>
+		public bool IsDeltaDormant => go._net?.IsDeltaDormant ?? false;
 
 		/// <summary>
 		/// Network flags which describe the behavior of this networked object.

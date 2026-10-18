@@ -6,6 +6,13 @@ namespace Sandbox.Network;
 
 internal class NetworkTable : IDisposable
 {
+	private readonly INetworkWakeable _wakeParent;
+
+	public NetworkTable( INetworkWakeable wakeParent = null )
+	{
+		_wakeParent = wakeParent;
+	}
+
 	/// <summary>
 	/// Internal flag set while reading changes. Useful when you want to force
 	/// something to be set when we otherwise wouldn't have permission to.
@@ -17,7 +24,7 @@ internal class NetworkTable : IDisposable
 	/// </summary>
 	internal static double ReadTime { get; private set; } = double.NaN;
 
-	public class Entry : INetworkProxy
+	public class Entry : INetworkProxy, INetworkWakeable
 	{
 		// We're making all of these fields because they're accessed on an extremely hot path.
 		// Being properties, the extra method call stacks up a lot when you have thousands and
@@ -38,6 +45,7 @@ internal class NetworkTable : IDisposable
 		public int Slot;
 		public ListHasher ListHasher;
 		public TypedAccess Typed;
+		private INetworkWakeable Parent;
 
 		bool INetworkProxy.IsProxy => !HasControl( Connection.Local );
 
@@ -58,8 +66,10 @@ internal class NetworkTable : IDisposable
 			return HasControl( Connection.Local );
 		}
 
-		internal void Init( int slot )
+		internal void Init( int slot, INetworkWakeable parent )
 		{
+			Parent = parent;
+			Slot = slot;
 			if ( TargetType is null ) return;
 
 			var isListType = TargetType.IsAssignableTo( typeof( IList ) );
@@ -69,7 +79,6 @@ internal class NetworkTable : IDisposable
 			IsReliableType = !IsDeltaSnapshotType && TargetType.IsAssignableTo( typeof( INetworkReliable ) );
 			IsSerializerType = TargetType.IsAssignableTo( typeof( INetworkSerializer ) );
 			NeedsQuery |= (isListType || isDictionaryType || IsSerializerType);
-			Slot = slot;
 
 			var elementType = TargetType.IsArray ? TargetType.GetElementType()
 				: TargetType.IsGenericType && TargetType.GetGenericTypeDefinition() == typeof( List<> ) ? TargetType.GetGenericArguments()[0]
@@ -77,6 +86,11 @@ internal class NetworkTable : IDisposable
 
 			if ( elementType is { IsValueType: true } )
 				ListHasher = (ListHasher)Activator.CreateInstance( typeof( ListHasher<> ).MakeGenericType( elementType ) );
+		}
+
+		void INetworkWakeable.MarkDirty()
+		{
+			Parent?.MarkDirty();
 		}
 	}
 
@@ -173,10 +187,11 @@ internal class NetworkTable : IDisposable
 		if ( !_entries.TryAdd( slot, entry ) )
 			return;
 
+		entry.Init( slot, _wakeParent );
+
 		var value = GetValue( slot );
 		UpdateSlotHash( slot, value );
 
-		entry.Init( slot );
 		entry.IsDirty = true;
 
 		if ( entry.IsReliableType )
@@ -215,7 +230,7 @@ internal class NetworkTable : IDisposable
 	/// <summary>
 	/// Update the hash for a specific entry.
 	/// </summary>
-	private void UpdateSlotHash( Entry entry, object value )
+	private bool UpdateSlotHash( Entry entry, object value )
 	{
 		if ( value is INetworkProperty property && !entry.Initialized )
 		{
@@ -226,56 +241,56 @@ internal class NetworkTable : IDisposable
 		if ( value is INetworkSerializer serializer )
 		{
 			if ( !serializer.HasChanges )
-				return;
+				return false;
 
 			entry.Serialized = null;
 			entry.IsDirty = true;
-			return;
+			return true;
 		}
 
 		if ( entry.ListHasher is null || !entry.ListHasher.TryHash( value, out var hash ) )
 			hash = ToHashCode( value );
 
-		SetHash( entry, hash );
+		return SetHash( entry, hash );
 	}
 
-	private static void SetHash( Entry entry, int hashValue )
+	private static bool SetHash( Entry entry, int hashValue )
 	{
 		if ( entry.HashCodeValue == hashValue )
-			return;
+			return false;
 
 		entry.HashCodeValue = hashValue;
 		entry.Serialized = null;
 		entry.IsDirty = true;
+		return true;
 	}
 
 	/// <summary>
 	/// Update the hash for a specific slot id.
 	/// </summary>
-	public void UpdateSlotHash( int slot, object value )
+	public bool UpdateSlotHash( int slot, object value )
 	{
 		if ( !_entries.TryGetValue( slot, out var v ) )
-			return;
+			return false;
 
-		UpdateSlotHash( v, value );
+		return UpdateSlotHash( v, value );
 	}
 
 	/// <summary>
 	/// Update the hash for a specific slot id without boxing plain value types.
 	/// </summary>
-	public void UpdateSlotHash<T>( int slot, T value )
+	public bool UpdateSlotHash<T>( int slot, T value )
 	{
 		if ( !PlainValue<T>.IsPlain )
 		{
-			UpdateSlotHash( slot, (object)value );
-			return;
+			return UpdateSlotHash( slot, (object)value );
 		}
 
 		if ( !_entries.TryGetValue( slot, out var v ) )
-			return;
+			return false;
 
 		// Same hash as ToHashCode gives the boxed value
-		SetHash( v, HashCode.Combine( value ) );
+		return SetHash( v, HashCode.Combine( value ) );
 	}
 
 	/// <summary>
@@ -849,11 +864,18 @@ internal class NetworkTable : IDisposable
 	}
 
 	/// <summary>
-	/// If any properties are "query" types, we'll copy the new values to ourselves
-	/// and mark as changed, if changed.
+	/// Whether any entries need polling to detect changes.
 	/// </summary>
-	public void QueryValues( bool onlyReliableEntries = false )
+	public bool HasQueryEntries => _queryEntries.Count > 0;
+
+	/// <summary>
+	/// If any properties are "query" types, we'll copy the new values to ourselves
+	/// and mark as changed, if changed. Returns true when a value changed, even if already dirty.
+	/// </summary>
+	public bool QueryValues( bool onlyReliableEntries = false )
 	{
+		var anyChanged = false;
+
 		for ( var i = 0; i < _queryEntries.Count; i++ )
 		{
 			var entry = _queryEntries[i];
@@ -866,12 +888,14 @@ internal class NetworkTable : IDisposable
 
 			try
 			{
-				UpdateSlotHash( entry, entry.GetValue() );
+				anyChanged |= UpdateSlotHash( entry, entry.GetValue() );
 			}
 			catch ( Exception e )
 			{
 				Log.Warning( e, $"Error when getting value {entry.DebugName} - {e.Message}" );
 			}
 		}
+
+		return anyChanged;
 	}
 }

@@ -2,6 +2,23 @@ namespace Sandbox.Network;
 
 internal interface IDeltaSnapshot
 {
+	bool IsValid => true;
+
+	/// <summary>
+	/// Whether visibility checks are suspended between periodic probes.
+	/// </summary>
+	bool IsDeltaDormant { get; set; }
+
+	/// <summary>
+	/// Whether every currently eligible connection has acknowledged this object's state.
+	/// </summary>
+	bool IsFullyUpdated { get; set; }
+
+	/// <summary>
+	/// Changes when a local mutation requires another capture, including mutations during a send.
+	/// </summary>
+	uint DirtyRevision => 0;
+
 	/// <summary>
 	/// Unique identifier for this object.
 	/// </summary>
