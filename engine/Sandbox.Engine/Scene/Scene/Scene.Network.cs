@@ -158,11 +158,14 @@ public partial class Scene : GameObject
 
 		_snapshotObjects.AddRange( _cleanSnapshotObjects );
 
-		// If we're the host, include any GameObjectSystems.
+		// If we're the host, include any GameObjectSystems with sync properties.
 		if ( Networking.IsHost )
 		{
 			foreach ( var gameObjectSystem in systems.Values )
-				_snapshotObjects.Add( gameObjectSystem );
+			{
+				if ( gameObjectSystem.HasSyncProperties )
+					_snapshotObjects.Add( gameObjectSystem );
+			}
 		}
 
 		system.DeltaSnapshots.Send( CollectionsMarshal.AsSpan( _snapshotObjects ), _sendConnections );
@@ -373,8 +376,9 @@ public partial class Scene : GameObject
 	{
 		var sources = target.VisibilityOrigins;
 
-		foreach ( var pvs in _networkMapInstanceCache.Select( x => x.GetNetworkPvs() ) )
+		for ( var i = 0; i < _networkMapInstanceCache.Count; i++ )
 		{
+			var pvs = _networkMapInstanceCache[i].GetNetworkPvs();
 			if ( !pvs.IsValid || pvs.IsEmptyPVS() )
 				continue;
 
@@ -395,8 +399,9 @@ public partial class Scene : GameObject
 	{
 		var sources = target.VisibilityOrigins;
 
-		foreach ( var pvs in _networkMapInstanceCache.Select( x => x.GetNetworkPvs() ) )
+		for ( var i = 0; i < _networkMapInstanceCache.Count; i++ )
 		{
+			var pvs = _networkMapInstanceCache[i].GetNetworkPvs();
 			if ( !pvs.IsValid || pvs.IsEmptyPVS() )
 				continue;
 

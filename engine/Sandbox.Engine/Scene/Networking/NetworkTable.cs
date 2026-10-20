@@ -168,6 +168,11 @@ internal class NetworkTable : IDisposable
 	public int PollEntryCount( PollKind kind ) => _pollCounts[(int)kind];
 
 	/// <summary>
+	/// Whether no variables are registered.
+	/// </summary>
+	public bool IsEmpty => _entries.Count == 0;
+
+	/// <summary>
 	/// Do we have any pending changes for entries we control?
 	/// </summary>
 	public bool HasAnyChanges => _entries.Values.Any( entry => entry.HasControl() && entry.IsDirty );

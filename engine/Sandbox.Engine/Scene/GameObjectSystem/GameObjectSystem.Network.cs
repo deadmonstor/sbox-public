@@ -210,6 +210,11 @@ public abstract partial class GameObjectSystem : IDeltaSnapshot
 		RegisterSyncVarProperties();
 	}
 
+	/// <summary>
+	/// Whether this system has sync properties, and so anything to snapshot.
+	/// </summary>
+	internal bool HasSyncProperties => !dataTable.IsEmpty;
+
 	internal readonly LocalSnapshotState LocalSnapshotState = new();
 
 	LocalSnapshotState IDeltaSnapshot.WriteSnapshotState()
