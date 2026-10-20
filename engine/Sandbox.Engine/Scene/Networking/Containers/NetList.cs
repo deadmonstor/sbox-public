@@ -430,6 +430,9 @@ public sealed class NetList<T> : INetworkSerializer, INetworkReliable, INetworkP
 		if ( !CanWriteChanges() )
 			return;
 
+		// Wake a sleeping network object; it no longer polls this list for changes.
+		(Parent as INetworkWakeable)?.MarkDirty();
+
 		if ( e.Action == NotifyCollectionChangedAction.Add )
 		{
 			var change = new Change { Index = e.NewStartingIndex, Value = (T)e.NewItems[0], Type = e.Action };
