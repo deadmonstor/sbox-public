@@ -663,15 +663,17 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 	}
 
 	/// <summary>
+	/// Whether this object has query entries that it is responsible for polling.
+	/// </summary>
+	internal bool CanPollQueryValues => dataTable is { HasQueryEntries: true } && (!IsProxy || Networking.IsHost);
+
+	/// <summary>
 	/// Detect changes that cannot be intercepted when written, including query properties
 	/// and plain lists and dictionaries.
 	/// </summary>
 	internal bool PollQueryValues()
 	{
-		if ( dataTable is null || !dataTable.HasQueryEntries )
-			return false;
-
-		if ( IsProxy && !Networking.IsHost )
+		if ( !CanPollQueryValues )
 			return false;
 
 		if ( !dataTable.QueryValues() || !IsValid )
@@ -681,13 +683,12 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 		return true;
 	}
 
+	internal bool CanProbeVisibility => (!IsProxy || Networking.IsHost) && !GameObject.Network.AlwaysTransmit;
+
 	internal bool ProbeVisibility( Connection[] targets )
 	{
-		if ( IsProxy && !Networking.IsHost )
-			return false;
-
 		// Always-transmitted objects have no visibility transitions to discover.
-		if ( GameObject.Network.AlwaysTransmit )
+		if ( !CanProbeVisibility )
 			return false;
 
 		var revision = DirtyRevision;

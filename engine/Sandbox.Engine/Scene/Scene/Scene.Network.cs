@@ -19,6 +19,23 @@ public partial class Scene : GameObject
 	RealTimeSince _timeSinceDormancyProbe;
 
 	/// <summary>
+	/// Cumulative counts of the work done to find changes on sleeping network objects.
+	/// </summary>
+	internal struct NetworkPollStats
+	{
+		public long Ticks;
+		public long ObjectsVisited;
+		public long ContainerEntries;
+		public long CollectionEntries;
+		public long QueryEntries;
+		public long VisibilityProbes;
+		public long PollWakes;
+		public long ProbeWakes;
+	}
+
+	internal NetworkPollStats NetworkPollTotals;
+
+	/// <summary>
 	/// The number of registered network objects in this scene.
 	/// </summary>
 	public int NetworkObjectCount => networkedObjects.Count;
@@ -158,14 +175,37 @@ public partial class Scene : GameObject
 				_networkPollBuffer.Add( obj );
 		}
 
+		ref var stats = ref NetworkPollTotals;
+		stats.Ticks++;
+
 		// Getters can spawn or destroy objects, so never enumerate the live registration set here.
 		foreach ( var obj in _networkPollBuffer )
 		{
-			if ( !obj.IsValid || obj.PollQueryValues() )
+			if ( !obj.IsValid )
 				continue;
 
-			if ( probeVisibility && obj.IsValid )
-				obj.ProbeVisibility( connections );
+			stats.ObjectsVisited++;
+
+			if ( obj.CanPollQueryValues )
+			{
+				var table = obj.dataTable;
+				stats.ContainerEntries += table.QueryEntryCount( NetworkTable.PollKind.Container );
+				stats.CollectionEntries += table.QueryEntryCount( NetworkTable.PollKind.Collection );
+				stats.QueryEntries += table.QueryEntryCount( NetworkTable.PollKind.Query );
+
+				if ( obj.PollQueryValues() )
+				{
+					stats.PollWakes++;
+					continue;
+				}
+			}
+
+			if ( probeVisibility && obj.IsValid && obj.CanProbeVisibility )
+			{
+				stats.VisibilityProbes++;
+				if ( obj.ProbeVisibility( connections ) )
+					stats.ProbeWakes++;
+			}
 		}
 
 		_networkPollBuffer.Clear();

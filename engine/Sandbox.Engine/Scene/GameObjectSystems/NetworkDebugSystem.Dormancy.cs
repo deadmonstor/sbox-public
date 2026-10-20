@@ -43,6 +43,53 @@ sealed partial class NetworkDebugSystem
 	}
 
 	private DormancyTracking _dormancyTracking;
+	private Scene.NetworkPollStats _pollStatsSample;
+	private RealTimeSince _timeSincePollStatsSample;
+	private string _pollStatsText;
+
+	private static Scene.NetworkPollStats _pollStatsCommandSample;
+
+	/// <summary>
+	/// Average poll work per network tick between two cumulative samples.
+	/// </summary>
+	private static string FormatPollStats( in Scene.NetworkPollStats from, in Scene.NetworkPollStats to )
+	{
+		var ticks = to.Ticks - from.Ticks;
+		if ( ticks <= 0 ) return "poll: no network ticks";
+
+		double PerTick( long a, long b ) => (double)(b - a) / ticks;
+
+		return $"poll/tick ({ticks} ticks): objects {PerTick( from.ObjectsVisited, to.ObjectsVisited ):0.#}"
+			+ $" | entries container {PerTick( from.ContainerEntries, to.ContainerEntries ):0.#}"
+			+ $" collection {PerTick( from.CollectionEntries, to.CollectionEntries ):0.#}"
+			+ $" query {PerTick( from.QueryEntries, to.QueryEntries ):0.#}"
+			+ $" | probes {PerTick( from.VisibilityProbes, to.VisibilityProbes ):0.#}"
+			+ $" | wakes poll {PerTick( from.PollWakes, to.PollWakes ):0.##} probe {PerTick( from.ProbeWakes, to.ProbeWakes ):0.##}";
+	}
+
+	[ConCmd( "net_poll_stats", ConVarFlags.Protected, Help = "Print average dormancy poll work per network tick since the previous call." )]
+	internal static void PrintPollStats()
+	{
+		if ( Game.ActiveScene is not { } scene ) return;
+
+		var current = scene.NetworkPollTotals;
+		Log.Info( FormatPollStats( _pollStatsCommandSample, current ) );
+		_pollStatsCommandSample = current;
+	}
+
+	private void DrawPollStats()
+	{
+		if ( _pollStatsText is null || _timeSincePollStatsSample >= 1f )
+		{
+			var current = Scene.NetworkPollTotals;
+			_pollStatsText = FormatPollStats( _pollStatsSample, current );
+			_pollStatsSample = current;
+			_timeSincePollStatsSample = 0f;
+		}
+
+		Gizmo.Draw.Color = Color.White;
+		Gizmo.Draw.ScreenText( _pollStatsText, new Vector2( 10, 30 ), flags: TextFlag.LeftTop );
+	}
 
 	private static DormancyState GetDormancyState( NetworkObject obj )
 	{
@@ -58,6 +105,7 @@ sealed partial class NetworkDebugSystem
 		if ( !DebugDormancy )
 		{
 			_dormancyTracking = null;
+			_pollStatsText = null;
 			return;
 		}
 
@@ -65,6 +113,7 @@ sealed partial class NetworkDebugSystem
 		var frame = ++tracking.Frame;
 		var now = RealTime.NowDouble;
 		using var scope = Gizmo.Scope();
+		DrawPollStats();
 		var camera = Gizmo.Camera;
 		var distance = MathF.Max( 0f, DebugDormancyDistance );
 		var distanceSquared = distance * distance;

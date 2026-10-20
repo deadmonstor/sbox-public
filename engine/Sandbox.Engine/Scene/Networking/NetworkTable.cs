@@ -24,6 +24,20 @@ internal class NetworkTable : IDisposable
 	/// </summary>
 	internal static double ReadTime { get; private set; } = double.NaN;
 
+	/// <summary>
+	/// Why an entry has to be queried to find changes.
+	/// </summary>
+	internal enum PollKind : byte
+	{
+		None,
+		/// <summary>A network container, such as NetList or NetDictionary.</summary>
+		Container,
+		/// <summary>A plain list, array or dictionary, which can be mutated in place.</summary>
+		Collection,
+		/// <summary>A property synced with <see cref="SyncFlags.Query"/>.</summary>
+		Query
+	}
+
 	public class Entry : INetworkProxy, INetworkWakeable
 	{
 		// We're making all of these fields because they're accessed on an extremely hot path.
@@ -32,6 +46,7 @@ internal class NetworkTable : IDisposable
 		public Type TargetType;
 		public string DebugName;
 		public bool NeedsQuery;
+		public PollKind Poll;
 		public Func<Connection, bool> ControlCondition = _ => true;
 		public Func<object> GetValue;
 		public Action<object> SetValue;
@@ -70,6 +85,8 @@ internal class NetworkTable : IDisposable
 		{
 			Parent = parent;
 			Slot = slot;
+			var explicitQuery = NeedsQuery;
+			Poll = explicitQuery ? PollKind.Query : PollKind.None;
 			if ( TargetType is null ) return;
 
 			var isListType = TargetType.IsAssignableTo( typeof( IList ) );
@@ -79,6 +96,9 @@ internal class NetworkTable : IDisposable
 			IsReliableType = !IsDeltaSnapshotType && TargetType.IsAssignableTo( typeof( INetworkReliable ) );
 			IsSerializerType = TargetType.IsAssignableTo( typeof( INetworkSerializer ) );
 			NeedsQuery |= (isListType || isDictionaryType || IsSerializerType);
+
+			if ( !explicitQuery && NeedsQuery )
+				Poll = TargetType.IsAssignableTo( typeof( INetworkProperty ) ) ? PollKind.Container : PollKind.Collection;
 
 			var elementType = TargetType.IsArray ? TargetType.GetElementType()
 				: TargetType.IsGenericType && TargetType.GetGenericTypeDefinition() == typeof( List<> ) ? TargetType.GetGenericArguments()[0]
@@ -133,6 +153,12 @@ internal class NetworkTable : IDisposable
 	private readonly List<Entry> _reliableEntries = [];
 	private readonly List<Entry> _snapshotEntries = [];
 	private readonly List<Entry> _queryEntries = [];
+	private readonly int[] _queryCounts = new int[4];
+
+	/// <summary>
+	/// The number of query entries of a specific kind.
+	/// </summary>
+	public int QueryEntryCount( PollKind kind ) => _queryCounts[(int)kind];
 
 	/// <summary>
 	/// Do we have any pending changes for entries we control?
@@ -163,6 +189,7 @@ internal class NetworkTable : IDisposable
 		_reliableEntries.Clear();
 		_snapshotEntries.Clear();
 		_queryEntries.Clear();
+		Array.Clear( _queryCounts );
 		_entries.Clear();
 	}
 
@@ -172,6 +199,9 @@ internal class NetworkTable : IDisposable
 	/// <param name="slot"></param>
 	public void Unregister( int slot )
 	{
+		if ( _entries.TryGetValue( slot, out var existing ) && existing.NeedsQuery )
+			_queryCounts[(int)existing.Poll]--;
+
 		_snapshotEntries.RemoveAll( e => e.Slot == slot );
 		_reliableEntries.RemoveAll( e => e.Slot == slot );
 		_queryEntries.RemoveAll( e => e.Slot == slot );
@@ -200,7 +230,10 @@ internal class NetworkTable : IDisposable
 			_snapshotEntries.Add( entry );
 
 		if ( entry.NeedsQuery )
+		{
 			_queryEntries.Add( entry );
+			_queryCounts[(int)entry.Poll]++;
+		}
 	}
 
 	/// <summary>
