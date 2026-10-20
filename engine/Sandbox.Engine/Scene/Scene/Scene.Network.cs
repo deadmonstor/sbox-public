@@ -16,6 +16,11 @@ public partial class Scene : GameObject
 	internal readonly HashSet<NetworkObject> networkedObjects = new();
 	readonly List<NetworkObject> _dirtyNetworkObjects = new();
 	readonly List<NetworkObject> _networkPollBuffer = new();
+
+	/// <summary>
+	/// Registered objects with entries that can only be found to have changed by polling them.
+	/// </summary>
+	readonly HashSet<NetworkObject> _pollNetworkObjects = new();
 	RealTimeSince _timeSinceDormancyProbe;
 
 	/// <summary>
@@ -25,7 +30,6 @@ public partial class Scene : GameObject
 	{
 		public long Ticks;
 		public long ObjectsVisited;
-		public long ContainerEntries;
 		public long CollectionEntries;
 		public long QueryEntries;
 		public long VisibilityProbes;
@@ -56,7 +60,19 @@ public partial class Scene : GameObject
 	internal void RegisterNetworkedObject( NetworkObject obj )
 	{
 		networkedObjects.Add( obj );
+		UpdateNetworkPollRegistration( obj );
 		MarkNetworkObjectDirty( obj );
+	}
+
+	/// <summary>
+	/// Poll a registered object every tick only while its data table has entries that can't report their own changes.
+	/// </summary>
+	internal void UpdateNetworkPollRegistration( NetworkObject obj )
+	{
+		if ( networkedObjects.Contains( obj ) && obj.dataTable is { HasPollEntries: true } )
+			_pollNetworkObjects.Add( obj );
+		else
+			_pollNetworkObjects.Remove( obj );
 	}
 
 	internal void UnregisterNetworkObject( NetworkObject obj )
@@ -66,6 +82,7 @@ public partial class Scene : GameObject
 		system?.DeltaSnapshots?.ClearNetworkObject( obj );
 
 		networkedObjects.Remove( obj );
+		_pollNetworkObjects.Remove( obj );
 		obj.IsDirty = false;
 	}
 
@@ -168,8 +185,9 @@ public partial class Scene : GameObject
 		if ( probeVisibility )
 			_timeSinceDormancyProbe = 0f;
 
+		// Visibility probes need every clean object; between them, only objects that can't report their own changes.
 		_networkPollBuffer.Clear();
-		foreach ( var obj in networkedObjects )
+		foreach ( var obj in probeVisibility ? networkedObjects : _pollNetworkObjects )
 		{
 			if ( !obj.IsDirty )
 				_networkPollBuffer.Add( obj );
@@ -189,9 +207,8 @@ public partial class Scene : GameObject
 			if ( obj.CanPollQueryValues )
 			{
 				var table = obj.dataTable;
-				stats.ContainerEntries += table.QueryEntryCount( NetworkTable.PollKind.Container );
-				stats.CollectionEntries += table.QueryEntryCount( NetworkTable.PollKind.Collection );
-				stats.QueryEntries += table.QueryEntryCount( NetworkTable.PollKind.Query );
+				stats.CollectionEntries += table.PollEntryCount( NetworkTable.PollKind.Collection );
+				stats.QueryEntries += table.PollEntryCount( NetworkTable.PollKind.Query );
 
 				if ( obj.PollQueryValues() )
 				{

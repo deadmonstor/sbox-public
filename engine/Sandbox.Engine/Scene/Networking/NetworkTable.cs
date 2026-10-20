@@ -56,7 +56,7 @@ internal class NetworkTable : IDisposable
 		public bool IsReliableType;
 		public bool IsDirty;
 		public byte[] Serialized;
-		public bool Initialized;
+		public INetworkProperty InitializedProperty;
 		public int Slot;
 		public ListHasher ListHasher;
 		public TypedAccess Typed;
@@ -153,12 +153,19 @@ internal class NetworkTable : IDisposable
 	private readonly List<Entry> _reliableEntries = [];
 	private readonly List<Entry> _snapshotEntries = [];
 	private readonly List<Entry> _queryEntries = [];
-	private readonly int[] _queryCounts = new int[4];
+	private readonly List<Entry> _pollEntries = [];
+	private readonly int[] _pollCounts = new int[4];
 
 	/// <summary>
-	/// The number of query entries of a specific kind.
+	/// Whether an entry can only be found to have changed by querying it. Network containers
+	/// wake their object when they change, so they're only queried when capturing a snapshot.
 	/// </summary>
-	public int QueryEntryCount( PollKind kind ) => _queryCounts[(int)kind];
+	private static bool IsPolled( Entry entry ) => entry.Poll is PollKind.Collection or PollKind.Query;
+
+	/// <summary>
+	/// The number of polled entries of a specific kind.
+	/// </summary>
+	public int PollEntryCount( PollKind kind ) => _pollCounts[(int)kind];
 
 	/// <summary>
 	/// Do we have any pending changes for entries we control?
@@ -189,7 +196,8 @@ internal class NetworkTable : IDisposable
 		_reliableEntries.Clear();
 		_snapshotEntries.Clear();
 		_queryEntries.Clear();
-		Array.Clear( _queryCounts );
+		_pollEntries.Clear();
+		Array.Clear( _pollCounts );
 		_entries.Clear();
 	}
 
@@ -199,12 +207,13 @@ internal class NetworkTable : IDisposable
 	/// <param name="slot"></param>
 	public void Unregister( int slot )
 	{
-		if ( _entries.TryGetValue( slot, out var existing ) && existing.NeedsQuery )
-			_queryCounts[(int)existing.Poll]--;
+		if ( _entries.TryGetValue( slot, out var existing ) && existing.NeedsQuery && IsPolled( existing ) )
+			_pollCounts[(int)existing.Poll]--;
 
 		_snapshotEntries.RemoveAll( e => e.Slot == slot );
 		_reliableEntries.RemoveAll( e => e.Slot == slot );
 		_queryEntries.RemoveAll( e => e.Slot == slot );
+		_pollEntries.RemoveAll( e => e.Slot == slot );
 		_entries.Remove( slot );
 	}
 
@@ -232,7 +241,12 @@ internal class NetworkTable : IDisposable
 		if ( entry.NeedsQuery )
 		{
 			_queryEntries.Add( entry );
-			_queryCounts[(int)entry.Poll]++;
+
+			if ( IsPolled( entry ) )
+			{
+				_pollEntries.Add( entry );
+				_pollCounts[(int)entry.Poll]++;
+			}
 		}
 	}
 
@@ -265,10 +279,11 @@ internal class NetworkTable : IDisposable
 	/// </summary>
 	private bool UpdateSlotHash( Entry entry, object value )
 	{
-		if ( value is INetworkProperty property && !entry.Initialized )
+		// Reassigned containers need their own parent so they can check control and wake the object.
+		if ( value is INetworkProperty property && !ReferenceEquals( entry.InitializedProperty, property ) )
 		{
 			property.Init( entry.Slot, entry );
-			entry.Initialized = true;
+			entry.InitializedProperty = property;
 		}
 
 		if ( value is INetworkSerializer serializer )
@@ -381,7 +396,6 @@ internal class NetworkTable : IDisposable
 			if ( EqualityComparer<T>.Default.Equals( _get(), value ) )
 				return;
 
-			entry.Initialized = false;
 			// Same hash as ToHashCode gives the boxed value
 			SetHash( entry, HashCode.Combine( value ) );
 			_set( value );
@@ -448,7 +462,6 @@ internal class NetworkTable : IDisposable
 			if ( Equals( oldValue, value ) )
 				return;
 
-			entry.Initialized = false;
 			UpdateSlotHash( slot, value );
 			entry.SetValue( value );
 		}
@@ -897,21 +910,28 @@ internal class NetworkTable : IDisposable
 	}
 
 	/// <summary>
-	/// Whether any entries need polling to detect changes.
+	/// Whether any entries can only be found to have changed by polling them.
 	/// </summary>
-	public bool HasQueryEntries => _queryEntries.Count > 0;
+	public bool HasPollEntries => _pollEntries.Count > 0;
 
 	/// <summary>
 	/// If any properties are "query" types, we'll copy the new values to ourselves
 	/// and mark as changed, if changed. Returns true when a value changed, even if already dirty.
 	/// </summary>
-	public bool QueryValues( bool onlyReliableEntries = false )
+	public bool QueryValues( bool onlyReliableEntries = false ) => QueryValues( _queryEntries, onlyReliableEntries );
+
+	/// <summary>
+	/// Query only the entries that can't report their own changes. Returns true when a value changed.
+	/// </summary>
+	public bool PollValues() => QueryValues( _pollEntries, false );
+
+	private bool QueryValues( List<Entry> entries, bool onlyReliableEntries )
 	{
 		var anyChanged = false;
 
-		for ( var i = 0; i < _queryEntries.Count; i++ )
+		for ( var i = 0; i < entries.Count; i++ )
 		{
-			var entry = _queryEntries[i];
+			var entry = entries[i];
 
 			if ( onlyReliableEntries && !entry.IsReliableType )
 				continue;

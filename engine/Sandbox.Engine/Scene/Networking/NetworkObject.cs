@@ -663,9 +663,9 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 	}
 
 	/// <summary>
-	/// Whether this object has query entries that it is responsible for polling.
+	/// Whether this object has entries that can't report their own changes, and that it is responsible for polling.
 	/// </summary>
-	internal bool CanPollQueryValues => dataTable is { HasQueryEntries: true } && (!IsProxy || Networking.IsHost);
+	internal bool CanPollQueryValues => dataTable is { HasPollEntries: true } && (!IsProxy || Networking.IsHost);
 
 	/// <summary>
 	/// Detect changes that cannot be intercepted when written, including query properties
@@ -676,7 +676,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 		if ( !CanPollQueryValues )
 			return false;
 
-		if ( !dataTable.QueryValues() || !IsValid )
+		if ( !dataTable.PollValues() || !IsValid )
 			return false;
 
 		MarkDirty();

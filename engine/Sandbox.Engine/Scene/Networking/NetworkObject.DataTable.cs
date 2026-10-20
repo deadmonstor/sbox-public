@@ -52,6 +52,10 @@ internal sealed partial class NetworkObject
 			// want to add potentially hundreds of entries for OwnerTransfer, etc.
 			RegisterPropertiesRecursive( child, false );
 		}
+
+		// Newly registered entries may need polling once the whole hierarchy is registered.
+		if ( go == GameObject )
+			GameObject.Scene?.UpdateNetworkPollRegistration( this );
 	}
 
 	private Func<Connection, bool> _hasControlCondition;

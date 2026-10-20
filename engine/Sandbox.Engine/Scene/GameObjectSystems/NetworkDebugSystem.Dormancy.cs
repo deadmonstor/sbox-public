@@ -60,8 +60,7 @@ sealed partial class NetworkDebugSystem
 		double PerTick( long a, long b ) => (double)(b - a) / ticks;
 
 		return $"poll/tick ({ticks} ticks): objects {PerTick( from.ObjectsVisited, to.ObjectsVisited ):0.#}"
-			+ $" | entries container {PerTick( from.ContainerEntries, to.ContainerEntries ):0.#}"
-			+ $" collection {PerTick( from.CollectionEntries, to.CollectionEntries ):0.#}"
+			+ $" | entries collection {PerTick( from.CollectionEntries, to.CollectionEntries ):0.#}"
 			+ $" query {PerTick( from.QueryEntries, to.QueryEntries ):0.#}"
 			+ $" | probes {PerTick( from.VisibilityProbes, to.VisibilityProbes ):0.#}"
 			+ $" | wakes poll {PerTick( from.PollWakes, to.PollWakes ):0.##} probe {PerTick( from.ProbeWakes, to.ProbeWakes ):0.##}";
