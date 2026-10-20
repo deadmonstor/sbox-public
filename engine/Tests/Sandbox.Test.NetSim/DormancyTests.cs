@@ -105,6 +105,28 @@ public class DormancyTests
 	}
 
 	[TestMethod]
+	public void RemoteMoveWakesClientOwnedObjectOnHost()
+	{
+		using var sim = new NetSimulation();
+		var owner = sim.Join();
+		sim.Join();
+		var id = Spawn( sim, owner );
+
+		sim.RunSeconds( 2 );
+		Assert.IsFalse( sim.As( sim.Host, () => Find( sim, sim.Host, id )._net.IsDirty ), "Precondition: the host has settled the object" );
+
+		var position = InitialPosition + new Vector3( 64, 0, 0 );
+		sim.As( owner, () => Find( sim, owner, id ).WorldPosition = position );
+
+		var woke = false;
+		sim.Run( 30, _ => woke |= sim.As( sim.Host, () => Find( sim, sim.Host, id )._net.IsDirty ) );
+
+		Assert.IsTrue( woke, "The host must wake a client-owned object when its owner moves it" );
+		sim.RunSeconds( 2 );
+		AssertReplicas( sim, id, owner, 23, 11, position );
+	}
+
+	[TestMethod]
 	public void IdleProxyCanTakeOwnershipAndAuthorState()
 	{
 		using var sim = new NetSimulation();

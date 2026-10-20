@@ -235,12 +235,23 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 	internal void MarkTransformDirty( in Transform previous, in Transform value )
 	{
 		if ( IsProxy ) return;
-
-		var flags = GameObject.Network.Flags;
-		if ( ((flags & NetworkFlags.NoPositionSync) == 0 && !previous.Position.Equals( value.Position ))
-			|| ((flags & NetworkFlags.NoRotationSync) == 0 && !previous.Rotation.Equals( value.Rotation ))
-			|| ((flags & NetworkFlags.NoScaleSync) == 0 && !previous.Scale.Equals( value.Scale )) )
+		if ( HasSyncedTransformChange( previous, value ) )
 			MarkDirty();
+	}
+
+	internal void MarkRemoteTransformDirty( in Transform previous, in Transform value )
+	{
+		if ( !IsProxy || !Networking.IsHost ) return;
+		if ( HasSyncedTransformChange( previous, value ) )
+			MarkDirty();
+	}
+
+	private bool HasSyncedTransformChange( in Transform previous, in Transform value )
+	{
+		var flags = GameObject.Network.Flags;
+		return ((flags & NetworkFlags.NoPositionSync) == 0 && !previous.Position.Equals( value.Position ))
+			|| ((flags & NetworkFlags.NoRotationSync) == 0 && !previous.Rotation.Equals( value.Rotation ))
+			|| ((flags & NetworkFlags.NoScaleSync) == 0 && !previous.Scale.Equals( value.Scale ));
 	}
 
 	/// <summary>
@@ -326,7 +337,8 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 	LocalSnapshotState WriteRefreshSnapshot()
 	{
 		LocalSnapshotState.Version++;
-		return ((IDeltaSnapshot)this).WriteSnapshotState();
+		MarkDirty();
+		return WriteSnapshotState();
 	}
 
 	private static readonly GameObject.SerializeOptions _refreshSerializeOptions = new() { SingleNetworkObject = true, SkipNulls = true };
@@ -477,7 +489,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 
 	internal const float DormancyProbeInterval = 0.2f;
 
-	internal bool ShouldSkipDeltaSnapshotUpdate( Connection[] targets )
+	private bool ShouldSkipDeltaSnapshotUpdate( Connection[] targets, bool probe )
 	{
 		if ( targets.Length == 0 )
 		{
@@ -501,6 +513,12 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 				SetDeltaDormant( false );
 				return false;
 			}
+		}
+
+		if ( probe )
+		{
+			SetDeltaDormant( true );
+			return false;
 		}
 
 		if ( _nextDormancyProbe )
@@ -556,7 +574,9 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 		return GameObject.Network.AlwaysTransmit || !_culledConnections.Contains( target.Id );
 	}
 
-	bool IDeltaSnapshot.UpdateTransmitState( Connection[] targets )
+	bool IDeltaSnapshot.UpdateTransmitState( Connection[] targets ) => UpdateTransmitState( targets, false );
+
+	private bool UpdateTransmitState( Connection[] targets, bool probe )
 	{
 		if ( GameObject.Network.AlwaysTransmit )
 		{
@@ -577,7 +597,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 			return true;
 		}
 
-		if ( ShouldSkipDeltaSnapshotUpdate( targets ) )
+		if ( ShouldSkipDeltaSnapshotUpdate( targets, probe ) )
 			return false;
 
 		if ( _nextUpdateCachedBounds )
@@ -692,7 +712,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 			return false;
 
 		var revision = DirtyRevision;
-		((IDeltaSnapshot)this).UpdateTransmitState( targets );
+		UpdateTransmitState( targets, true );
 		return DirtyRevision != revision;
 	}
 
@@ -762,7 +782,9 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 	private const int SnapshotInterpolationSlot = 4;
 	private const int SnapshotEnabledSlot = 5;
 
-	LocalSnapshotState IDeltaSnapshot.WriteSnapshotState()
+	LocalSnapshotState IDeltaSnapshot.WriteSnapshotState() => WriteSnapshotState();
+
+	private LocalSnapshotState WriteSnapshotState()
 	{
 		var system = SceneNetworkSystem.Instance;
 		if ( system is null ) return null;

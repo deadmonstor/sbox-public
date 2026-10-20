@@ -284,7 +284,6 @@ internal class NetworkTable : IDisposable
 	/// </summary>
 	private bool UpdateSlotHash( Entry entry, object value )
 	{
-		// Reassigned containers need their own parent so they can check control and wake the object.
 		if ( value is INetworkProperty property && !ReferenceEquals( entry.InitializedProperty, property ) )
 		{
 			property.Init( entry.Slot, entry );

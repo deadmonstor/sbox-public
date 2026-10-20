@@ -89,7 +89,18 @@ public partial class GameObject
 	/// Determines whether updates for this networked object are always transmitted to clients. Otherwise,
 	/// they are only transmitted when the object is determined as visible to each client.
 	/// </summary>
-	[Property, Expose] private bool AlwaysTransmit { get; set; } = true;
+	[Property, Expose]
+	private bool AlwaysTransmit
+	{
+		get;
+		set
+		{
+			if ( field == value ) return;
+			field = value;
+			if ( _net is not null )
+				Scene?.UpdateNetworkCullRegistration( _net );
+		}
+	} = true;
 
 	/// <summary>
 	/// Whether our networked transform will be interpolated. This property will only
@@ -669,11 +680,9 @@ public partial class GameObject
 		internal ushort SnapshotVersion => go._net?.SnapshotVersion ?? 0;
 
 		/// <summary>
-		/// Whether visibility checks are suspended because this object has been invisible
-		/// to every recipient. Visibility is periodically probed, and local changes wake it.
 		/// False when this object is not networked; acknowledged visible objects are not included.
 		/// </summary>
-		public bool IsDeltaDormant => go._net?.IsDeltaDormant ?? false;
+		internal bool IsDeltaDormant => go._net?.IsDeltaDormant ?? false;
 
 		/// <summary>
 		/// Network flags which describe the behavior of this networked object.

@@ -102,17 +102,22 @@ public class NetworkDormancyTest
 				Assert.IsTrue( go._net.IsDirty, "Acknowledgement must not end the awake grace" );
 			}
 
-			switch ( change )
-			{
-				case "Transform" or "Nested": go.LocalPosition = Vector3.Up * 128f * step; break;
-				case "Enabled": go.Enabled = step == 2; break;
-				case "Parent": go.Parent = step == 1 ? parent : null; break;
-				case "NetList": containers.SyncList.Add( step ); break;
-				case "NetDictionary": containers.SyncDictionary[step] = step; break;
-				case "List": ((List<int>)value).Add( step ); break;
-				case "Dictionary": ((Dictionary<int, int>)value)[step] = step; break;
-				default: value = step; break;
-			}
+			if ( value is List<int> list )
+				list.Add( step );
+			else if ( value is Dictionary<int, int> dictionary )
+				dictionary[step] = step;
+			else if ( change is "Transform" or "Nested" )
+				go.LocalPosition = Vector3.Up * 128f * step;
+			else if ( change == "Enabled" )
+				go.Enabled = step == 2;
+			else if ( change == "Parent" )
+				go.Parent = step == 1 ? parent : null;
+			else if ( change == "NetList" )
+				containers.SyncList.Add( step );
+			else if ( change == "NetDictionary" )
+				containers.SyncDictionary[step] = step;
+			else
+				value = step;
 
 			_peers.Client.Messages.Clear();
 			UpdateScene();
@@ -216,6 +221,79 @@ public class NetworkDormancyTest
 		Assert.IsTrue( ClusterCount( _peers.Client ) > 0 );
 	}
 
+	[TestMethod]
+	public void SleepingObjectBecomesVisibleOnTheNextTick()
+	{
+		var go = new GameObject();
+		var visibility = go.Components.Create<VisibilityController>();
+		go.NetworkSpawn();
+		go.Network.AlwaysTransmit = false;
+
+		for ( var i = 0; i < 45; i++ )
+		{
+			SetTime( StartTime + i * 0.1f );
+			UpdateScene();
+			Acknowledge( _peers.Client );
+		}
+
+		go.WorldPosition = Vector3.Up * 50f;
+		for ( var i = 0; i < 15 && !go.Network.IsDeltaDormant; i++ )
+		{
+			SetTime( Time.Now + 0.1f );
+			UpdateScene();
+		}
+
+		Assert.IsTrue( go.Network.IsDeltaDormant );
+
+		SetTime( Time.Now + 0.01f );
+		UpdateScene();
+
+		_peers.Client.Messages.Clear();
+		visibility.Visible = true;
+		SetTime( Time.Now + 0.01f );
+		UpdateScene();
+
+		Assert.IsFalse( go.Network.IsDeltaDormant, "Visibility must be re-checked every tick, like master" );
+		Assert.IsTrue( ClusterCount( _peers.Client ) > 0 );
+	}
+
+	[TestMethod]
+	public void RefreshThatEnablesCullingKeepsVisibilityChecked()
+	{
+		var go = new GameObject();
+		go.Components.Create<VisibilityController>();
+		go.NetworkSpawn();
+		Assert.IsTrue( go.Network.AlwaysTransmit );
+
+		var json = go.Serialize();
+		json[GameObject.JsonKeys.AlwaysTransmit] = false;
+		go.NetworkRefresh( json );
+		Assert.IsFalse( go.Network.AlwaysTransmit );
+
+		for ( var i = 0; i < 60 && !go.Network.IsDeltaDormant; i++ )
+		{
+			SetTime( StartTime + i * 0.1f );
+			UpdateScene();
+			Acknowledge( _peers.Client );
+		}
+
+		Assert.IsTrue( go.Network.IsDeltaDormant, "A settled object must still be culled after a refresh turns culling on" );
+	}
+
+	[TestMethod]
+	public void RefreshWakesSettledObject()
+	{
+		var go = new GameObject();
+		go.NetworkSpawn();
+
+		Settle();
+		Assert.IsFalse( go._net.IsDirty );
+
+		go.Network.Refresh();
+
+		Assert.IsTrue( go._net.IsDirty, "A refresh must schedule the object so rejected values are sent again" );
+	}
+
 	[DataTestMethod]
 	[DataRow( false )]
 	[DataRow( true )]
@@ -251,14 +329,14 @@ public class NetworkDormancyTest
 		_peers.Client.State = Connection.ChannelState.Unconnected;
 		UpdateScene();
 
-		if ( source is NetList<int> list )
-			list.Add( 10 );
-		else
-			((NetDictionary<int, int>)source)[1] = 10;
+		if ( source is NetList<int> sourceList )
+			sourceList.Add( 10 );
+		else if ( source is NetDictionary<int, int> sourceDictionary )
+			sourceDictionary[1] = 10;
 
 		UpdateScene();
 
-		Assert.IsFalse( ((INetworkSerializer)source).HasChanges, "No-recipient changes must be retired before a peer joins" );
+		Assert.IsTrue( source is INetworkSerializer { HasChanges: false }, "No-recipient changes must be retired before a peer joins" );
 
 		var baseline = ByteStream.Create( 256 );
 		go._net.dataTable.WriteAllReliable( ref baseline );
@@ -272,7 +350,13 @@ public class NetworkDormancyTest
 		foreach ( var message in _peers.Client.Messages.Select( x => x.Payload ).OfType<ObjectNetworkTableMsg>() )
 			Apply( message.TableData );
 
-		CollectionAssert.AreEqual( ((IEnumerable)source).Cast<object>().ToArray(), ((IEnumerable)replica).Cast<object>().ToArray() );
+		if ( source is not IEnumerable sourceItems || replica is not IEnumerable replicaItems )
+		{
+			Assert.Fail( "Source and replica must both be collections" );
+			return;
+		}
+
+		CollectionAssert.AreEqual( sourceItems.Cast<object>().ToArray(), replicaItems.Cast<object>().ToArray() );
 	}
 
 	[TestMethod]
@@ -440,12 +524,15 @@ public class NetworkDormancyTest
 	}
 
 	private static void RegisterQuery( GameObject go, Type type, Func<object> getter )
-		=> go._net.dataTable.Register( 100, new NetworkTable.Entry
+	{
+		go._net.dataTable.Register( 100, new NetworkTable.Entry
 		{
 			TargetType = type,
 			NeedsQuery = true,
 			GetValue = getter
 		} );
+		go.Scene.UpdateNetworkPollRegistration( go._net );
+	}
 
 	private static void SetTime( float now )
 	{

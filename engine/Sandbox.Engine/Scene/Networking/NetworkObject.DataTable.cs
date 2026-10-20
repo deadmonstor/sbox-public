@@ -53,7 +53,6 @@ internal sealed partial class NetworkObject
 			RegisterPropertiesRecursive( child, false );
 		}
 
-		// Newly registered entries may need polling once the whole hierarchy is registered.
 		if ( go == GameObject )
 			GameObject.Scene?.UpdateNetworkPollRegistration( this );
 	}

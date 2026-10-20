@@ -372,6 +372,8 @@ public partial class GameTransform
 
 	internal void FromNetwork( Transform transform, bool clearInterpolation, double time )
 	{
+		GameObject._net?.MarkRemoteTransformDirty( TargetLocal, transform );
+
 		if ( !Application.IsHeadless && GameObject.Network.Interpolation && !clearInterpolation )
 		{
 			var buffer = _networkTransformBuffer ??= new( TransformState.CreateInterpolator() );

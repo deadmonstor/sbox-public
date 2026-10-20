@@ -21,7 +21,8 @@ public partial class Scene : GameObject
 	/// Registered objects with entries that can only be found to have changed by polling them.
 	/// </summary>
 	readonly HashSet<NetworkObject> _pollNetworkObjects = new();
-	RealTimeSince _timeSinceDormancyProbe;
+
+	readonly HashSet<NetworkObject> _cullNetworkObjects = new();
 
 	/// <summary>
 	/// Cumulative counts of the work done to find changes on sleeping network objects.
@@ -42,13 +43,12 @@ public partial class Scene : GameObject
 	/// <summary>
 	/// The number of registered network objects in this scene.
 	/// </summary>
-	public int NetworkObjectCount => networkedObjects.Count;
+	internal int NetworkObjectCount => networkedObjects.Count;
 
 	/// <summary>
-	/// The number of objects whose visibility checks are suspended between dormancy probes.
 	/// Acknowledged, visible objects also skip snapshot capture, but are not included here.
 	/// </summary>
-	public int NetworkDormantObjectCount => networkedObjects.Count( x => x.IsDeltaDormant );
+	internal int NetworkDormantObjectCount => networkedObjects.Count( x => x.IsDeltaDormant );
 
 	internal void MarkNetworkObjectDirty( NetworkObject obj )
 	{
@@ -61,6 +61,7 @@ public partial class Scene : GameObject
 	{
 		networkedObjects.Add( obj );
 		UpdateNetworkPollRegistration( obj );
+		UpdateNetworkCullRegistration( obj );
 		MarkNetworkObjectDirty( obj );
 	}
 
@@ -75,6 +76,14 @@ public partial class Scene : GameObject
 			_pollNetworkObjects.Remove( obj );
 	}
 
+	internal void UpdateNetworkCullRegistration( NetworkObject obj )
+	{
+		if ( networkedObjects.Contains( obj ) && !obj.GameObject.Network.AlwaysTransmit )
+			_cullNetworkObjects.Add( obj );
+		else
+			_cullNetworkObjects.Remove( obj );
+	}
+
 	internal void UnregisterNetworkObject( NetworkObject obj )
 	{
 		// When a network object is removed, we can clean up any snapshot data.
@@ -83,6 +92,7 @@ public partial class Scene : GameObject
 
 		networkedObjects.Remove( obj );
 		_pollNetworkObjects.Remove( obj );
+		_cullNetworkObjects.Remove( obj );
 		obj.IsDirty = false;
 	}
 
@@ -184,15 +194,16 @@ public partial class Scene : GameObject
 
 	private void PollCleanNetworkObjects( Connection[] connections )
 	{
-		var probeVisibility = _timeSinceDormancyProbe >= NetworkObject.DormancyProbeInterval;
-		if ( probeVisibility )
-			_timeSinceDormancyProbe = 0f;
-
-		// Visibility probes need every clean object; between them, only objects that can't report their own changes.
 		_networkPollBuffer.Clear();
-		foreach ( var obj in probeVisibility ? networkedObjects : _pollNetworkObjects )
+		foreach ( var obj in _pollNetworkObjects )
 		{
 			if ( !obj.IsDirty )
+				_networkPollBuffer.Add( obj );
+		}
+
+		foreach ( var obj in _cullNetworkObjects )
+		{
+			if ( !obj.IsDirty && !_pollNetworkObjects.Contains( obj ) )
 				_networkPollBuffer.Add( obj );
 		}
 
@@ -220,7 +231,7 @@ public partial class Scene : GameObject
 				}
 			}
 
-			if ( probeVisibility && obj.IsValid && obj.CanProbeVisibility )
+			if ( obj.IsValid && obj.CanProbeVisibility )
 			{
 				stats.VisibilityProbes++;
 				if ( obj.ProbeVisibility( connections ) )

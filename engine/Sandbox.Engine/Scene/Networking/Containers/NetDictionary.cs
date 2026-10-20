@@ -417,7 +417,6 @@ public sealed class NetDictionary<TKey, TValue> : INetworkSerializer, INetworkRe
 		if ( !CanWriteChanges() )
 			return;
 
-		// Wake a sleeping network object; it no longer polls this dictionary for changes.
 		(Parent as INetworkWakeable)?.MarkDirty();
 
 		if ( e.Action == NotifyCollectionChangedAction.Add )
