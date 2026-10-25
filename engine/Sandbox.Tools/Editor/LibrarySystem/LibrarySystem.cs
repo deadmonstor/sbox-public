@@ -236,45 +236,89 @@ public static class LibrarySystem
 		// Write the version id
 		FileSystem.Libraries.WriteAllText( versionPath, versionIdent.ToString() );
 
-		// Download each new file (this is done in parallel, attempting to DL up to 10mb at once)
-		var filesToDownload = new List<ManifestSchema.File>();
-		var filesDownloading = new List<ManifestSchema.File>();
-		foreach ( var file in version.Manifest.Files )
+		// Download the files we don't have yet, a few at a time. The library is compiled as soon as Add
+		// runs, so every download has to have finished first.
+		var missingFiles = version.Manifest.Files.Where( x => !FileSystem.Libraries.FileExists( $"{folderName}/{x.Path}" ) );
+
+		async Task<bool> DownloadFile( ManifestSchema.File file )
 		{
-			var libraryPath = $"{folderName}/{file.Path}";
-			if ( FileSystem.Libraries.FileExists( libraryPath ) )
-			{
-				continue;
-			}
-			filesToDownload.Add( file );
+			var targetPath = FileSystem.Libraries.GetFullPath( $"{folderName}/{file.Path}" );
+			var success = await EditorUtility.DownloadAsync( file.Url, targetPath, null, token );
+			progress.Title = file.Path;
+			return success;
 		}
 
-		long bytesDownloading = 0;
-		while ( filesToDownload.Count > 0 )
+		bool downloaded;
+		try
 		{
-			if ( bytesDownloading < 10_000 && filesToDownload.Count > 0 )
-			{
-				var file = filesToDownload[0];
-				filesToDownload.RemoveAt( 0 );
-				Parallel.Invoke( async () =>
-				{
-					filesDownloading.Add( file );
-					bytesDownloading += file.Size;
-					var libraryPath = $"{folderName}/{file.Path}";
-					var targetPath = FileSystem.Libraries.GetFullPath( libraryPath );
-					await EditorUtility.DownloadAsync( file.Url, targetPath, null, token );
-					progress.Title = file.Path;
-					bytesDownloading -= file.Size;
-					filesDownloading.Remove( file );
-				} );
-			}
-			await Task.Delay( 1 );
+			downloaded = await DownloadFiles( missingFiles, DownloadFile, token );
+		}
+		finally
+		{
+			FileWatch.SuppressWatchers = RealTime.Now;
 		}
 
-		FileWatch.SuppressWatchers = RealTime.Now;
+		if ( !downloaded )
+		{
+			Log.Warning( $"Failed to install library {ident}, some of its files didn't download" );
+			return false;
+		}
+
+		token.ThrowIfCancellationRequested();
 		await Add( folderName, token );
 
 		return true;
+	}
+
+	/// <summary>
+	/// Run <paramref name="download"/> for each file, keeping about 10kb in flight at once. Returns false if any
+	/// failed. Never returns, or throws, while a download it started is still running.
+	/// </summary>
+	internal static async Task<bool> DownloadFiles( IEnumerable<ManifestSchema.File> files, Func<ManifestSchema.File, Task<bool>> download, CancellationToken token )
+	{
+		var downloads = new List<Task<bool>>();
+		long bytesDownloading = 0;
+
+		async Task<bool> Download( ManifestSchema.File file )
+		{
+			bytesDownloading += file.Size;
+
+			try
+			{
+				return await download( file );
+			}
+			catch ( Exception e ) when ( e is not OperationCanceledException )
+			{
+				Log.Warning( e, $"Couldn't download {file.Path}: {e.Message}" );
+				return false;
+			}
+			finally
+			{
+				bytesDownloading -= file.Size;
+			}
+		}
+
+		try
+		{
+			foreach ( var file in files )
+			{
+				while ( bytesDownloading >= 10_000 )
+				{
+					await Task.Delay( 1, token );
+				}
+
+				downloads.Add( Download( file ) );
+			}
+		}
+		finally
+		{
+			// If we're cancelled while waiting to start the next one, the ones already started are still
+			// writing files. Wait for them, without throwing, so the caller can tidy up after them.
+			await Task.WhenAny( Task.WhenAll( downloads ) );
+		}
+
+		var results = await Task.WhenAll( downloads );
+		return results.All( x => x );
 	}
 }
 
