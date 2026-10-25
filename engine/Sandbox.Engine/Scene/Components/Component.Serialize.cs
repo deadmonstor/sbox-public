@@ -26,6 +26,7 @@ public abstract partial class Component : BytePack.ISerializer
 		if ( t is null )
 		{
 			Log.Warning( $"TypeLibrary could not find {GetType()}" );
+			UnresolvedComponentScope.Report( this );
 			return null;
 		}
 

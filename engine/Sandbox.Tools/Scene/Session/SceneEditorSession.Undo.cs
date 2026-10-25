@@ -449,6 +449,12 @@ internal sealed class SceneUndoSnapshot : IDisposable
 
 	private ScopeSnapshot _initialState;
 
+	/// <summary>
+	/// Components left out of a snapshot because their types weren't loaded. Restoring that snapshot
+	/// would delete them, so the undo entry is never added.
+	/// </summary>
+	private string _unresolvedComponents;
+
 	private HashSet<GameObject> _createdGameObjects = new();
 
 	private HashSet<Component> _createdComponents = new();
@@ -573,6 +579,8 @@ internal sealed class SceneUndoSnapshot : IDisposable
 
 		// Undo snapshots
 
+		using var unresolved = UnresolvedComponentScope.Begin();
+
 		JsonObject scene = null;
 		// if deletion is requested, we need to capture the whole scene
 		if ( _captureDestructions )
@@ -604,6 +612,11 @@ internal sealed class SceneUndoSnapshot : IDisposable
 		}
 
 		_initialState = new ScopeSnapshot( scene, selection, componentSnapshot, gameObjectSnapshot );
+
+		if ( unresolved.Any )
+		{
+			_unresolvedComponents = unresolved.Describe();
+		}
 
 		if ( _captureGameObjectCreations )
 		{
@@ -651,6 +664,8 @@ internal sealed class SceneUndoSnapshot : IDisposable
 		using var sceneScope = _session.Scene.Push();
 
 		// Redo snapshots
+
+		using var unresolved = UnresolvedComponentScope.Begin();
 
 		// we don't capture the scene here again because that is never needed for redo
 
@@ -786,6 +801,17 @@ internal sealed class SceneUndoSnapshot : IDisposable
 		if ( _captureComponentChanges || _captureGameObjectChanges || _captureDestructions || _captureGameObjectCreations || _captureComponentCreations )
 		{
 			_session.HasUnsavedChanges = true;
+		}
+
+		if ( unresolved.Any )
+		{
+			_unresolvedComponents ??= unresolved.Describe();
+		}
+
+		if ( _unresolvedComponents is not null )
+		{
+			Log.Warning( $"Can't undo \"{_name}\" - some components aren't loaded right now, and undoing would delete them: {_unresolvedComponents}" );
+			return;
 		}
 
 		// copy we want to avoid capture this

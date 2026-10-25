@@ -359,10 +359,13 @@ public partial class SceneEditorSession : Scene.ISceneEditorSession, AssetSystem
 			return;
 		}
 
+		var resource = CreateResourceForSave();
+		if ( resource is null )
+			return;
+
 		var asset = AssetSystem.CreateResource( extension, saveLocation );
 		Assert.NotNull( asset, $"Failed to CreateResource for {fileType} at {saveLocation}" );
 
-		GameResource resource = Scene is PrefabScene prefabScene ? prefabScene.ToPrefabFile() : Scene.CreateSceneFile();
 		var saved = resource is SceneFile sceneFile ? SceneSource.Save( asset, sceneFile ) : asset.SaveToDisk( resource );
 		if ( !saved )
 		{
@@ -378,6 +381,33 @@ public partial class SceneEditorSession : Scene.ISceneEditorSession, AssetSystem
 		EditorEvent.Run( "scene.saved", Scene );
 
 		UpdateEditorTitle();
+	}
+
+	/// <summary>
+	/// Serialize the scene or prefab for saving. Returns null, and logs why, if the result would be
+	/// missing components because their types aren't loaded - writing it would delete them from the file.
+	/// </summary>
+	internal GameResource CreateResourceForSave()
+	{
+		using var unresolved = UnresolvedComponentScope.Begin();
+
+		GameResource resource;
+		if ( Scene is PrefabScene prefabScene )
+		{
+			// ToPrefabFile updates the shared prefab in place, so check before it runs
+			prefabScene.Serialize();
+			resource = unresolved.Any ? null : prefabScene.ToPrefabFile();
+		}
+		else
+		{
+			resource = Scene.CreateSceneFile();
+		}
+
+		if ( !unresolved.Any )
+			return resource;
+
+		Log.Error( $"Can't save {Scene.Name} - {unresolved.Components.Count} component(s) aren't loaded right now and would be deleted from the file: {unresolved.Describe()}. Fix any compile errors or restart the editor, then save again." );
+		return null;
 	}
 
 	/// <summary>
