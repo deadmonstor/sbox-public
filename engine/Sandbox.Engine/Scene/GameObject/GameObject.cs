@@ -238,12 +238,14 @@ public partial class GameObject : IJsonConvert, IComponentLister, BytePack.ISeri
 		}
 
 		var oldParent = _parent;
+		_gameTransform.OnDetachingFromParent();
 		oldParent?.RemoveChild( this );
 
 		_parent = parent;
 
 		Assert.True( Scene == _parent.Scene, "Can't parent to a GameObject in a different Scene" );
 		_parent.Children.Add( this );
+		_gameTransform.OnAttachedToParent();
 
 		// Special handling when reparenting part of prefab instances part two
 		// need to clear ourselves from the old prefab instances mappings

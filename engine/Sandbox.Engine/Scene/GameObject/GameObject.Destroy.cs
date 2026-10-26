@@ -84,6 +84,7 @@ public partial class GameObject : IValid
 
 		Scene.Directory.Remove( this );
 		Enabled = false;
+		Transform.OnDetachingFromParent();
 		_parent?.RemoveChild( this );
 		_parent = null;
 		Scene = null;
