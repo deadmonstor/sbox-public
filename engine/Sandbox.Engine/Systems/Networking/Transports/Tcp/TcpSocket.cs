@@ -1,4 +1,5 @@
-﻿using System.Net;
+﻿using System.Collections.Concurrent;
+using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 
@@ -10,9 +11,11 @@ namespace Sandbox.Network;
 /// </summary>
 internal class TcpSocket : NetworkSocket, IValid
 {
-	Action queue;
+	// Accepted on the listener thread, handed to the tick thread through this queue.
+	readonly ConcurrentQueue<TcpChannel> accepted = new();
 
-	List<TcpChannel> Connections = new List<TcpChannel>();
+	// Only touched on the tick thread.
+	readonly List<TcpChannel> Connections = new List<TcpChannel>();
 
 	internal override bool SupportsHostMigration => true;
 
@@ -37,7 +40,7 @@ internal class TcpSocket : NetworkSocket, IValid
 					lastError = e;
 					listener?.Dispose();
 					listener = null;
-					await Task.Delay( 500 );
+					await Task.Delay( 500 ).ConfigureAwait( false );
 				}
 				catch ( System.Exception e )
 				{
@@ -56,11 +59,9 @@ internal class TcpSocket : NetworkSocket, IValid
 			{
 				try
 				{
-					var client = await listener.AcceptTcpClientAsync( token );
-					var c = new TcpChannel( client );
-
-					Connections.Add( c );
-					queue += () => OnClientConnect?.Invoke( c );
+					// Accept off the main thread, so joins don't wait on (or stall with) the game's frame
+					var client = await listener.AcceptTcpClientAsync( token ).ConfigureAwait( false );
+					accepted.Enqueue( new TcpChannel( client ) );
 				}
 				catch ( OperationCanceledException )
 				{
@@ -88,6 +89,8 @@ internal class TcpSocket : NetworkSocket, IValid
 	public TcpSocket( string address, int port )
 	{
 		tokenSource = new();
+
+		// Runs inline up to the first await, so the port is listening once we return
 		_ = SocketThread( address, port, tokenSource.Token );
 	}
 
@@ -111,25 +114,30 @@ internal class TcpSocket : NetworkSocket, IValid
 
 	internal override void GetIncomingMessages( NetworkSystem.MessageHandler handler )
 	{
-		try
+		while ( accepted.TryDequeue( out var accept ) )
 		{
-			queue?.Invoke();
-		}
-		catch ( Exception e )
-		{
-			Log.Warning( e );
+			Connections.Add( accept );
+
+			try
+			{
+				OnClientConnect?.Invoke( accept );
+			}
+			catch ( Exception e )
+			{
+				Log.Warning( e );
+			}
 		}
 
-		queue = null;
-
-		foreach ( var c in Connections )
+		for ( var i = 0; i < Connections.Count; i++ )
 		{
+			var c = Connections[i];
+
 			if ( !c.IsConnected )
 			{
-				Connections.Remove( c );
+				Connections.RemoveAt( i-- );
 				OnClientDisconnect?.Invoke( c );
 				c.Close( 0, "Disconnect" );
-				return;
+				continue;
 			}
 
 			c.GetIncomingMessages( handler );
