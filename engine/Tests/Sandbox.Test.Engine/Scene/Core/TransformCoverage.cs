@@ -115,6 +115,223 @@ public class TransformCoverageTest : SceneTest
 	}
 
 	/// <summary>
+	/// A world transform cached under an Absolute object is invalidated by ancestor moves once the
+	/// object stops being Absolute, even though moves while it was Absolute went past it.
+	/// </summary>
+	[TestMethod]
+	public void CacheUnderFormerlyAbsoluteObjectFollowsAncestorMoves()
+	{
+		var scene = new Scene();
+		using var sceneScope = scene.Push();
+
+		var root = scene.CreateObject();
+		var middle = new GameObject( root );
+		var absolute = new GameObject( middle );
+		absolute.Flags |= GameObjectFlags.Absolute;
+		var leaf = new GameObject( absolute );
+		leaf.LocalPosition = new Vector3( 0, 1, 0 );
+
+		Assert.IsTrue( leaf.WorldPosition.AlmostEqual( new Vector3( 0, 1, 0 ) ) );
+
+		root.WorldPosition = new Vector3( 10, 0, 0 );
+		absolute.Flags &= ~GameObjectFlags.Absolute;
+		root.WorldPosition = new Vector3( 20, 0, 0 );
+
+		Assert.IsTrue( leaf.WorldPosition.AlmostEqual( new Vector3( 20, 1, 0 ) ) );
+
+		scene.Destroy();
+	}
+
+	/// <summary>
+	/// A listener that throws stops that change from reaching the children, but the next change still
+	/// invalidates their cached world transforms.
+	/// </summary>
+	[TestMethod]
+	public void ChangeAfterThrowingListenerStillReachesChildren()
+	{
+		var scene = new Scene();
+		using var sceneScope = scene.Push();
+
+		var root = scene.CreateObject();
+		var leaf = new GameObject( root );
+		leaf.LocalPosition = new Vector3( 0, 1, 0 );
+		_ = leaf.WorldPosition;
+
+		System.Action listener = null;
+		listener = () =>
+		{
+			root.Transform.OnTransformChanged -= listener;
+			throw new System.InvalidOperationException( "listener failed" );
+		};
+		root.Transform.OnTransformChanged += listener;
+
+		Assert.ThrowsException<System.InvalidOperationException>( () => root.WorldPosition = new Vector3( 10, 0, 0 ) );
+
+		root.WorldPosition = new Vector3( 20, 0, 0 );
+		Assert.IsTrue( leaf.WorldPosition.AlmostEqual( new Vector3( 20, 1, 0 ) ) );
+
+		scene.Destroy();
+	}
+
+	/// <summary>
+	/// A listener added deep in a hierarchy after changes have already gone through it - when nothing
+	/// below the root was listening - is still told about the next one, and stops being told once removed.
+	/// </summary>
+	[TestMethod]
+	public void ListenerAddedDeepInHierarchyIsNotified()
+	{
+		var scene = new Scene();
+		using var sceneScope = scene.Push();
+
+		var root = scene.CreateObject();
+		var middle = new GameObject( root );
+		var leaf = new GameObject( middle );
+
+		root.WorldPosition = new Vector3( 10, 0, 0 );
+
+		var leafChanges = 0;
+		System.Action listener = () => leafChanges++;
+		leaf.Transform.OnTransformChanged += listener;
+
+		root.WorldPosition = new Vector3( 20, 0, 0 );
+		Assert.AreEqual( 1, leafChanges );
+
+		leaf.Transform.OnTransformChanged -= listener;
+		root.WorldPosition = new Vector3( 30, 0, 0 );
+		Assert.AreEqual( 1, leafChanges );
+
+		scene.Destroy();
+	}
+
+	/// <summary>
+	/// A descendant's cached world transform is invalidated by every ancestor move, including moves
+	/// after it was read, invalidated and read again - and moves while nothing had it cached.
+	/// </summary>
+	[TestMethod]
+	public void CachedDescendantWorldFollowsEveryAncestorMove()
+	{
+		var scene = new Scene();
+		using var sceneScope = scene.Push();
+
+		var root = scene.CreateObject();
+		var middle = new GameObject( root );
+		var leaf = new GameObject( middle );
+		leaf.LocalPosition = new Vector3( 0, 1, 0 );
+
+		Assert.IsTrue( leaf.WorldPosition.AlmostEqual( new Vector3( 0, 1, 0 ) ) );
+
+		root.WorldPosition = new Vector3( 10, 0, 0 );
+		Assert.IsTrue( leaf.WorldPosition.AlmostEqual( new Vector3( 10, 1, 0 ) ) );
+
+		root.WorldPosition = new Vector3( 20, 0, 0 );
+		Assert.IsTrue( leaf.WorldPosition.AlmostEqual( new Vector3( 20, 1, 0 ) ) );
+
+		// Two moves with no read in between
+		root.WorldPosition = new Vector3( 30, 0, 0 );
+		root.WorldPosition = new Vector3( 40, 0, 0 );
+		Assert.IsTrue( leaf.WorldPosition.AlmostEqual( new Vector3( 40, 1, 0 ) ) );
+
+		// A move of the middle, then of the root
+		middle.LocalPosition = new Vector3( 0, 0, 5 );
+		Assert.IsTrue( leaf.WorldPosition.AlmostEqual( new Vector3( 40, 1, 5 ) ) );
+		root.WorldPosition = new Vector3( 50, 0, 0 );
+		Assert.IsTrue( leaf.WorldPosition.AlmostEqual( new Vector3( 50, 1, 5 ) ) );
+
+		scene.Destroy();
+	}
+
+	/// <summary>
+	/// A branch moved to a new parent follows the new parent, not the old one: its listeners are told
+	/// about the new parent's moves only, and its cached world transforms are invalidated by them.
+	/// </summary>
+	[TestMethod]
+	public void ReparentedBranchFollowsNewParent()
+	{
+		var scene = new Scene();
+		using var sceneScope = scene.Push();
+
+		var oldParent = scene.CreateObject();
+		var newParent = scene.CreateObject();
+		var branch = new GameObject( oldParent );
+		var listening = new GameObject( branch );
+		var cached = new GameObject( branch );
+		cached.LocalPosition = new Vector3( 0, 1, 0 );
+
+		var changes = 0;
+		listening.Transform.OnTransformChanged += () => changes++;
+		_ = cached.WorldPosition;
+
+		branch.SetParent( newParent, false );
+		changes = 0;
+
+		oldParent.WorldPosition = new Vector3( 10, 0, 0 );
+		Assert.AreEqual( 0, changes );
+
+		newParent.WorldPosition = new Vector3( 20, 0, 0 );
+		Assert.AreEqual( 1, changes );
+		Assert.IsTrue( cached.WorldPosition.AlmostEqual( new Vector3( 20, 1, 0 ) ) );
+
+		// Read again, then move the new parent once more
+		newParent.WorldPosition = new Vector3( 30, 0, 0 );
+		Assert.IsTrue( cached.WorldPosition.AlmostEqual( new Vector3( 30, 1, 0 ) ) );
+
+		scene.Destroy();
+	}
+
+	/// <summary>
+	/// Destroying a listening child stops it counting towards its old parent, while the parent's other
+	/// listening children keep being told about moves.
+	/// </summary>
+	[TestMethod]
+	public void DestroyedListenerDoesNotHideSiblingListeners()
+	{
+		var scene = new Scene();
+		using var sceneScope = scene.Push();
+
+		var root = scene.CreateObject();
+		var doomed = new GameObject( root );
+		var survivor = new GameObject( new GameObject( root ) );
+
+		doomed.Transform.OnTransformChanged += () => { };
+
+		var changes = 0;
+		survivor.Transform.OnTransformChanged += () => changes++;
+
+		doomed.DestroyImmediate();
+		scene.ProcessDeletes();
+
+		root.WorldPosition = new Vector3( 10, 0, 0 );
+		Assert.AreEqual( 1, changes );
+
+		scene.Destroy();
+	}
+
+	/// <summary>
+	/// The animation path: local transforms set without notifying, then a single change from the
+	/// root. Cached world transforms below are invalidated by it.
+	/// </summary>
+	[TestMethod]
+	public void FastLocalSetThenRootChangeInvalidatesCachedChildren()
+	{
+		var scene = new Scene();
+		using var sceneScope = scene.Push();
+
+		var root = scene.CreateObject();
+		var bone = new GameObject( root );
+		var childBone = new GameObject( bone );
+		childBone.LocalPosition = new Vector3( 0, 1, 0 );
+
+		Assert.IsTrue( childBone.WorldPosition.AlmostEqual( new Vector3( 0, 1, 0 ) ) );
+
+		bone.Transform.SetLocalTransformFast( new Transform( new Vector3( 5, 0, 0 ) ) );
+		root.Transform.TransformChanged();
+
+		Assert.IsTrue( childBone.WorldPosition.AlmostEqual( new Vector3( 5, 1, 0 ) ) );
+
+		scene.Destroy();
+	}
+
+	/// <summary>
 	/// Assigning a default Transform (all zero, including scale) is coerced to
 	/// Transform.Zero, which has identity rotation and scale one - objects can't end
 	/// up invisible with a zero scale by accident.

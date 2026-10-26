@@ -58,7 +58,12 @@ internal static class SceneSource
 	internal static SceneFile LoadForPlay( SceneEditorSession editor )
 	{
 		if ( editor.HasUnsavedChanges || editor.Scene.Source is not SceneFile { ResourcePath: { Length: > 0 } } source )
-			return editor.Scene.CreateSceneFile();
+		{
+			var snapshot = editor.Scene.CreateSceneFile();
+			if ( editor.Scene.Source is SceneFile existing )
+				snapshot.InitializeSource( existing.ResourcePath, existing.Guid );
+			return snapshot;
+		}
 
 		try
 		{

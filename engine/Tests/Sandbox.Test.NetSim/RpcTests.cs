@@ -35,11 +35,29 @@ public sealed class RpcProbe : Component
 	[Rpc.Owner]
 	public void ToOwner( int x ) => Record( $"ToOwner {x}" );
 
+	// Delegates cannot be serialized; self-targeted RPCs must invoke these locally without writing them.
+	[Rpc.Host]
+	public void LocalHost( Action action ) => action();
+
+	[Rpc.Owner]
+	public void LocalOwner( Action action ) => action();
+
 	[Rpc.Broadcast]
 	public static void Static( int x, string y ) => Record( $"Static {x} {y}" );
 
 	[Rpc.Broadcast]
 	public void Throws( int x ) => throw new InvalidOperationException( $"throws {x}" );
+}
+
+public sealed class LocalRpcSystem : GameObjectSystem
+{
+	public LocalRpcSystem( Scene scene ) : base( scene ) { }
+
+	[Rpc.Host]
+	public void LocalHost( Action action ) => action();
+
+	[Rpc.Owner]
+	public void LocalOwner( Action action ) => action();
 }
 
 [TestClass]
@@ -134,6 +152,60 @@ public class RpcTests
 
 		Call( sim, a, id, p => p.ToOwner( 3 ) );
 		AssertCalled( sim, "ToOwner 3", a, a );
+	}
+
+	[TestMethod]
+	[DataRow( false )]
+	[DataRow( true )]
+	public void SelfTargetedComponentRpcsDoNotSerializeArguments( bool mesh )
+	{
+		var (sim, a, b, id) = Start( mesh );
+		using var _ = sim;
+		var hostCalls = 0;
+		var ownerCalls = 0;
+
+		sim.As( sim.Host, () =>
+		{
+			Assert.IsTrue( Networking.IsActive );
+			Probe( sim, sim.Host, id ).LocalHost( () => hostCalls++ );
+		} );
+		sim.As( a, () =>
+		{
+			Assert.IsTrue( Networking.IsActive );
+			Probe( sim, a, id ).LocalOwner( () => ownerCalls++ );
+		} );
+
+		Assert.AreEqual( 1, hostCalls );
+		Assert.AreEqual( 1, ownerCalls );
+		sim.RunSeconds( 0.5f );
+		Assert.AreEqual( 1, hostCalls );
+		Assert.AreEqual( 1, ownerCalls );
+	}
+
+	[TestMethod]
+	[DataRow( false )]
+	[DataRow( true )]
+	public void SelfTargetedSystemRpcsDoNotSerializeArguments( bool mesh )
+	{
+		var (sim, a, b, id) = Start( mesh );
+		using var _ = sim;
+		var hostCalls = 0;
+		var ownerCalls = 0;
+
+		sim.As( sim.Host, () =>
+		{
+			Assert.IsTrue( Networking.IsActive );
+			var system = Game.ActiveScene.GetSystem<LocalRpcSystem>();
+			Assert.IsNotNull( system );
+			system.LocalHost( () => hostCalls++ );
+			system.LocalOwner( () => ownerCalls++ );
+		} );
+
+		Assert.AreEqual( 1, hostCalls );
+		Assert.AreEqual( 1, ownerCalls );
+		sim.RunSeconds( 0.5f );
+		Assert.AreEqual( 1, hostCalls );
+		Assert.AreEqual( 1, ownerCalls );
 	}
 
 	[TestMethod]

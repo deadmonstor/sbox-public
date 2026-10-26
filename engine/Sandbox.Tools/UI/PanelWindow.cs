@@ -400,6 +400,7 @@ public partial class PanelWindow : IDisposable
 	{
 		Core = new Hooks( this, title, size, position, borderless, vsync );
 		Core.Facade = this;
+		EditorEvent.Register( this );
 	}
 
 	/// <summary>
@@ -625,7 +626,7 @@ public partial class PanelWindow : IDisposable
 		internal override IPanelWindow ParentWindow => _owner.ParentWindow?.Core;
 		internal override RenderMultisampleType SwapChainMultisample => _owner.SwapChainMultisample;
 		internal override bool FollowsDisplayScale => _owner.FollowsDisplayScale;
-		internal override void OnClosing() => _owner.OnClosing();
+		internal override void OnClosing() { EditorEvent.Unregister( _owner ); _owner.OnClosing(); }
 		internal override void OnRenderBackground( SwapChainHandle_t swapChain, Vector2 size ) => _owner.OnRenderBackground( swapChain, size );
 		internal override void OnFirstShow() => _owner.OnFirstShow();
 	}

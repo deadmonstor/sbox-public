@@ -58,6 +58,19 @@ internal class ToolsDll : IToolsDll
 		ProjectCookie?.Save();
 	}
 
+	/// <summary>
+	/// Automatically enroll editor objects only. Shared types such as Panel also host game/menu UI,
+	/// which must not receive editor interface events.
+	/// </summary>
+	public void RegisterEventListener( object obj )
+	{
+		if ( !EditorEvent.IsAssemblyRegistered( obj.GetType().Assembly ) )
+			return;
+
+		EditorEvent.Register( obj );
+	}
+
+	public void UnregisterEventListener( object obj ) => EditorEvent.Unregister( obj );
 	public void RunEvent( string name ) => EditorEvent.Run( name );
 	public void RunEvent( string name, object argument ) => EditorEvent.Run( name, argument );
 	public void RunEvent( string name, object arg0, object arg1 ) => EditorEvent.Run( name, arg0, arg1 );

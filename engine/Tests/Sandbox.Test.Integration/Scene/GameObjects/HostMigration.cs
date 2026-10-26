@@ -19,7 +19,7 @@ using static GlobalGameNamespace;
 [TestClass]
 public class HostMigrationTest
 {
-	static void DrainSnapshot( Connection connection )
+	internal static void DrainSnapshot( Connection connection )
 	{
 		var deadline = DateTime.UtcNow.AddSeconds( 10 );
 		while ( connection.HasPendingSends && DateTime.UtcNow < deadline )
@@ -391,7 +391,7 @@ public class HostMigrationTest
 	}
 
 	// Exercise the same packed-message dispatch used by the transports, with explicit delivery order.
-	static void Receive<T>( Connection source, T message )
+	internal static void Receive<T>( Connection source, T message )
 	{
 		var handler = typeof( NetworkSystem ).GetMethod( "HandleIncomingMessage", BindingFlags.Instance | BindingFlags.NonPublic )
 			.CreateDelegate<Action<NetworkSystem.NetworkMessage>>( Networking.System );

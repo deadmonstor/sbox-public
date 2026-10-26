@@ -149,12 +149,41 @@ internal partial class ShadowMapper
 	/// </summary>
 	internal ref GPUDirectionalLight DirectionalLightData => ref GPUDirectionalLightData;
 
+	/// <summary>
+	/// The view whose attributes <see cref="SetShaderAttributes"/> last wrote, and what it wrote. Reset by
+	/// <see cref="InitForView(ISceneView)"/>, so every view still gets a fresh upload each frame.
+	/// </summary>
+	ISceneView viewWritten;
+	GPUDirectionalLight viewDirectionalLightWritten;
+	bool viewDebugWritten;
+
+	/// <summary>
+	/// Native calls this for each of the view's layers that needs per-view lighting constants: around 40 per view,
+	/// all wanting the same data. Layer attributes inherit from the view's, so set it on the view's attributes
+	/// once, and again only if it changed.
+	/// </summary>
 	internal unsafe void SetShaderAttributes( CRenderAttributes attributes )
 	{
 		if ( !attributes.IsValid )
 			return;
 
 		ResolveTextureIndices();
+
+		if ( SceneView.IsValid )
+		{
+			if ( SceneView == viewWritten && viewDebugWritten == DebugEnabled && IsSameAsWritten( GPUDirectionalLightData ) )
+				return;
+
+			var viewAttributes = SceneView.GetRenderAttributesPtr();
+			if ( viewAttributes.IsValid )
+			{
+				attributes = viewAttributes;
+				viewWritten = SceneView;
+				viewDirectionalLightWritten = GPUDirectionalLightData;
+				viewDebugWritten = DebugEnabled;
+			}
+		}
+
 		EnsureBuffers();
 
 		attributes.SetBufferValue( "ProjectedShadows", GPUProjectedShadowsBuffer.native );
@@ -164,6 +193,13 @@ internal partial class ShadowMapper
 		RenderTools.SetDynamicConstantBufferData( attributes, "DirectionalLightCB", Graphics.Context, (IntPtr)(&directionalLight), sizeof( GPUDirectionalLight ) );
 
 		attributes.SetBoolValue( "DirectionalLightDebug", DebugEnabled );
+	}
+
+	bool IsSameAsWritten( in GPUDirectionalLight data )
+	{
+		var current = MemoryMarshal.AsBytes( new ReadOnlySpan<GPUDirectionalLight>( in data ) );
+		var written = MemoryMarshal.AsBytes( new ReadOnlySpan<GPUDirectionalLight>( in viewDirectionalLightWritten ) );
+		return current.SequenceEqual( written );
 	}
 
 	/// <summary>

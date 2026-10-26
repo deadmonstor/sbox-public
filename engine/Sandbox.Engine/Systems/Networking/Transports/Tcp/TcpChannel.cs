@@ -118,6 +118,10 @@ internal class TcpChannel : Connection
 	private Queue<(byte[], RealTimeUntil)> fakeLagIncoming = new();
 	private ConcurrentQueue<(NetPacket, RealTimeUntil)> fakeLagOutgoing = new();
 
+	// Wakes FakeLagProcess when a delayed packet is queued, so idle channels don't poll.
+	[SkipHotload]
+	readonly SemaphoreSlim fakeLagQueued = new( 0 );
+
 	private async Task ConnectAndRunAsync( string host, int port, CancellationToken token )
 	{
 		try
@@ -140,22 +144,20 @@ internal class TcpChannel : Connection
 		{
 			while ( !token.IsCancellationRequested )
 			{
-				var processedPacket = false;
-
-				if ( fakeLagOutgoing.TryPeek( out var o ) )
+				if ( !fakeLagOutgoing.TryPeek( out var o ) )
 				{
-					if ( o.Item2 )
-					{
-						if ( fakeLagOutgoing.TryDequeue( out _ ) )
-						{
-							processedPacket = true;
-							await sendChannel.Writer.WriteAsync( o.Item1, token );
-						}
-					}
+					await fakeLagQueued.WaitAsync( token );
+					continue;
 				}
 
-				if ( !processedPacket ) // Maybe something will be ready later?
-					await Task.Delay( 1, token );
+				if ( o.Item2 && fakeLagOutgoing.TryDequeue( out _ ) )
+				{
+					await sendChannel.Writer.WriteAsync( o.Item1, token );
+					continue;
+				}
+
+				// Not due yet
+				await Task.Delay( 1, token );
 			}
 		}
 		catch ( OperationCanceledException )
@@ -186,6 +188,7 @@ internal class TcpChannel : Connection
 		if ( Networking.FakeLag > 0 )
 		{
 			fakeLagOutgoing.Enqueue( (packet, Networking.FakeLag / 1000f) );
+			fakeLagQueued.Release();
 			return;
 		}
 

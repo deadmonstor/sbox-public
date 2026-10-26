@@ -280,6 +280,7 @@ internal partial class NetworkSystem
 	public void Tick()
 	{
 		HandleIncomingMessages();
+		SendPendingSnapshots();
 
 		GameSystem?.TickInternal();
 

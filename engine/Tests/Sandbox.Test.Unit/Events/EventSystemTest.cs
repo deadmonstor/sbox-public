@@ -119,6 +119,42 @@ public class EventSystemTest
 		Console.WriteLine( $"Collected after {attempts} attempt(s)" );
 	}
 
+	[TestMethod]
+	public void RepeatedRegistrationInvokesEachInstanceOnce()
+	{
+		using var system = CreateEventSystem();
+		var assembly = typeof( AttributedHandler ).Assembly;
+		system.RegisterAssembly( assembly );
+		var first = new AttributedHandler();
+		var second = new AttributedHandler();
+
+		system.Register( first );
+		system.Register( first );
+		system.Register( second );
+		system.Run( "test.registration" );
+		Assert.AreEqual( 1, first.Calls );
+		Assert.AreEqual( 1, second.Calls );
+
+		system.UnregisterAssembly( assembly );
+		system.RegisterAssembly( assembly );
+		system.Run( "test.registration" );
+		Assert.AreEqual( 2, first.Calls );
+		Assert.AreEqual( 2, second.Calls );
+
+		system.Unregister( first );
+		system.Run( "test.registration" );
+		Assert.AreEqual( 2, first.Calls );
+		Assert.AreEqual( 3, second.Calls );
+	}
+
+	private sealed class AttributedHandler
+	{
+		public int Calls { get; private set; }
+
+		[Event( "test.registration" )]
+		void OnEvent() => Calls++;
+	}
+
 	private interface IEventInterface
 	{
 		void EventMethod();

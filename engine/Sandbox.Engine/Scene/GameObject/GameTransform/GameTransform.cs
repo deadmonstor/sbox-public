@@ -197,7 +197,7 @@ public partial class GameTransform
 
 	/// <summary>
 	/// The world transform gets cached to avoid recalculating it every time. It is invalidated in TransformChanged, which
-	/// is called recursively down children when the transform changes.
+	/// is called down children when the transform changes - caching one marks our ancestors so the change reaches us.
 	/// </summary>
 	Transform? _worldCached;
 	Transform? _worldInterpCached;
@@ -219,6 +219,7 @@ public partial class GameTransform
 
 				var result = GameObject.Parent.Transform.World.ToWorld( Local );
 				_worldInterpCached = result;
+				MarkCachedInAncestors();
 				return result;
 			}
 			else
@@ -228,6 +229,7 @@ public partial class GameTransform
 
 				var result = GameObject.Parent.Transform.World.ToWorld( Local );
 				_worldCached = result;
+				MarkCachedInAncestors();
 				return result;
 			}
 		}

@@ -30,6 +30,7 @@ internal partial class ShadowMapper
 		SceneView = sceneView;
 		DirectionalLight = null;
 		nativeViewInfoValid = false;
+		viewWritten = default;
 
 		InitForView();
 

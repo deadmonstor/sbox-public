@@ -141,15 +141,21 @@ public class TcpConnectionTest
 		tl.AddAssembly( typeof( Bootstrap ).Assembly, false );
 		tl.AddAssembly( GetType().Assembly, true );
 
+		// A free port: fixed ones can fall in a range Windows has reserved
+		using var probe = new System.Net.Sockets.TcpListener( System.Net.IPAddress.Loopback, 0 );
+		probe.Start();
+		var port = ((System.Net.IPEndPoint)probe.LocalEndpoint).Port;
+		probe.Stop();
+
 		var server = new NetworkSystem( "server", tl );
 		server.InitializeHost();
-		server.AddSocket( new TcpSocket( "127.0.0.1", 55333 ) );
+		server.AddSocket( new TcpSocket( "127.0.0.1", port ) );
 		var serverTable = InstallDataTables( server );
 
 		Assert.AreEqual( serverTable.Entries.Count, 4 );
 
 		var client = new NetworkSystem( "client", tl );
-		client.Connect( new TcpChannel( "127.0.0.1", 55333 ) );
+		client.Connect( new TcpChannel( "127.0.0.1", port ) );
 		var clientTable = InstallDataTables( client );
 		Assert.AreEqual( clientTable.Entries.Count, 0 );
 
