@@ -858,6 +858,13 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 			throw new( $"GameObject {GameObject.Id} ({GameObject.Name} has invalid parent" );
 		}
 
+		// Another snapshot in this batch already captured us
+		if ( capture is not null && capture.TryGetCaptured( this, out var captured ) )
+		{
+			capture.Add( captured );
+			return captured.Message;
+		}
+
 		using var blobs = BlobDataSerializer.Capture();
 		var jsonData = GameObject.Serialize( includeLocalObjects ? _handoffSerializeOptions : _createSerializeOptions );
 		if ( jsonData is null )
@@ -865,7 +872,6 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 			throw new( $"Unable to serialize {GameObject.Id} ({GameObject.Name})" );
 		}
 
-		capture?.AddObject( jsonData, blobs );
 		var create = new ObjectCreateMsg
 		{
 			Guid = GameObject.Id,
@@ -880,6 +886,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 			Enabled = GameObject.Enabled
 		};
 
+		capture?.AddObject( this, create, jsonData, blobs );
 		return create;
 	}
 

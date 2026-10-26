@@ -447,16 +447,67 @@ internal partial class NetworkSystem
 
 		log.Trace( $"[{this}] Requesting a snapshot" );
 
-		var handshakeId = source.HandshakeId;
-		if ( GameSystem is not null )
-		{
-			GameSystem.SendSnapshot( source, snapshot => new InitialSnapshotResponse { HandshakeId = handshakeId, Snapshot = snapshot } );
-		}
-		else
-		{
-			source.SendMessage( new InitialSnapshotResponse { HandshakeId = handshakeId, Snapshot = SnapshotMsg.Create() } );
-		}
+		// Built with the others requested this tick, see SendPendingSnapshots
+		_pendingSnapshots.Add( (source, source.HandshakeId) );
 		return Task.CompletedTask;
+	}
+
+	/// <summary>
+	/// Joiners waiting for their initial snapshot, with the handshake they asked in.
+	/// </summary>
+	[SkipHotload]
+	List<(Connection Connection, Guid HandshakeId)> _pendingSnapshots = new();
+
+	// The batch being sent, swapped with _pendingSnapshots so neither allocates
+	[SkipHotload]
+	List<(Connection Connection, Guid HandshakeId)> _sendingSnapshots = new();
+
+	/// <summary>
+	/// Send the initial snapshots requested this tick. Every request is captured here, together, once all
+	/// incoming messages have been handled - joining runs game code that changes the scene, so captures
+	/// taken in between couldn't share anything. Each object is serialized once for all of them.
+	/// </summary>
+	internal void SendPendingSnapshots()
+	{
+		if ( _pendingSnapshots.Count == 0 )
+			return;
+
+		// Handed the game to someone else since they asked; they restart their handshake with the new host
+		if ( !IsHost )
+		{
+			_pendingSnapshots.Clear();
+			return;
+		}
+
+		// Take the batch first, so a request that throws can't stay queued and throw every tick
+		(_pendingSnapshots, _sendingSnapshots) = (_sendingSnapshots, _pendingSnapshots);
+
+		SnapshotCapture shared = null;
+
+		foreach ( var (connection, handshakeId) in _sendingSnapshots )
+		{
+			// Left, or started over, since asking
+			if ( connection.State != Connection.ChannelState.Snapshot || connection.HandshakeId != handshakeId )
+				continue;
+
+			try
+			{
+				if ( GameSystem is null )
+				{
+					connection.SendMessage( new InitialSnapshotResponse { HandshakeId = handshakeId, Snapshot = SnapshotMsg.Create() } );
+					continue;
+				}
+
+				shared = GameSystem.SendSnapshot( connection, snapshot => new InitialSnapshotResponse { HandshakeId = handshakeId, Snapshot = snapshot }, shared: shared ) ?? shared;
+			}
+			catch ( Exception e )
+			{
+				// One joiner's failure mustn't hold up the others or the tick
+				Log.Error( e, $"Couldn't send the initial snapshot to {connection}" );
+			}
+		}
+
+		_sendingSnapshots.Clear();
 	}
 
 	async Task On_Handshake_Snapshot( InitialSnapshotResponse msg, Connection source, Guid msgId )

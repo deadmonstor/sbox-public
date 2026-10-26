@@ -409,7 +409,7 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 
 	internal override SnapshotCapture CaptureSnapshot( Connection source, bool handoff = false, SnapshotCapture shared = null )
 	{
-		var capture = new SnapshotCapture();
+		var capture = shared is null ? new SnapshotCapture() : new SnapshotCapture( shared );
 		GetSnapshot( handoff ? null : source, ref capture.Snapshot, handoff, shared?.Snapshot, capture );
 		if ( shared is not null )
 		{
@@ -456,7 +456,7 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 				else
 				{
 					var detached = SnapshotCapture.Detach( json );
-					capture.SceneJson = new Lazy<string>( () => detached.ToJsonString() );
+					capture.SceneJson = new Lazy<string>( detached );
 					var detachedBlobs = blobs.Detach();
 					capture.SceneBlobs = new Lazy<byte[]>( () => BlobDataSerializer.PackBlobs( detachedBlobs ) );
 				}

@@ -89,8 +89,7 @@ public class SnapshotEncodingTest
 		Assert.AreEqual( Environment.CurrentManagedThreadId, converter.Thread );
 		value.Number = 99;
 		original["Nested"][0] = 99;
-		var json = Task.Run( () => detached.ToJsonString() ).GetAwaiter().GetResult();
-		Assert.AreEqual( "{\"Custom\":7,\"Nested\":[1,2,3]}", json );
+		Assert.AreEqual( "{\"Custom\":7,\"Nested\":[1,2,3]}", detached );
 		Assert.AreEqual( 1, converter.Writes );
 	}
 
