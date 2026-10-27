@@ -15,6 +15,12 @@ public abstract partial class Component
 	{
 		context.OriginalToClone[original] = this;
 		_cloneOriginal = original;
+
+		// Derived from the new root, see CloneContext.DerivePrefabCloneId
+		if ( context.IsCloningPrefab )
+		{
+			SetDeterministicId( context.DerivePrefabCloneId( original.Id ) );
+		}
 	}
 
 	/// <summary>

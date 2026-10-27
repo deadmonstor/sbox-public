@@ -91,6 +91,12 @@ public partial class GameObject
 		/// </summary>
 		internal bool IncludeLocalObjects { get; set; }
 
+		/// <summary>
+		/// Write every bone and attachment in a <see cref="JsonKeys.GeneratedChildren"/> table as if its id were
+		/// the derived one. Only for <see cref="NetworkPrefabTemplate"/>, which is compared against, never loaded.
+		/// </summary>
+		internal bool AssumeDerivedGeneratedIds { get; set; }
+
 		internal bool ShouldSave( GameObject gameObject )
 		{
 			var shouldIgnoreNotSavedFlag = SingleNetworkObject || SceneForNetwork;
@@ -312,7 +318,7 @@ public partial class GameObject
 
 				if ( forNetwork && child.IsPlainGeneratedObject )
 				{
-					generated.Add( child, children.Count + generated.TopLevelCount );
+					generated.Add( child, children.Count + generated.TopLevelCount, options.AssumeDerivedGeneratedIds );
 					continue;
 				}
 
@@ -349,6 +355,13 @@ public partial class GameObject
 		ArgumentNullException.ThrowIfNull( node, nameof( node ) );
 
 		using var sceneScope = Scene.Push();
+
+		// A networked prefab instance can arrive as a patch on its prefab, turn it back into the full JSON first
+		Dictionary<Guid, Guid> networkPrefabIds = null;
+		if ( node.ContainsKey( JsonKeys.NetworkPrefabReference ) )
+		{
+			node = NetworkPrefabTemplate.Read( node, out networkPrefabIds );
+		}
 
 		var serializedVersion = (int)(node[JsonKeys.Version] ?? 0);
 		if ( serializedVersion < GameObjectVersion )
@@ -487,6 +500,12 @@ public partial class GameObject
 		using var batchGroup = CallbackBatch.Batch();
 
 		DeserializeId( node );
+
+		// Keep the prefab id mapping the reference was rebuilt with, so this instance can be sent on as a reference too
+		if ( networkPrefabIds is not null && IsPrefabInstanceRoot )
+		{
+			PrefabInstance.InitLookups( networkPrefabIds );
+		}
 
 		if ( node[JsonKeys.Tags].Deserialize<string>() is { } tags )
 		{
@@ -1189,6 +1208,9 @@ public partial class GameObject
 
 		// Network key for bones/attachments written as a table, see GameObject.IsPlainGeneratedObject
 		internal const string GeneratedChildren = "__GeneratedChildren";
+
+		// Network key for a prefab instance sent as a patch on its prefab, see NetworkPrefabTemplate
+		internal const string NetworkPrefabReference = "__NetworkPrefab";
 
 		// Editor only keys used to influence serialization logic when performing editor actions
 		internal const string EditorPrefabInstanceNestedSource = "__EditorPrefabNestedInstance";

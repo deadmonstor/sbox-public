@@ -133,11 +133,23 @@ internal sealed class CloneContext
 	public GameObject Root { get; }
 	public bool IsCloningPrefab => Root is PrefabScene;
 
-	public CloneContext( Dictionary<object, object> originalToClone, GameObject root = null )
+	/// <summary>
+	/// The clone of <see cref="Root"/>.
+	/// </summary>
+	public GameObject CloneRoot { get; }
+
+	public CloneContext( Dictionary<object, object> originalToClone, GameObject root = null, GameObject cloneRoot = null )
 	{
 		OriginalToClone = originalToClone;
 		Root = root;
+		CloneRoot = cloneRoot;
 	}
+
+	/// <summary>
+	/// The id an object cloned out of a prefab gets: derived from the new root, the same way missing prefab
+	/// instance mappings are filled in, so the instance's mapping can be worked out from the root id alone.
+	/// </summary>
+	public Guid DerivePrefabCloneId( Guid originalId ) => PrefabInstanceData.DeriveInstanceGuid( CloneRoot.Id, originalId );
 
 	/// <summary>
 	/// A mapping of original GUIDs to cloned GUIDs, used for GameObject and Component references in JSON and prefab lookups.

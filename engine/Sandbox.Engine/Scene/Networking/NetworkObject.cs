@@ -865,6 +865,12 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 			throw new( $"Unable to serialize {GameObject.Id} ({GameObject.Name})" );
 		}
 
+		// A handoff keeps the full JSON, the new host reads local objects straight out of it
+		if ( !includeLocalObjects && NetworkPrefabTemplate.TryWriteReference( GameObject, jsonData ) is { } reference )
+		{
+			jsonData = reference;
+		}
+
 		capture?.AddObject( jsonData, blobs );
 		var create = new ObjectCreateMsg
 		{

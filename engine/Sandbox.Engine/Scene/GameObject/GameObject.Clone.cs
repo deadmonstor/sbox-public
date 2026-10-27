@@ -29,8 +29,8 @@ public partial class GameObject
 		using var batchGroup = CallbackBatch.Isolated();
 
 		// Create the entire hierarchy before copying properties, so references can resolve to clones.
-		var context = new CloneContext( new( Children.Count * 4 + Components.Count ), this );
 		var clone = new GameObject( false );
+		var context = new CloneContext( new( Children.Count * 4 + Components.Count ), this, clone );
 
 		// TODO, this is here for legacy support yeet at some point
 		JsonObject prefabVariablesOverride = null;
@@ -93,10 +93,15 @@ public partial class GameObject
 		Flags = original.Flags;
 		Flags |= GameObjectFlags.Deserializing;
 
-		// A cloned bone or attachment gets the id its renderer would have given it, see DeriveGeneratedChildId
+		// A cloned bone or attachment gets the id its renderer would have given it, see DeriveGeneratedChildId.
+		// Anything else cloned out of a prefab gets an id derived from the new root, see NetworkPrefabTemplate.
 		if ( (original.Flags == GameObjectFlags.Bone || original.Flags == GameObjectFlags.Attachment) && Parent is not null )
 		{
 			SetDeterministicId( DeriveGeneratedChildId( Parent.Id, original.Flags == GameObjectFlags.Attachment, original.Name ) );
+		}
+		else if ( context.IsCloningPrefab && this != context.CloneRoot )
+		{
+			SetDeterministicId( context.DerivePrefabCloneId( original.Id ) );
 		}
 
 		// If we're absolute we want to maintain the world transform relative to our parent, not just use the world transform directly

@@ -22,6 +22,14 @@ internal partial class PrefabCacheScene : PrefabScene
 
 	internal Json.Patch CalculateDifferences( JsonObject instance ) => calculateDifferences( instance );
 
+	private NetworkPrefabTemplate networkTemplate;
+
+	/// <summary>
+	/// What a fresh instance of this prefab looks like when networked, for sending instances as a patch on it.
+	/// Built the first time an instance is networked; null if the prefab can't be networked.
+	/// </summary>
+	internal NetworkPrefabTemplate NetworkTemplate => networkTemplate ??= NetworkPrefabTemplate.Create( this );
+
 	/// <summary>
 	/// Contains all the prefab files that are referenced by this prefab scene.
 	/// </summary>
@@ -37,6 +45,7 @@ internal partial class PrefabCacheScene : PrefabScene
 		using var suppressBlobs = BlobDataSerializer.Suppress();
 		FullPrefabInstanceJson = Serialize( new SerializeOptions { SerializePrefabForDiff = true } );
 		calculateDifferences = Json.CreateDifferenceCalculator( FullPrefabInstanceJson, DiffObjectDefinitions );
+		networkTemplate = null;
 
 		// Iterate all gameobjects in scene and find prefab instances, add them to reference set
 		referencedPrefabs = GetAllObjects( false ).Where( o => o.IsPrefabInstanceRoot ).Select( p => ResourceLibrary.Get<PrefabFile>( p.PrefabInstanceSource ) ).ToHashSet();

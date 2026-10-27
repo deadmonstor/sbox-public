@@ -95,20 +95,20 @@ public partial class GameObject
 
 		/// <summary>
 		/// Add a direct child and everything below it. <paramref name="index"/> is where it would have sat in
-		/// the parent's "Children" array.
+		/// the parent's "Children" array. With <paramref name="assumeDerivedIds"/> no ids are written at all.
 		/// </summary>
-		public void Add( GameObject child, int index )
+		public void Add( GameObject child, int index, bool assumeDerivedIds )
 		{
 			TopLevelCount++;
-			Write( child, 0, index );
+			Write( child, 0, index, assumeDerivedIds );
 		}
 
-		void Write( GameObject go, int parentEntry, int index )
+		void Write( GameObject go, int parentEntry, int index, bool assumeDerivedIds )
 		{
 			_data ??= new ArrayBufferWriter<byte>( 2048 );
 
 			var attachment = go.Flags == GameObjectFlags.Attachment;
-			var explicitId = go.Id != DeriveGeneratedChildId( go.Parent.Id, attachment, go.Name );
+			var explicitId = !assumeDerivedIds && go.Id != DeriveGeneratedChildId( go.Parent.Id, attachment, go.Name );
 			var nameLength = Encoding.UTF8.GetByteCount( go.Name );
 
 			var span = _data.GetSpan( 1 + 5 * 3 + nameLength + 16 );
@@ -136,7 +136,7 @@ public partial class GameObject
 				var child = go.Children[i];
 				if ( child is null || child.IsDestroyed ) continue;
 
-				Write( child, entry, childIndex++ );
+				Write( child, entry, childIndex++, assumeDerivedIds );
 			}
 		}
 
