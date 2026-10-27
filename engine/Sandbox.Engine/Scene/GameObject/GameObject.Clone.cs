@@ -93,6 +93,12 @@ public partial class GameObject
 		Flags = original.Flags;
 		Flags |= GameObjectFlags.Deserializing;
 
+		// A cloned bone or attachment gets the id its renderer would have given it, see DeriveGeneratedChildId
+		if ( (original.Flags == GameObjectFlags.Bone || original.Flags == GameObjectFlags.Attachment) && Parent is not null )
+		{
+			SetDeterministicId( DeriveGeneratedChildId( Parent.Id, original.Flags == GameObjectFlags.Attachment, original.Name ) );
+		}
+
 		// If we're absolute we want to maintain the world transform relative to our parent, not just use the world transform directly
 		if ( Flags.Contains( GameObjectFlags.Absolute ) && Parent != null && original.Parent != null )
 		{

@@ -289,6 +289,8 @@ public partial class GameObject
 		if ( !options.IgnoreChildren )
 		{
 			var children = new JsonArray();
+			var forNetwork = options.SingleNetworkObject || options.SceneForNetwork;
+			GeneratedChildTable generated = default;
 
 			for ( int i = 0; i < Children.Count; i++ )
 			{
@@ -308,6 +310,12 @@ public partial class GameObject
 				// single network object we should not include it.
 				if ( options.SingleNetworkObject && childIsNetworked ) continue;
 
+				if ( forNetwork && child.IsPlainGeneratedObject )
+				{
+					generated.Add( child, children.Count + generated.TopLevelCount );
+					continue;
+				}
+
 				try
 				{
 					var result = child.Serialize( options );
@@ -324,6 +332,11 @@ public partial class GameObject
 			}
 
 			json.Add( JsonKeys.Children, children );
+
+			if ( generated.TopLevelCount > 0 )
+			{
+				json.Add( JsonKeys.GeneratedChildren, generated.ToBase64() );
+			}
 		}
 
 		return json;
@@ -616,6 +629,13 @@ public partial class GameObject
 				ArrayPool<Component>.Shared.Return( processed, clearArray: true );
 				ArrayPool<Component>.Shared.Return( existing, clearArray: true );
 			}
+		}
+
+		// Bones and attachments the network wrote as a table, made back into JSON so they load like the rest.
+		// Taken out of the node so deserializing it again can't add them twice.
+		if ( node.Remove( JsonKeys.GeneratedChildren, out var generatedNode ) && generatedNode is JsonValue generatedValue && generatedValue.TryGetValue( out string generatedTable ) )
+		{
+			GeneratedChildTable.Expand( node, Id, generatedTable );
 		}
 
 		if ( node[JsonKeys.Children] is JsonArray childArray )
@@ -1166,6 +1186,9 @@ public partial class GameObject
 
 		// Network kyes for spawning prefa instance
 		internal const string NetworkedPrefabInstance = "__NetworkedPrefaInstance";
+
+		// Network key for bones/attachments written as a table, see GameObject.IsPlainGeneratedObject
+		internal const string GeneratedChildren = "__GeneratedChildren";
 
 		// Editor only keys used to influence serialization logic when performing editor actions
 		internal const string EditorPrefabInstanceNestedSource = "__EditorPrefabNestedInstance";

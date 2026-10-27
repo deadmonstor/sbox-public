@@ -430,6 +430,51 @@ public class SkinnedRendererTest
 	}
 
 	/// <summary>
+	/// Bones and attachments a renderer creates on the host are networked as a table rather than as JSON objects.
+	/// A client deserializing the networked JSON ends up with every one of them under the host's id, and its own
+	/// renderer adopts them rather than building a second set.
+	/// </summary>
+	[TestMethod]
+	public void NetworkedBoneObjectsKeepTheirIdsOnTheClient()
+	{
+		static string Key( GameObject go, GameObject root )
+		{
+			var path = "";
+			for ( var p = go; p != root; p = p.Parent ) path = $"/{p.Name}{path}";
+			return $"{path} {go.Flags & (GameObjectFlags.Bone | GameObjectFlags.Attachment)}";
+		}
+
+		System.Text.Json.Nodes.JsonObject json;
+		Dictionary<string, Guid> hostIds;
+
+		using ( new Scene().Push() )
+		{
+			var smr = CreateHumanRenderer( Game.ActiveScene, out var go );
+			smr.CreateAttachments = true;
+			smr.CreateBoneObjects = true;
+
+			// Derived from the parent, so the table doesn't have to carry the id
+			Assert.AreEqual( GameObject.DeriveGeneratedChildId( go.Id, false, "pelvis" ), smr.GetBoneObject( "pelvis" ).Id );
+
+			json = go.Serialize( new GameObject.SerializeOptions { SingleNetworkObject = true, SkipNulls = true } );
+			hostIds = go.GetAllObjects( false ).Where( x => x != go ).ToDictionary( x => Key( x, go ), x => x.Id );
+		}
+
+		Assert.IsTrue( hostIds.Count > HumanModel.Bones.AllBones.Count, "The host should have an object per bone and attachment" );
+
+		using ( new Scene().Push() )
+		{
+			var copy = new GameObject( false );
+			copy.Deserialize( json, new GameObject.DeserializeOptions { ClearAbsentFields = true } );
+
+			var clientIds = copy.GetAllObjects( false ).Where( x => x != copy ).ToDictionary( x => Key( x, copy ), x => x.Id );
+
+			CollectionAssert.AreEquivalent( hostIds, clientIds, "The client should have the host's bones and attachments, ids included, and no others" );
+			Assert.AreEqual( hostIds.First( x => x.Key.StartsWith( "/pelvis " ) ).Value, copy.Components.Get<SkinnedModelRenderer>().GetBoneObject( "pelvis" ).Id );
+		}
+	}
+
+	/// <summary>
 	/// Bone transform queries work as soon as the renderer is enabled - the human's
 	/// hand bone resolves in world and local space, the bulk accessors return one entry per
 	/// model bone, unknown bone names fail the Try pattern - and ticking the scene plays

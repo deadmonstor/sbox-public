@@ -74,6 +74,10 @@ public partial class ModelRenderer
 		if ( !go.IsValid() )
 		{
 			go = Scene.CreateObject( true );
+			go.Parent = parent;
+
+			// Lets networking leave the id out, and gives a client building the same attachment the same id
+			go.SetDeterministicId( GameObject.DeriveGeneratedChildId( parent.Id, true, a.Name ) );
 		}
 
 		go.Parent = parent;

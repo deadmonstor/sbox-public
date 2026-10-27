@@ -150,7 +150,13 @@ public partial class Model
 
 		var go = root.Children.FirstOrDefault( x => x.Name == thisBone.Name && !x.Flags.Contains( GameObjectFlags.Attachment ) );
 
-		go ??= new GameObject( root, true, thisBone.Name );
+		if ( go is null )
+		{
+			go = new GameObject( root, true, thisBone.Name );
+
+			// Lets networking leave the id out, and gives a client building the same bone the same id
+			go.SetDeterministicId( GameObject.DeriveGeneratedChildId( root.Id, false, thisBone.Name ) );
+		}
 
 		go.Flags |= GameObjectFlags.Bone;
 
