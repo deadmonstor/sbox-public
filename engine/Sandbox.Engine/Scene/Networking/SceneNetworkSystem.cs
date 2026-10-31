@@ -1068,7 +1068,10 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 
 		var parentObject = scene.Directory.FindByGuid( message.ParentId );
 		if ( !parentObject.IsValid() )
+		{
+			UpdateFromUnappliedRefresh( scene, source, message.TableData, message.Snapshot );
 			return;
+		}
 
 		var root = parentObject.Network.RootGameObject;
 		if ( !root.IsValid() ) return;
@@ -1131,7 +1134,10 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 		var gameObject = scene.Directory.FindByGuid( message.GameObjectId );
 
 		if ( !gameObject.IsValid() )
+		{
+			UpdateFromUnappliedRefresh( scene, source, message.TableData, message.Snapshot );
 			return;
+		}
 
 		var root = gameObject.Network.RootGameObject;
 		if ( !root.IsValid() ) return;
@@ -1161,6 +1167,7 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 			if ( componentType is null || componentType.TargetType.IsAbstract )
 			{
 				Log.Warning( $"TypeLibrary couldn't find {nameof( Component )} type {componentTypeName}" );
+				UpdateFromUnappliedRefresh( scene, source, message.TableData, message.Snapshot );
 				return;
 			}
 
@@ -1175,6 +1182,7 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 		}
 		else if ( component.GameObject != gameObject )
 		{
+			UpdateFromUnappliedRefresh( scene, source, message.TableData, message.Snapshot );
 			return;
 		}
 
@@ -1191,6 +1199,22 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 		}
 
 		root._net.UpdateFromRefresh( source, message.TableData, message.Snapshot );
+	}
+
+	/// <summary>
+	/// A refresh we can't apply, like one naming an object only its sender has, still has to move its root object
+	/// to the version it was sent at. Every snapshot sent after it would be turned away for good otherwise. Its
+	/// snapshot is the root's, so that's applied too.
+	/// </summary>
+	private static void UpdateFromUnappliedRefresh( Scene scene, Connection source, byte[] tableData, byte[] snapshotData )
+	{
+		var root = scene.Directory.FindByGuid( DeltaSnapshotSystem.ReadObjectId( snapshotData ) );
+		if ( root?._net is null ) return;
+
+		if ( !root._net.HasControl( source ) && !source.IsHost )
+			return;
+
+		root._net.UpdateFromRefresh( source, tableData, snapshotData );
 	}
 
 

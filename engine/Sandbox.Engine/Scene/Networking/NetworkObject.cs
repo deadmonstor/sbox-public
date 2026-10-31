@@ -489,7 +489,7 @@ internal sealed partial class NetworkObject : IValid, IDeltaSnapshot, INetworkWa
 
 		if ( component is null ) return;
 
-		if ( !component.IsValid() )
+		if ( !component.IsValid() || component.Scene.Directory.FindComponentByGuid( component.Id ) != component )
 		{
 			// We want to tell clients that this component has been destroyed...
 			var msg = new ObjectDestroyComponentMsg
