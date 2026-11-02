@@ -170,7 +170,7 @@ public static partial class Gizmo
 			if ( model is null )
 				return;
 
-			var modelBounds = model.Bounds;
+			var modelBounds = model.CachedBounds;
 
 			if ( Debug )
 			{

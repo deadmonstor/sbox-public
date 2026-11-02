@@ -87,6 +87,8 @@ public sealed partial class Model : Resource
 
 		BaseModel = default;
 
+		_cachedBounds = default;
+
 		MeshInfo = null;
 
 		IToolsDll.Current?.RunEvent( "model.reload", this );
