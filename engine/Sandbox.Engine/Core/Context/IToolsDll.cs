@@ -11,6 +11,8 @@ internal unsafe interface IToolsDll
 	public void Bootstrap();
 	public Task Initialize();
 	public void Tick();
+	public void RegisterEventListener( object obj );
+	public void UnregisterEventListener( object obj );
 	public void RunEvent( string name );
 	public void RunEvent( string name, object argument );
 	public void RunEvent( string name, object arg0, object arg1 );

@@ -143,11 +143,13 @@ public partial class Panel : IPanel, IValid, IComponent
 	internal virtual void AddToLists()
 	{
 		Sandbox.Event.Register( this );
+		Sandbox.Engine.IToolsDll.Current?.RegisterEventListener( this );
 	}
 
 	internal virtual void RemoveFromLists()
 	{
 		Sandbox.Event.Unregister( this );
+		Sandbox.Engine.IToolsDll.Current?.UnregisterEventListener( this );
 	}
 
 	/// <summary>
@@ -506,7 +508,7 @@ public partial class Panel : IPanel, IValid, IComponent
 	[Hide]
 	public bool IsValid => LayoutTree is not null;
 
-	string CollectSelectedChildrenText( Panel p )
+	internal string CollectSelectedChildrenText( Panel p )
 	{
 		if ( !p.IsVisible )
 			return null;

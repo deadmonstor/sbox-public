@@ -327,6 +327,7 @@ internal class EventSystem : IDisposable
 			if ( instance.GetType().Assembly == assm )
 			{
 				log.Trace( $"Re-registering orphan: {instance}" );
+				AllTargets.Remove( instance );
 				Register( instance );
 				OrphanedInstances.Remove( instance );
 				continue;
@@ -378,12 +379,13 @@ internal class EventSystem : IDisposable
 
 	internal void Register( object obj )
 	{
-		AllTargets.Add( obj );
-
-		if ( !Classes.TryGetValue( TypeKey( obj.GetType() ), out var type ) )
+		if ( AllTargets.Contains( obj ) )
 			return;
 
-		type.Targets.Add( obj );
+		AllTargets.Add( obj );
+
+		if ( Classes.TryGetValue( TypeKey( obj.GetType() ), out var type ) )
+			type.Targets.Add( obj );
 	}
 
 	internal void Unregister( object obj )

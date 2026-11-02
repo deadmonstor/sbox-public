@@ -467,7 +467,7 @@ public abstract partial class Light : Component, IColorProvider, ExecuteInEditor
 		if ( !_sceneObject.IsValid() )
 			return;
 
-		_sceneObject.Transform = WorldTransform;
+		_sceneObject.Transform = Transform.InterpolatedWorld;
 	}
 
 	/// <summary>

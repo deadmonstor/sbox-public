@@ -294,6 +294,7 @@ namespace Sandbox.UI
 
 			var s = Math.Min( SelectionStart, SelectionEnd );
 			var e = Math.Max( SelectionStart, SelectionEnd );
+			if ( s == e ) return "";
 
 			return StringInfo.SubstringByTextElements( s, e - s );
 		}

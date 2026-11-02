@@ -121,11 +121,16 @@ public static partial class Rpc
 	}
 
 	/// <summary>
-	/// Do the actual send of the instance RPC.
+	/// Send the instance RPC, serializing arguments only when the call is network-bound.
 	/// </summary>
 	private static void SendInstanceRpc<TArgs>( GameObjectSystem system, in WrappedMethod m, in TArgs args, RpcAttribute attribute ) where TArgs : struct, IRpcArguments
 	{
 		if ( !system.Scene.IsValid() ) return;
+
+		// Owner and host are both the host for a system.
+		var targetId = Connection.Host?.Id ?? Guid.Empty;
+		if ( attribute.Mode != RpcMode.Broadcast && (targetId == Connection.Local.Id || targetId == Guid.Empty) )
+			return;
 
 		var bs = BeginMessage( RpcTarget.System );
 
@@ -134,8 +139,7 @@ public static partial class Rpc
 			bs.Write( system.Id );
 			FinishMessage( ref bs, m, args );
 
-			// Owner and host are both the host for a system
-			SendMessage( ref bs, m, attribute, Connection.Host?.Id ?? Guid.Empty );
+			SendMessage( ref bs, m, attribute, targetId );
 		}
 		finally
 		{
@@ -144,7 +148,7 @@ public static partial class Rpc
 	}
 
 	/// <summary>
-	/// Do the actual send of the instance RPC.
+	/// Send the instance RPC, serializing arguments only when the call is network-bound.
 	/// </summary>
 	private static void SendInstanceRpc<TArgs>( GameObject go, Component component, in WrappedMethod m, in TArgs args, RpcAttribute attribute ) where TArgs : struct, IRpcArguments
 	{
@@ -155,6 +159,9 @@ public static partial class Rpc
 		// To the owner of the object, the host if it has none
 		if ( attribute.Mode == RpcMode.Owner && go.Network.OwnerId != Guid.Empty )
 			targetId = go.Network.OwnerId;
+
+		if ( attribute.Mode != RpcMode.Broadcast && (targetId == Connection.Local.Id || targetId == Guid.Empty) )
+			return;
 
 		var bs = BeginMessage( RpcTarget.Object );
 

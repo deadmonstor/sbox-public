@@ -111,6 +111,7 @@ public abstract class BaseVirtualPanel : Panel
 
 			_items.Clear();
 			_items.AddRange( materializedList );
+			ResetSelection();
 
 			NeedsRebuild = true;
 			_lastCellCreated = false;
@@ -148,7 +149,10 @@ public abstract class BaseVirtualPanel : Panel
 	{
 		var removed = _items.Remove( item );
 		if ( removed )
+		{
+			ResetSelection();
 			NeedsRebuild = true;
+		}
 		return removed;
 	}
 
@@ -159,6 +163,7 @@ public abstract class BaseVirtualPanel : Panel
 	public void RemoveAt( int index )
 	{
 		_items.RemoveAt( index );
+		ResetSelection();
 		NeedsRebuild = true;
 	}
 
@@ -170,6 +175,7 @@ public abstract class BaseVirtualPanel : Panel
 	public void InsertItem( int index, object item )
 	{
 		_items.Insert( index, item );
+		ResetSelection();
 		NeedsRebuild = true;
 	}
 
@@ -178,6 +184,7 @@ public abstract class BaseVirtualPanel : Panel
 	/// </summary>
 	public void Clear()
 	{
+		ResetSelection();
 		_items.Clear();
 		_sourceList = null;
 		_sourceListCount = 0;
@@ -199,6 +206,7 @@ public abstract class BaseVirtualPanel : Panel
 		if ( _sourceList.Count == _sourceListCount ) return;
 
 		// Count has changed - update our cached items
+		ResetSelection();
 		_items.Clear();
 		_sourceListCount = _sourceList.Count;
 
@@ -244,6 +252,15 @@ public abstract class BaseVirtualPanel : Panel
 			// Ensure visible cells exist and are positioned.
 			for ( int i = first; i < pastEnd; i++ )
 				RefreshCreated( i );
+
+			if ( TryGetSelectionRange( out var start, out var end ) )
+			{
+				for ( int i = start; i <= end; i++ )
+				{
+					if ( i < first || i >= pastEnd )
+						RefreshCreated( i );
+				}
+			}
 		}
 	}
 
@@ -282,14 +299,25 @@ public abstract class BaseVirtualPanel : Panel
 	/// <param name="enumerable">New items sequence.</param>
 	public void SetItems( IEnumerable<object> enumerable ) => Items = enumerable;
 
+	internal virtual void BeginSelection( Panel target ) { }
+	internal virtual void ResetSelection() { }
+	internal virtual bool TryGetSelectionRange( out int start, out int end )
+	{
+		start = end = 0;
+		return false;
+	}
+
 	// Remove panels not in [minInclusive, maxInclusive] or with missing data.
 	private void DeleteNotVisible( int minInclusive, int maxInclusive )
 	{
 		_removals.Clear();
+		var hasSelection = TryGetSelectionRange( out var start, out var end );
 
 		foreach ( var idx in _created.Keys )
 		{
-			if ( idx < minInclusive || idx > maxInclusive || !HasData( idx ) )
+			var visible = idx >= minInclusive && idx <= maxInclusive;
+			var selected = hasSelection && idx >= start && idx <= end;
+			if ( !HasData( idx ) || (!visible && !selected) )
 				_removals.Add( idx );
 		}
 
