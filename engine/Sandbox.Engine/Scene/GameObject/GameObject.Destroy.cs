@@ -130,15 +130,26 @@ public partial class GameObject : IValid
 	}
 
 	/// <summary>
-	/// Remove all children
+	/// Remove a child from <see cref="Children"/>. Searches inward from both ends: bulk removals come
+	/// from one end or the other (destroying a parent removes its children last-first), and a scan
+	/// from the front only would make destroying a parent with N children cost N² compares.
 	/// </summary>
-	/// <param name="child"></param>
 	private void RemoveChild( GameObject child )
 	{
-		var i = Children.IndexOf( child );
-		if ( i < 0 ) return;
+		for ( int front = 0, back = Children.Count - 1; front <= back; front++, back-- )
+		{
+			if ( ReferenceEquals( Children[back], child ) )
+			{
+				Children.RemoveAt( back );
+				return;
+			}
 
-		Children.RemoveAt( i );
+			if ( ReferenceEquals( Children[front], child ) )
+			{
+				Children.RemoveAt( front );
+				return;
+			}
+		}
 	}
 
 	/// <summary>
