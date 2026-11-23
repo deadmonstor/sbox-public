@@ -142,7 +142,8 @@ internal sealed class MaterialAsks
 /// Texture streaming for the game window: material textures start as their tails (<see cref="TextureFile.Tail"/>) and get
 /// the mips their draws ask for (<c>textureSize</c>, see <c>TextureSizes</c>) as new images built from the file on a
 /// worker, uploaded a few each frame and swapped in whole. Textures grow while video memory has room and give mips back
-/// when it runs short. Runs on the thread that begins frames. See docs/reference/borealis-gpu-path.md.
+/// when it runs short or their finer mips are no longer asked for. Runs on the thread that begins frames.
+/// See docs/reference/borealis-gpu-path.md.
 /// </summary>
 internal sealed class TextureStreamer
 {
@@ -234,7 +235,7 @@ internal sealed class TextureStreamer
 	/// <summary>Textures that want mips they don't hold and there's room for: what deterministic runs wait on.</summary>
 	public int Waiting { get; private set; }
 
-	/// <summary>Mips given back for room so far.</summary>
+	/// <summary>Builds started to give mips back for room or after smaller asks, so far.</summary>
 	public int GivenBack { get; private set; }
 
 	/// <summary>
@@ -280,7 +281,7 @@ internal sealed class TextureStreamer
 	/// <summary>
 	/// Once a frame, between frames: take the last frame's asks, finish builds whose files have been read (uploads go with
 	/// the frame's next submission, in a <see cref="Device.DeferUploads"/> scope the caller holds), give mips back when
-	/// room is short, and start builds for what's wanted.
+	/// unused or when room is short, and start builds for what's wanted.
 	/// </summary>
 	public void Update()
 	{
@@ -322,23 +323,32 @@ internal sealed class TextureStreamer
 		Upload();
 		Measure( now );
 		GiveBack();
-		GiveBackIdle( updateTime );
+		GiveBackUnused( updateTime );
 		MoveOutOfSparseBlocks();
 		MoveOutOfDrainingBlocks();
 		Start();
 	}
 
-	// Textures unasked for IdleSeconds back to their tail, a few builds at a time
-	void GiveBackIdle( long now )
+	// Smaller asks give mips back once finer asks age out of both windows. With no asks at all, keep mips longer so
+	// briefly turning away doesn't stream them again.
+	void GiveBackUnused( long now )
 	{
-		if ( IdleSeconds <= 0 ) return;
-		var idle = (long)(IdleSeconds * System.Diagnostics.Stopwatch.Frequency);
+		var idle = IdleSeconds > 0 ? (long)(IdleSeconds * System.Diagnostics.Stopwatch.Frequency) : long.MaxValue;
 		foreach ( var texture in textures )
 		{
 			if ( builds.Count >= MaxBuilds ) break;
-			if ( texture.Building is not null || texture.Pinned || texture.ResidentTop >= texture.TailTop || now - texture.LastAskedTime < idle ) continue;
-			StartBuild( texture, texture.TailTop );
-			IdleGivenBack++;
+			if ( texture.Building is not null || texture.Pinned || texture.ResidentTop >= texture.TailTop ) continue;
+			if ( now - texture.LastAskedTime >= idle )
+			{
+				StartBuild( texture, texture.TailTop );
+				IdleGivenBack++;
+				continue;
+			}
+
+			var top = Math.Min( texture.Asked, texture.AskedBefore );
+			if ( top == int.MaxValue || texture.ResidentTop >= top ) continue;
+			StartBuild( texture, top );
+			GivenBack++;
 		}
 	}
 

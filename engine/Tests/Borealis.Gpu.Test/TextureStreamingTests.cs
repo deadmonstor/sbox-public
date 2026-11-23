@@ -1,8 +1,10 @@
 ﻿using Borealis;
 using Borealis.Backend;
+using Borealis.Features;
 using Borealis.Gpu;
 using Borealis.Source2;
 using Borealis.Source2.Materials;
+using Sandbox;
 using System.IO;
 using System.Threading;
 
@@ -181,6 +183,139 @@ public class TextureStreamingTests : GpuTest
 		Assert.AreEqual( stream.TailTop, stream.ResidentTop );
 		Assert.AreEqual( Math.Max( texture.Width >> stream.TailTop, 1 ), Device.InfoOf( texture.Handle ).Width );
 		Device.WaitIdle();
+	}
+
+	/// <summary>When a texture is still asked for, but at a smaller size, it gives back the finer mips once the larger asks age out.</summary>
+	[TestMethod]
+	public void SmallerAsksGiveBackFinerMipsAfterTheAskWindows()
+	{
+		var path = StreamingTextures( 1 )[0];
+		using var backend = new BackendDevice( Device ) { StreamTextures = true };
+		var texture = (BackendTexture)backend.MaterialTextureFile( path );
+		var stream = texture.Stream;
+		var streamer = backend.Streamer;
+		streamer.WindowFrames = 4;
+		using var material = new BackendMaterial( "streamed", null, null, new( StringComparer.OrdinalIgnoreCase ) { ["g_tColor"] = texture } );
+
+		for ( int frame = 0; frame < 200 && stream.ResidentTop > 0; frame++ )
+		{
+			backend.AskTextures( material, TextureSizes.All );
+			backend.BeginFrame();
+			Thread.Sleep( 5 );
+		}
+
+		Assert.AreEqual( 0, stream.ResidentTop );
+		var full = texture.Handle;
+		var smaller = stream.MaxSide / 2;
+
+		// The last full-size ask stays in the two windows for at least one window, regardless of when it was made.
+		for ( int frame = 0; frame < streamer.WindowFrames - 1; frame++ )
+		{
+			backend.AskTextures( material, smaller );
+			backend.BeginFrame();
+			Assert.AreEqual( 0, streamer.BuildsInFlight );
+		}
+
+		// Keep asking: this isn't the idle timeout, and no budget pressure is needed to give back the finest mip.
+		for ( int frame = 0; frame < 200 && texture.Handle == full; frame++ )
+		{
+			backend.AskTextures( material, smaller );
+			backend.BeginFrame();
+			Thread.Sleep( 5 );
+		}
+
+		Assert.AreNotEqual( full, texture.Handle );
+		Assert.AreEqual( texture.Mips - 1, Device.InfoOf( texture.Handle ).Mips );
+		Assert.AreEqual( stream.BytesFrom( 1 ), stream.ResidentBytes );
+		Device.WaitIdle();
+	}
+
+	/// <summary>A resident draw still supplies its material's size when it skips bucketing by drawing from a kept plan.</summary>
+	[TestMethod]
+	public void ResidentPlansKeepAskingForTheirTextureSizes()
+	{
+		var path = StreamingTextures( 1 )[0];
+		using var backend = new BackendDevice( Device )
+		{
+			StreamTextures = true,
+			TextureBudgetBytes = 1,
+			GpuDrivenGeometry = true,
+			GpuDriven = true,
+			GpuDrivenVisibility = true,
+			GpuDrivenResident = true,
+		};
+		GpuDrivenTests.RequireGpuDrivenDepth( backend );
+		var texture = (BackendTexture)backend.MaterialTextureFile( path );
+		var stream = texture.Stream;
+		backend.Streamer.WindowFrames = 1;
+		using var material = backend.CreateMaterial( "Resident streaming", Color.White );
+		backend.SetOnMaterial( material, null, new Dictionary<string, GpuTexture> { ["g_tColor"] = texture } );
+
+		var previousHost = RenderHost.Current;
+		var sizeOnWorker = AggregateRenderFeature.SizeOnWorker;
+		RenderHost.Current = new BackendRenderHost( backend );
+		AggregateRenderFeature.SizeOnWorker = false;
+		try
+		{
+			using var system = new RenderSystem { DepthPrepass = false, ParallelRecording = false };
+			using var target = ViewTarget.Create( new Vector2Int( 128, 128 ), 1, TextureFormat.RGBA16161616F, TextureFormat.D32FS8, "Resident streaming" );
+			var world = new RenderWorld();
+			world.Lighting.SunShadowCascades = 0;
+			MeshVertex[] vertices =
+			[
+				new( new Vector3( 100, -20, -20 ), Vector3.Backward, new Vector2( 0, 0 ) ),
+				new( new Vector3( 100, -20, 20 ), Vector3.Backward, new Vector2( 0, 1 ) ),
+				new( new Vector3( 100, 20, -20 ), Vector3.Backward, new Vector2( 1, 0 ) ),
+			];
+			var mesh = BackendMesh.Create( backend, vertices, [0u, 1u, 2u], material, "Resident triangle" );
+			var fragment = new AggregateObject.FragmentDraw
+			{
+				Transform = Matrix3x4.Identity,
+				BoundsMin = new Vector3( 100, -20, -20 ),
+				BoundsMax = new Vector3( 100, 20, 20 ),
+				DrawTint = Vector3.One,
+				Args = new GpuBuffer.IndirectDrawIndexedArguments { IndexCount = 3, InstanceCount = 1 },
+			};
+			world.Add( new AggregateObject( mesh, [fragment] ) { IsStatic = true } );
+			var view = new RenderView { Viewport = new Rect( 0, 0, 128, 128 ) };
+
+			void Frame()
+			{
+				backend.BeginFrame();
+				RenderHost.Current.NextFrame();
+				system.Render( world, view, target );
+				Device.WaitIdle();
+			}
+
+			// Any ask made while building the plan has aged out after two frames drawing only from it.
+			var reused = 0;
+			for ( int frame = 0; frame < 12 && reused < 2; frame++ )
+			{
+				var builds = backend.GpuDrivenPlanBuilds;
+				var hits = backend.GpuDrivenPlanHits;
+				Frame();
+				reused = backend.GpuDrivenPlanBuilds == builds && backend.GpuDrivenPlanHits > hits ? reused + 1 : 0;
+			}
+
+			Assert.AreEqual( 2, reused, "the resident draw reused its plan" );
+			Assert.AreEqual( stream.TailTop, stream.ResidentTop, "no room to stream a finer mip yet" );
+
+			// No more draws: the last cached draw's ask is enough to start streaming once there's room.
+			backend.TextureBudgetBytes = 0;
+			for ( int frame = 0; frame < 200 && stream.ResidentTop > 0; frame++ )
+			{
+				backend.BeginFrame();
+				Thread.Sleep( 5 );
+			}
+
+			Assert.AreEqual( texture.Mips, Device.InfoOf( texture.Handle ).Mips );
+		}
+		finally
+		{
+			Device.WaitIdle();
+			AggregateRenderFeature.SizeOnWorker = sizeOnWorker;
+			RenderHost.Current = previousHost;
+		}
 	}
 
 	/// <summary>

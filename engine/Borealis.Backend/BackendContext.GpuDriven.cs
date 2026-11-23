@@ -221,6 +221,15 @@ internal sealed partial class BackendContext
 		var prefix = cull is { Plan: not null } resident && UsesPlans ? Math.Clamp( resident.PlanBatches, 0, batches.Length ) : 0;
 		if ( prefix > 0 && CurrentPlan( shaderMode, batches[..prefix], cull.Value ) is { } plan )
 		{
+			// Cached batches skip the per-batch asks below. A zero size still leaves sizing to the worker.
+			if ( device.StreamTextures )
+			{
+				foreach ( ref readonly var batch in batches[..prefix] )
+				{
+					if ( batch.TextureSize > 0 ) device.AskTextures( batch.Material, batch.TextureSize );
+				}
+			}
+
 			// Culled already, by the setup's resident cull
 			if ( DrawResidentCulled( shaderMode, batches, args, transforms, depthBias, slopeScaledDepthBias, drawn, cull.Value, plan, prefix ) )
 			{

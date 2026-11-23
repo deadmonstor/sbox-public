@@ -5,9 +5,9 @@ namespace Borealis;
 /// <c>CMeshDrawPrimitive_t::m_nRequiredTextureSize</c>, worked out the way <c>ISceneObjectDesc::GeneratePrimitivesArgs_t</c>
 /// does. A draw with a UV density (texture texels per world unit, compiled into the model) asks for that density times the
 /// view's pixels per world unit at the object's distance; one without asks for the object's screen size in pixels, scaled up
-/// (<see cref="RenderView.FallbackTextureLodScale"/>). Distance and screen size are the root view's, so a shadow view asks for
-/// what the camera sees; the pixels per world unit are the view's own. The bind passes the size to <c>MarkUsed</c> for every
-/// texture it binds, and streaming keeps each texture's largest.
+/// (<see cref="RenderView.FallbackTextureLodScale"/>). Distance and screen size are the root view's; pixels per world
+/// unit are the view's own, including for mesh draws in an orthographic shadow view. Streaming keeps each texture's
+/// largest ask.
 /// </summary>
 internal readonly struct TextureSizes
 {
@@ -19,6 +19,7 @@ internal readonly struct TextureSizes
 	// Pixels per world unit at distance 1 (viewport width over twice the tangent of half the field of view), negative for an
 	// orthographic view, whose native frustum's tangent is of half of its -1 degree field of view
 	readonly float viewAreaScale;
+	readonly float shadowAreaScale;
 	readonly float fallbackScale;
 
 	// The root view's camera and frustum, which distances and screen sizes are measured from
@@ -31,6 +32,9 @@ internal readonly struct TextureSizes
 	{
 		var width = (float)(int)view.Viewport.Width;
 		viewAreaScale = view.Orthographic ? -1 : width * root.TextureLodScale / (2.0f * MathF.Tan( view.FieldOfView.DegreeToRadian() * 0.5f ));
+		shadowAreaScale = view.Orthographic && !ReferenceEquals( view, root )
+			? width * root.TextureLodScale / MathF.Max( view.OrthoSize.x, 1.0f )
+			: -1;
 		fallbackScale = width * root.FallbackTextureLodScale;
 
 		camera = root.Position;
@@ -44,10 +48,14 @@ internal readonly struct TextureSizes
 	/// </summary>
 	public (float Scale, float Fallback) ForObject( Vector3 center, Vector3 extents )
 	{
-		// CalcSqrDistanceToAABB
-		var outside = Vector3.Max( (center - camera).Abs() - extents, Vector3.Zero );
-		var distance = MathF.Sqrt( outside.LengthSquared );
-		var scale = viewAreaScale < 0 ? -1 : viewAreaScale / MathF.Max( distance, 1.0f );
+		var scale = shadowAreaScale;
+		if ( viewAreaScale >= 0 )
+		{
+			// CalcSqrDistanceToAABB
+			var outside = Vector3.Max( (center - camera).Abs() - extents, Vector3.Zero );
+			scale = viewAreaScale / MathF.Max( MathF.Sqrt( outside.LengthSquared ), 1.0f );
+		}
+
 		return (scale, ScreenSize( center, extents.Length ) * fallbackScale);
 	}
 
@@ -79,7 +87,7 @@ internal readonly struct TextureSizes
 
 	/// <summary>
 	/// A draw's size in texels from its UV density and its object's (or run's) <see cref="ForObject"/> sizes: all mips when
-	/// the scale is unknown (an orthographic view's, or none worked out).
+	/// the scale is unknown (a standalone orthographic view's, or none worked out).
 	/// </summary>
 	public static int ForDraw( float uvDensity, float scale, float fallback )
 	{

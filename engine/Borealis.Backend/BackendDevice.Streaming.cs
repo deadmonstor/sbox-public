@@ -51,7 +51,8 @@ public sealed partial class BackendDevice
 
 	/// <summary>
 	/// Whether material textures stream (<see cref="TextureStreamer"/>): made from their tails, with the mips their draws
-	/// ask for read and swapped in later, within video memory's room. Set before loading anything.
+	/// ask for read and swapped in later, within video memory's room. Mips are given back under pressure, after
+	/// finer asks age out in favor of smaller ones, or after a texture goes idle. Set before loading anything.
 	/// </summary>
 	public bool StreamTextures { get; set; }
 

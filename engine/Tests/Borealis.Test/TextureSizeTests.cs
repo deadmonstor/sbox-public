@@ -62,6 +62,21 @@ public class TextureSizeTests
 	}
 
 	[TestMethod]
+	public void OrthographicShadowDrawsAskForTheirTexelDensity()
+	{
+		var root = LookingDownX();
+		var shadow = new RenderView { Orthographic = true, OrthoSize = new Vector2( 2000 ), Viewport = new Rect( 0, 0, 1000, 1000 ) };
+		var sizes = new TextureSizes( shadow, root );
+
+		// Half a shadow texel per world unit, regardless of how far away the caster is.
+		foreach ( var distance in new[] { 30, 300 } )
+		{
+			var (scale, fallback) = sizes.ForObject( new Vector3( distance, 0, 0 ), new Vector3( 1 ) );
+			Assert.AreEqual( 50, TextureSizes.ForDraw( 100, scale, fallback ) );
+		}
+	}
+
+	[TestMethod]
 	public void InstancedRunAsksForItsNearestObject()
 	{
 		using var material = new HeadlessMaterial( "box", "complex" );
