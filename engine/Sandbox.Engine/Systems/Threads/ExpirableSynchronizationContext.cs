@@ -84,31 +84,23 @@ internal class ExpirableSynchronizationContext : SynchronizationContext
 	{
 		while ( !HasExpired || _currentlyProcessingThreadCount > 0 )
 		{
-			if ( !_executingJobs.TryPeek( out var next ) )
+			// The watchdog is the only consumer. Peeking would stop the queue from clearing dequeued slots.
+			if ( !_executingJobs.TryDequeue( out var next ) )
 			{
 				await Task.Delay( MaxTimeBetweenYieldsMillis );
 				continue;
 			}
 
+			if ( next.IsCompleted ) continue;
+
 			var runningTime = _timer.Elapsed - next.StartTime;
 
-			if ( !next.IsCompleted && runningTime.TotalMilliseconds < MaxTimeBetweenYieldsMillis )
+			if ( runningTime.TotalMilliseconds < MaxTimeBetweenYieldsMillis )
 			{
 				await Task.Delay( MaxTimeBetweenYieldsMillis - (int)runningTime.TotalMilliseconds );
 			}
 
-			_executingJobs.TryDequeue( out _ );
-
-			if ( next.IsCompleted )
-			{
-				continue;
-			}
-
-			var name = next.State is Delegate deleg
-				? deleg.ToSimpleString()
-				: next.State.ToString();
-
-			Log.Warning( $"A task has been running without yielding for more than {MaxTimeBetweenYieldsMillis}ms: {name}" );
+			next.WarnIfRunning();
 		}
 	}
 
@@ -384,9 +376,28 @@ internal class ExpirableSynchronizationContext : SynchronizationContext
 
 	private class ExecutingJob
 	{
-		public object State { get; init; }
-		public TimeSpan StartTime { get; init; }
-		public bool IsCompleted { get; set; }
+		// Null marks completion and releases the callback's state even if the watchdog is asleep.
+		private volatile object _state;
+
+		public ExecutingJob( object state, TimeSpan startTime )
+		{
+			_state = state;
+			StartTime = startTime;
+		}
+
+		public TimeSpan StartTime { get; }
+		public bool IsCompleted => _state is null;
+
+		public void Complete() => _state = null;
+
+		public void WarnIfRunning()
+		{
+			var state = _state;
+			if ( state is null ) return;
+
+			var name = state is Delegate deleg ? deleg.ToSimpleString() : state.ToString();
+			Log.Warning( $"A task has been running without yielding for more than {MaxTimeBetweenYieldsMillis}ms: {name}" );
+		}
 	}
 
 	public void ProcessQueue()
@@ -423,7 +434,7 @@ internal class ExpirableSynchronizationContext : SynchronizationContext
 
 				if ( _executingJobs is not null )
 				{
-					job = new ExecutingJob { State = data.State, StartTime = _timer.Elapsed };
+					job = new ExecutingJob( data.State ?? data.Callback, _timer.Elapsed );
 					_executingJobs.Enqueue( job );
 				}
 
@@ -444,9 +455,9 @@ internal class ExpirableSynchronizationContext : SynchronizationContext
 				}
 				finally
 				{
-					if ( enterContext ) contextScope.Dispose();
+					job?.Complete();
 
-					job?.IsCompleted = true;
+					if ( enterContext ) contextScope.Dispose();
 
 					if ( data.Source != this )
 					{

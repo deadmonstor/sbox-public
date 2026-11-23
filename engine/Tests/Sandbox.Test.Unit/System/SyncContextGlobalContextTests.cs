@@ -2,6 +2,7 @@ using Sandbox.Engine;
 using Sandbox.Internal;
 using Sandbox.Tasks;
 using System;
+using System.Runtime.CompilerServices;
 using System.Threading;
 
 namespace SystemTests;
@@ -44,6 +45,36 @@ public class SyncContextGlobalContextTests
 		Assert.AreSame( origin, observedContext );
 		Assert.AreSame( origin.TypeLibrary, observedLibrary );
 		Assert.AreSame( drainer, GlobalContext.Current );
+	}
+
+	[TestMethod]
+	public void WatchdogDoesNotKeepCompletedClosureAlive()
+	{
+		var sync = new ExpirableSynchronizationContext( true );
+		try
+		{
+			var closure = RunPostedClosure( sync );
+
+			GC.Collect();
+
+			Assert.IsFalse( closure.IsAlive, "The watchdog must not keep completed jobs' closures alive." );
+		}
+		finally
+		{
+			sync.Expire( new ExpirableSynchronizationContext( false ) );
+		}
+	}
+
+	[MethodImpl( MethodImplOptions.NoInlining )]
+	private static WeakReference RunPostedClosure( ExpirableSynchronizationContext sync )
+	{
+		var ran = false;
+		Action closure = () => ran = true;
+		var reference = new WeakReference( closure.Target );
+		sync.Post( static state => ((Action)state)(), closure );
+		sync.ProcessQueue();
+		Assert.IsTrue( ran );
+		return reference;
 	}
 
 	private static void OnWorker( GlobalContext context, bool suppressFlow, Action action )
