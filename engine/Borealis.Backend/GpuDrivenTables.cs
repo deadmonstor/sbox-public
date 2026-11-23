@@ -28,11 +28,13 @@ internal readonly record struct PooledGeometry( uint GeometryRecord, BufferHandl
 /// </summary>
 internal sealed class GpuDrivenTables : IDisposable
 {
-	/// <summary>Vertex pages: within every device's storage buffer range; larger buffers get one of their own.</summary>
+	/// <summary>Largest shared vertex page, within every device's storage buffer range; larger buffers get one of their own.</summary>
 	public const int VertexPageSize = 8 << 20;
 
-	/// <summary>Index pages: one multi-draw per page per bucket, so few pages means few draws.</summary>
+	/// <summary>Largest shared index page: one multi-draw per page per bucket, so few pages means few draws.</summary>
 	public const int IndexPageSize = 32 << 20;
+
+	const int FirstPageSize = 512 << 10;
 
 	public const int InstanceStride = InstanceRecord.Size;
 	public const int DrawStride = DrawRecord.Size;
@@ -320,7 +322,7 @@ internal sealed class GpuDrivenTables : IDisposable
 			page = default;
 			firstIndex = 0;
 			if ( !indexPagesBySlot.TryGetValue( slot, out var found ) ) return false;
-			var aligned = (bytes + 15) & ~15;
+			var aligned = (bytes + 15L) & ~15L;
 			if ( found.Limit - aligned < found.Used ) return false;
 			found.Limit -= aligned;
 			found.Reserved = Math.Max( found.Reserved - aligned, 0 );
@@ -338,16 +340,8 @@ internal sealed class GpuDrivenTables : IDisposable
 	/// <summary>Put a mesh's vertex buffer in a page: its page's slot and its byte offset there.</summary>
 	public (int Slot, long Offset) AddVertices( ReadOnlySpan<byte> data )
 	{
-		lock ( pagesLock )
-		{
-			var page = Place( ref vertexPage, data.Length, VertexPageSize, BufferUsage.Storage | BufferUsage.Vertex, "Borealis vertex page" );
-			var offset = page.Used;
-			if ( data.Length > 0 ) gpu.WriteBuffer( page.Buffer, data, offset );
-			page.Used = (offset + data.Length + 15) & ~15;
-			page.Live += (data.Length + 15) & ~15;
-			vertexPagesBySlot[page.Slot] = page;
-			return (page.Slot, offset);
-		}
+		var (_, offset, slot) = AddVertexStream( data );
+		return (slot, offset);
 	}
 
 	/// <summary>
@@ -358,12 +352,12 @@ internal sealed class GpuDrivenTables : IDisposable
 	{
 		lock ( pagesLock )
 		{
-			var page = Place( ref vertexPage, data.Length, VertexPageSize, BufferUsage.Storage | BufferUsage.Vertex, "Borealis vertex page" );
+			var aligned = (data.Length + 15L) & ~15L;
+			var page = Place( ref vertexPage, aligned );
 			var offset = page.Used;
 			if ( data.Length > 0 ) gpu.WriteBuffer( page.Buffer, data, offset );
-			page.Used = (offset + data.Length + 15) & ~15;
-			page.Live += (data.Length + 15) & ~15;
-			vertexPagesBySlot[page.Slot] = page;
+			page.Used += aligned;
+			page.Live += aligned;
 			return (page.Buffer, offset, page.Slot);
 		}
 	}
@@ -377,16 +371,17 @@ internal sealed class GpuDrivenTables : IDisposable
 	{
 		lock ( pagesLock )
 		{
+			var aligned = (data.Length + 15L) & ~15L;
 			var room = LevelRoom > 0 ? ((long)(rangeBytes * (double)LevelRoom) + 15) & ~15L : 0;
-			indexPages.TryGetValue( format, out var page );
-			page = Place( ref page, data.Length, IndexPageSize, BufferUsage.Index | BufferUsage.Storage, $"Borealis index page {format}", room );
+			indexPages.TryGetValue( format, out var current );
+			var next = current;
+			var page = Place( ref next, aligned, format, room );
+			if ( next != current ) indexPages[format] = next;
 			page.Reserved += room;
-			indexPages[format] = page;
-			indexPagesBySlot[page.Slot] = page;
 			var offset = page.Used;
 			if ( data.Length > 0 ) gpu.WriteBuffer( page.Buffer, data, offset );
-			page.Used = (offset + data.Length + 15) & ~15;
-			page.Live += (data.Length + 15) & ~15;
+			page.Used += aligned;
+			page.Live += aligned;
 			return (page.Buffer, page.Slot, (uint)(offset / (format == IndexFormat.UInt32 ? 4 : 2)));
 		}
 	}
@@ -401,7 +396,7 @@ internal sealed class GpuDrivenTables : IDisposable
 		lock ( pagesLock )
 		{
 			if ( !vertexPagesBySlot.TryGetValue( slot, out var page ) && !indexPagesBySlot.TryGetValue( slot, out page ) ) return;
-			page.Live -= (bytes + 15) & ~15;
+			page.Live -= (bytes + 15L) & ~15L;
 			if ( page.Live <= 0 && !emptyPages.Contains( page ) ) emptyPages.Add( page );
 		}
 	}
@@ -477,20 +472,30 @@ internal sealed class GpuDrivenTables : IDisposable
 	}
 
 	/// <summary>
-	/// Room for <paramref name="bytes"/> and <paramref name="room"/> more kept free (an index page's for levels, besides what
-	/// it keeps already): the current page, a new one, or a buffer of its own when it's bigger than a page.
+	/// Room for <paramref name="bytes"/> (aligned) and <paramref name="room"/> more kept free for levels, besides what
+	/// the page keeps already: the current page, a new one, or a buffer of its own when it's bigger than a shared page.
 	/// </summary>
-	Page Place( ref Page current, int bytes, int pageSize, BufferUsage usage, string name, long room = 0 )
+	Page Place( ref Page current, long bytes, IndexFormat? format = null, long room = 0 )
 	{
-		if ( current is not null && current.Used + bytes + current.Reserved + room <= current.Limit ) return current;
+		var needed = bytes + room;
+		if ( current is not null && current.Used + current.Reserved + needed <= current.Limit ) return current;
 
-		var aligned = (bytes + 15) & ~15L;
+		var pageSize = format.HasValue ? IndexPageSize : VertexPageSize;
 
-		var size = Math.Max( pageSize, aligned + room );
-		var buffer = gpu.CreateBuffer( new BufferInfo { Size = size, Usage = usage | BufferUsage.CopyDestination, Memory = MemoryLocation.Device, Name = name, Content = true } );
+		var size = needed;
+		if ( size <= pageSize )
+		{
+			// Start small for sparse formats, but take only a few pages to reach the cap when a format fills many.
+			size = current is null ? FirstPageSize : Math.Min( current.Size * 4, pageSize );
+			if ( size < needed ) size = System.Numerics.BitOperations.RoundUpToPowerOf2( (uint)needed );
+		}
+		var usage = format.HasValue ? BufferUsage.Index : BufferUsage.Vertex;
+		var name = format is { } indexFormat ? $"Borealis index page {indexFormat}" : "Borealis vertex page";
+		var buffer = gpu.CreateBuffer( new BufferInfo { Size = size, Usage = usage | BufferUsage.Storage | BufferUsage.CopyDestination, Memory = MemoryLocation.Device, Name = name, Content = true } );
 		owned.Add( buffer );
 		pageBytes += size;
 		var page = new Page { Buffer = buffer, Slot = gpu.BindlessIndex( buffer ), Size = size, Limit = size };
+		(format.HasValue ? indexPagesBySlot : vertexPagesBySlot).Add( page.Slot, page );
 
 		// A buffer bigger than a page stands alone; the page being filled stays current, and the one it was goes once empty
 		if ( size > pageSize ) return page;

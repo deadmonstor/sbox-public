@@ -1152,15 +1152,15 @@ public class GpuDrivenTests : GpuTest
 		var tables = backend.GpuDrivenTables;
 		var layout = backend.Layout( new VertexLayout( 12, [new VertexLayout.Field( VertexSemantic.Position, 0, VertexFormat.Float3, 0 )] ) );
 
-		// Two meshes filling a page, then one that starts the next (the current page)
-		var big = new byte[GpuDrivenTables.VertexPageSize / 2];
+		// Two meshes filling the small first page, then one that starts the next (the current page)
+		var big = new byte[256 << 10];
 		var (slotA, offsetA) = tables.AddVertices( big );
 		var (slotB, _) = tables.AddVertices( big );
 		var (slotC, _) = tables.AddVertices( new byte[1024] );
 		Assert.AreEqual( slotA, slotB );
 		Assert.AreNotEqual( slotA, slotC );
 		var record = tables.Geometry( slotA, offsetA, layout, 16 );
-		var bytesBefore = tables.Bytes.Pages;
+		Assert.IsTrue( tables.Bytes.Pages > 2 * big.Length, "the second page is larger than the first" );
 
 		// One mesh gone: the page stays
 		tables.ReleaseRange( slotA, big.Length );
@@ -1172,13 +1172,13 @@ public class GpuDrivenTests : GpuTest
 		tables.ReleaseRange( slotC, 1024 );
 		tables.FreeEmptyPages();
 		Assert.AreEqual( 2, tables.PagesFreed );
-		Assert.AreEqual( bytesBefore - 2 * GpuDrivenTables.VertexPageSize, tables.Bytes.Pages );
+		Assert.AreEqual( 0L, tables.Bytes.Pages );
 		Assert.AreNotEqual( record, tables.Geometry( slotA, offsetA, layout, 16 ), "a record for the freed slot is made afresh" );
 
 		// The next mesh starts a new page
 		var (slotD, offsetD) = tables.AddVertices( new byte[1024] );
 		Assert.AreEqual( 0, offsetD );
-		Assert.AreEqual( bytesBefore - GpuDrivenTables.VertexPageSize, tables.Bytes.Pages );
+		Assert.AreEqual( 2L * big.Length, tables.Bytes.Pages, "the new first page starts small again" );
 		tables.ReleaseRange( slotD, 1024 );
 		Device.WaitIdle();
 	}
