@@ -939,12 +939,13 @@ internal sealed partial class BackendContext
 						var aggregate = (AggregateObject)batch.Owner;
 						fragmentCount = aggregate.Fragments.Length;
 
-						// Its records as last frame's, when everything they were looked up by is the same
+						// Its records as last frame's, when everything they were looked up by is the same; a ringing material's are
+						// this frame's copies (GpuDrivenTables.Rings), looked up afresh
 						ref var kept = ref memoTaken ? ref memo.At( record ) : ref unkept;
 						var version = MaterialVersion( material );
 						var visible = visibility is not null;
 						var epoch = tables.VisibilityEpoch;
-						if ( memoTaken && ReferenceEquals( kept.Material, material ) && kept.Version == version && ReferenceEquals( kept.Stages, stages ) && kept.DepthOnly == bucket.DepthOnly && kept.PixelRecord == pixelRecord
+						if ( memoTaken && ReferenceEquals( kept.Material, material ) && kept.Version == version && !tables.Rings( material ) && ReferenceEquals( kept.Stages, stages ) && kept.DepthOnly == bucket.DepthOnly && kept.PixelRecord == pixelRecord
 							&& kept.VertexAttributes == vertexAttributes && kept.PixelAttributes == pixelAttributes && ReferenceEquals( kept.Owner, aggregate ) && kept.Fragments == fragmentCount
 							&& kept.Flags == flags && kept.Pooled == pooled && ReferenceEquals( kept.Layout, geometry.Layout ) && ReferenceEquals( kept.Classic, bucket.Classic ) && kept.Positions == positions && kept.Visibility == visible && kept.VisibilityEpoch == epoch )
 						{
@@ -1589,9 +1590,11 @@ internal sealed partial class BackendContext
 	/// </summary>
 	bool PlanCurrent( GpuDrivenPlan plan, StringToken shaderMode )
 	{
+		// A ringing material's records are copies its frame slot rewrites (GpuDrivenTables.Rings): made again each frame
+		var tables = device.GpuDrivenTables;
 		foreach ( var (material, version) in plan.Materials )
 		{
-			if ( MaterialVersion( material ) != version ) return false;
+			if ( MaterialVersion( material ) != version || tables.Rings( material ) ) return false;
 		}
 
 		foreach ( var (attributes, version) in plan.Attributes )

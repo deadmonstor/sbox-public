@@ -31,7 +31,9 @@ internal sealed class GpuDrivenRecordMemos
 /// What a view's GPU-culled call looked up for each batch last time, by the batch's place in the call: its material
 /// records, the aggregate's fragment records and its visibility, beside everything those lookups were keyed by.
 /// A batch that matches all of it takes them from here rather than from the tables' dictionaries; any difference looks
-/// them up again. The tables never drop a record, so a record found for the same keys is still the one they'd give.
+/// them up again. The tables never drop a record, so a record found for the same keys is still the one they'd give, but
+/// for a ringing material's: its records are copies its frame slot rewrites (<see cref="GpuDrivenTables.Rings(Borealis.GpuMaterial)"/>),
+/// so its batches always look them up.
 /// Locked by the call using it; a call that finds it taken looks everything up.
 /// </summary>
 internal sealed class GpuDrivenRecordMemo

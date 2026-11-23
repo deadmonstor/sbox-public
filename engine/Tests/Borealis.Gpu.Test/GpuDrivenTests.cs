@@ -1239,45 +1239,53 @@ public class GpuDrivenTests : GpuTest
 	}
 
 	/// <summary>
-	/// A material's stage churns once it has made <see cref="GpuDrivenTables.MaxRecordsPerStage"/> material records (new
-	/// attribute values each time): that stage only, not the material's others or another material's.
+	/// A material's stage rings once it has made <see cref="GpuDrivenTables.MaxRecordsPerStage"/> material records (new
+	/// attribute values each time): that stage only, not the material's others or another material's. Ringing, it takes
+	/// up to <see cref="GpuDrivenTables.MaxCopiesPerFrame"/> values a frame; one more and it draws classic.
 	/// </summary>
 	[TestMethod]
-	public void AStageChurnsAfterItsLimitOfMaterialRecords()
+	public void AStageRingsAfterItsLimitOfMaterialRecords()
 	{
 		using var backend = new BackendDevice( Device ) { GpuDrivenGeometry = true };
 		var tables = backend.GpuDrivenTables;
-		var material = (SurfaceMaterial)backend.CreateMaterial( "Churning", Color.White );
-		var other = (SurfaceMaterial)backend.CreateMaterial( "Steady", Color.White );
+		var material = backend.CreateMaterial( "Churning", Color.White );
+		var other = backend.CreateMaterial( "Steady", Color.White );
 		var shader = backend.Shaders.Load( "shaders/line.shader" );
 		var variant = shader is null ? null : backend.Shaders.Variant( shader, "Forward", default );
 		if ( variant?.Vertex is null || variant.Pixel is null ) Assert.Inconclusive( "line.shader isn't compiled" );
 
-		uint Record( SurfaceMaterial m, ShaderStage stage, int attributes ) =>
-			tables.Material( new GpuDrivenTables.MaterialRecordKey( m, m.Version, stage, false, attributes ), 64, 0, static ( _, bytes ) => bytes.Clear() );
+		uint Record( GpuMaterial m, ShaderStage stage, int attributes ) =>
+			tables.Material( new GpuDrivenTables.MaterialRecordKey( m, 0, stage, false, attributes ), 64, 0, static ( _, bytes ) => bytes.Clear() );
 
 		Record( other, variant.Pixel, 0 );
 		for ( int i = 0; i < GpuDrivenTables.MaxRecordsPerStage - 1; i++ ) Record( material, variant.Pixel, i );
-		Assert.IsFalse( tables.Churns( material, variant.Pixel ), "one short of the limit" );
+		Assert.IsFalse( tables.Rings( material, variant.Pixel ), "one short of the limit" );
 		Record( material, variant.Pixel, 0 );
-		Assert.IsFalse( tables.Churns( material, variant.Pixel ), "a record it has already is found, not made" );
+		Assert.IsFalse( tables.Rings( material, variant.Pixel ), "a record it has already is found, not made" );
 
 		Record( material, variant.Pixel, GpuDrivenTables.MaxRecordsPerStage );
-		Assert.IsTrue( tables.Churns( material, variant.Pixel ), "at the limit" );
-		Assert.IsFalse( tables.Churns( material, variant.Vertex ), "its other stage" );
-		Assert.IsFalse( tables.Churns( other, variant.Pixel ), "another material" );
+		Assert.IsTrue( tables.Rings( material, variant.Pixel ), "at the limit" );
+		Assert.IsFalse( tables.Churns( material, variant.Pixel ), "ringing, it stays GPU-driven" );
+		Assert.IsFalse( tables.Rings( material, variant.Vertex ), "its other stage" );
+		Assert.IsFalse( tables.Rings( other, variant.Pixel ), "another material" );
+
+		for ( int i = 0; i < GpuDrivenTables.MaxCopiesPerFrame; i++ ) Record( material, variant.Pixel, 1000 + i );
+		Assert.IsFalse( tables.Churns( material, variant.Pixel ), "as many values in a frame as it has copies" );
+		Record( material, variant.Pixel, 2000 );
+		Assert.IsTrue( tables.Churns( material, variant.Pixel ), "one more in the frame" );
 		Device.WaitIdle();
 	}
 
 	/// <summary>
-	/// A stage that makes a material record every frame (an attribute a game sets each frame) churns after
-	/// <see cref="GpuDrivenTables.ChurnRecords"/> of them, not <see cref="GpuDrivenTables.MaxRecordsPerStage"/>, and the
-	/// draw records naming its records are forgotten at the next frame's start: each frame's record made draw records for
-	/// every range drawn with it, 5.1 million of them on a forest map. A stage making as many in one frame (objects' own
-	/// values as they come into view) doesn't churn, and keeps its draw records.
+	/// A stage that makes a material record every frame (an attribute a game sets each frame) rings after
+	/// <see cref="GpuDrivenTables.ChurnRecords"/> of them, not <see cref="GpuDrivenTables.MaxRecordsPerStage"/>: the draw
+	/// records naming the records it made go at the next frame's start, and from then on each frame's value goes in its
+	/// frame slot's copy, so it has a draw record per range per frame slot however many values it reads. Each made record
+	/// used to make draw records for every range drawn with it: 5.1 million of them on a forest map. A stage making as many
+	/// in one frame (objects' own values as they come into view) doesn't ring, and keeps its draw records.
 	/// </summary>
 	[TestMethod]
-	public void AStageMakingARecordEveryFrameChurnsAndItsDrawRecordsGo()
+	public void AStageMakingARecordEveryFrameRingsAndKeepsAFewDrawRecords()
 	{
 		using var backend = new BackendDevice( Device ) { GpuDrivenGeometry = true };
 		var tables = backend.GpuDrivenTables;
@@ -1305,23 +1313,38 @@ public class GpuDrivenTests : GpuTest
 			DrawRanges( Record( windy, frame ) );
 		}
 
-		Assert.IsFalse( tables.Churns( windy, variant.Pixel ), "one record short" );
+		Assert.IsFalse( tables.Rings( windy, variant.Pixel ), "one record short" );
 		tables.BeginFrame();
 		DrawRanges( Record( windy, GpuDrivenTables.ChurnRecords ) );
-		Assert.IsTrue( tables.Churns( windy, variant.Pixel ), "a record a frame for as many frames" );
-		Assert.IsFalse( tables.Churns( objects, variant.Pixel ), "as many records in one frame" );
+		Assert.IsTrue( tables.Rings( windy, variant.Pixel ), "a record a frame for as many frames" );
+		Assert.IsFalse( tables.Rings( objects, variant.Pixel ), "as many records in one frame" );
 		Assert.AreEqual( objectDraws + GpuDrivenTables.ChurnRecords * Ranges, tables.Records.Draws, "a draw record per range per record until the next frame" );
 
-		tables.BeginFrame();
-		Assert.AreEqual( GpuDrivenTables.ChurnRecords * Ranges, tables.DrawRecordsForgotten, "the churning stage's draw records go" );
-		Assert.AreEqual( objectDraws, tables.Records.Draws, "the other material's stay" );
+		var copies = new List<uint>();
+		long materialBytes = 0;
+		for ( int frame = 0; frame < GpuDrivenTables.FrameSlots * 4; frame++ )
+		{
+			tables.BeginFrame();
+			var copy = Record( windy, 1000 + frame );
+			Assert.AreEqual( copy, Record( windy, 1000 + frame ), "the frame's copy of a value is found again" );
+			DrawRanges( copy );
+			copies.Add( copy );
+			if ( frame == GpuDrivenTables.FrameSlots - 1 ) materialBytes = tables.Bytes.Materials;
+		}
+
+		Assert.AreEqual( GpuDrivenTables.ChurnRecords * Ranges, tables.DrawRecordsForgotten, "the records it made go, and their draw records" );
+		Assert.AreEqual( objectDraws + GpuDrivenTables.FrameSlots * Ranges, tables.Records.Draws, "a draw record per range per frame slot" );
+		Assert.AreEqual( GpuDrivenTables.FrameSlots, copies.Distinct().Count(), "a copy per frame slot" );
+		Assert.AreEqual( copies[0], copies[GpuDrivenTables.FrameSlots], "rewritten a frame slot on" );
+		Assert.AreEqual( materialBytes, tables.Bytes.Materials, "the material table stops growing" );
 		Device.WaitIdle();
 	}
 
 	/// <summary>
-	/// A material a game sets a new value on every frame (wind, a pulse) makes a material record each time it's drawn
-	/// GPU-driven, and records never go: GAMMA's trees took 75 GB of host memory in three minutes. Past its limit its draws
-	/// stay classic, so the table stops growing, and they draw as the classic path does.
+	/// A material a game sets a new value on every frame (wind, a pulse) made a material record each time it was drawn
+	/// GPU-driven, and records never go: GAMMA's trees took 75 GB of host memory in three minutes. Past its limit it rings:
+	/// its records are copies rewritten each frame, so the tables stop growing, it stays GPU-driven, and it draws what the
+	/// classic path draws with the frame's values.
 	/// </summary>
 	[TestMethod]
 	public void AMaterialChangedEveryFrameStopsAddingRecords()
@@ -1362,21 +1385,22 @@ public class GpuDrivenTests : GpuTest
 				return pixels;
 			}
 
-			var before = backend.GpuDrivenTables.Records.Materials;
+			var tables = backend.GpuDrivenTables;
 			const int Frames = GpuDrivenTables.MaxRecordsPerStage + 60;
 			for ( int i = 0; i < Frames; i++ ) Frame( true, i / (float)Frames );
-			var made = backend.GpuDrivenTables.Records.Materials - before;
+			var (madeBytes, madeDraws) = (tables.Bytes.Materials, tables.Records.Draws);
 			for ( int i = 0; i < 30; i++ ) Frame( true, 1 + i / 30f );
-			var after = backend.GpuDrivenTables.Records.Materials - before;
+			var (afterBytes, afterDraws) = (tables.Bytes.Materials, tables.Records.Draws);
 			backend.GpuDrivenLeftClassic.Clear();
 			var driven = Frame( true, 0.25f );
 			var left = backend.GpuDrivenLeftClassic.Keys.ToArray();
 			var classic = Frame( false, 0.25f );
 
 			Assert.AreEqual( 0, Device.ValidationErrors, "no validation errors" );
-			// A record per stage (the prepass's and forward's, vertex and pixel) for each value until the limit, then none
-			Assert.AreEqual( made, after, $"no material records past the limit: {made} over {Frames} frames, {after} after 30 more" );
-			Assert.IsTrue( left.Any( x => x.Contains( "material records churn", StringComparison.Ordinal ) ), $"its draws stay classic: {string.Join( ", ", left )}" );
+			Assert.IsTrue( tables.Rings( material ), "it rings" );
+			Assert.AreEqual( madeBytes, afterBytes, $"no material records past the limit: {madeBytes} bytes over {Frames} frames, {afterBytes} after 30 more" );
+			Assert.AreEqual( madeDraws, afterDraws, "nor draw records" );
+			Assert.IsFalse( left.Any( x => x.Contains( "material records churn", StringComparison.Ordinal ) ), $"its draws stay GPU-driven: {string.Join( ", ", left )}" );
 			Assert.AreEqual( 0, Different( classic, driven ), "and draw the classic pixels" );
 		}
 		finally
