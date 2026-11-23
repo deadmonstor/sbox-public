@@ -45,7 +45,7 @@ public sealed class CookedMeshlets
 	readonly byte[] records;
 	readonly Dictionary<(int Start, int Count, int BaseVertex), Range> ranges;
 
-	readonly record struct Range( MeshVertexBuffer Vertices, int First, int Count, CookedLevels Levels );
+	readonly record struct Range( object VertexStream, int First, int Count, CookedLevels Levels );
 
 	CookedMeshlets( int maxVertices, int maxTriangles, CookedLodConfig? lods, byte[] records, Dictionary<(int, int, int), Range> ranges )
 	{
@@ -65,7 +65,7 @@ public sealed class CookedMeshlets
 	/// </summary>
 	public ReadOnlyMemory<byte> Find( int start, int count, MeshVertexBuffer vertices, int baseVertex )
 	{
-		return ranges.TryGetValue( (start, count, baseVertex), out var range ) && ReferenceEquals( range.Vertices, vertices )
+		return ranges.TryGetValue( (start, count, baseVertex), out var range ) && ReferenceEquals( range.VertexStream, vertices?.Identity )
 			? records.AsMemory( range.First * RecordBytes, range.Count * RecordBytes )
 			: default;
 	}
@@ -73,7 +73,7 @@ public sealed class CookedMeshlets
 	/// <summary>The range's levels, as <see cref="Find"/> names it; null when they weren't made.</summary>
 	public CookedLevels FindLevels( int start, int count, MeshVertexBuffer vertices, int baseVertex )
 	{
-		return ranges.TryGetValue( (start, count, baseVertex), out var range ) && ReferenceEquals( range.Vertices, vertices ) ? range.Levels : null;
+		return ranges.TryGetValue( (start, count, baseVertex), out var range ) && ReferenceEquals( range.VertexStream, vertices?.Identity ) ? range.Levels : null;
 	}
 
 	/// <summary>
@@ -138,7 +138,7 @@ public sealed class CookedMeshlets
 				if ( levels is null ) return null;
 			}
 
-			(perBuffer[indexBuffer] ??= new())[(start, count, baseVertex)] = new Range( vertexBuffers[vertexBuffer], first, meshlets, levels );
+			(perBuffer[indexBuffer] ??= new())[(start, count, baseVertex)] = new Range( vertexBuffers[vertexBuffer].Identity, first, meshlets, levels );
 		}
 
 		var result = new CookedMeshlets[indexBuffers.Length];
@@ -169,7 +169,7 @@ public sealed class CookedMeshlets
 			CookedMeshlets meshlets = null;
 			if ( recordCount > 0 )
 			{
-				var own = new Dictionary<(int, int, int), Range> { [(0, length, baseVertex)] = new Range( vertices, firstRecord, recordCount, null ) };
+				var own = new Dictionary<(int, int, int), Range> { [(0, length, baseVertex)] = new Range( vertices.Identity, firstRecord, recordCount, null ) };
 				meshlets = new CookedMeshlets( maxVertices, maxTriangles, null, records, own );
 			}
 

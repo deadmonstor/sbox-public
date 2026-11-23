@@ -172,6 +172,16 @@ public sealed class BackendModel : GpuMesh, IBackendGeometry, ISkinnedGeometry
 	// The materials its draws hold (BackendDevice.ModelMaterial), let go when it's freed
 	readonly List<string> materialPaths = new();
 
+	readonly GeometryReadback geometryReadback;
+	internal WeakReference<BackendModel> BuildOwner { get; }
+	internal BackendDevice GeometryDevice => device;
+	readonly ulong evictGeometryAt;
+
+	int modelBuilds;
+	internal void ModelBuildStarted() => System.Threading.Interlocked.Increment( ref modelBuilds );
+	internal void ModelBuildFinished() => System.Threading.Interlocked.Decrement( ref modelBuilds );
+	internal bool CanEvictGeometry => device.Gpu.FrameNumber >= evictGeometryAt && System.Threading.Volatile.Read( ref modelBuilds ) == 0;
+
 	/// <summary>Whether this is the first ask for a draw's meshlets: a shadow view asks for a static mesh draw's once.</summary>
 	internal bool FirstMeshletRequest( int mesh, int call )
 		=> (uint)mesh < (uint)meshletRequested.Length && (uint)call < (uint)meshletRequested[mesh].Length && (System.Threading.Interlocked.Or( ref meshletRequested[mesh][call], 1 ) & 1) == 0;
@@ -216,7 +226,10 @@ public sealed class BackendModel : GpuMesh, IBackendGeometry, ISkinnedGeometry
 		return (System.Threading.Interlocked.Or( ref meshletRequested[mesh][call], bits ) & bits) != bits;
 	}
 
-	/// <summary>The model as read.</summary>
+	/// <summary>
+	/// The uploaded model's original geometry and metadata. Cold buffer bytes read back from the live model, so a
+	/// render-block reader must use <see cref="TryKeepGeometry"/> first.
+	/// </summary>
 	public ModelFile File { get; }
 
 	/// <inheritdoc/>
@@ -231,6 +244,8 @@ public sealed class BackendModel : GpuMesh, IBackendGeometry, ISkinnedGeometry
 	BackendModel( BackendDevice device, ModelFile file, bool generatesLevels )
 	{
 		this.device = device;
+		geometryReadback = new( device.Gpu );
+		BuildOwner = new( this );
 		File = file;
 		GeneratesLevels = generatesLevels;
 		draws = new DrawGeometry[file.Meshes.Count][];
@@ -240,7 +255,9 @@ public sealed class BackendModel : GpuMesh, IBackendGeometry, ISkinnedGeometry
 		vertexCacheDraws = new VertexCacheDraw?[file.Meshes.Count][];
 		try
 		{
-			Make( file );
+			File = Make( file );
+			evictGeometryAt = device.Gpu.FrameNumber + 2;
+			device.NoteGeometryUpload( this );
 		}
 		catch
 		{
@@ -267,9 +284,10 @@ public sealed class BackendModel : GpuMesh, IBackendGeometry, ISkinnedGeometry
 		return (int)Math.Min( bytes, mesh.IndexBuffers[buffer].Data.Length );
 	}
 
-	void Make( ModelFile file )
+	ModelFile Make( ModelFile file )
 	{
 		var gpu = device.Gpu;
+		var uploadedMeshes = new ModelMesh[file.Meshes.Count];
 
 		// The vertex ids its vertex-cache draws read, made here rather than while a frame records
 		if ( file.IsSkinned ) _ = device.VertexIds;
@@ -286,9 +304,16 @@ public sealed class BackendModel : GpuMesh, IBackendGeometry, ISkinnedGeometry
 			var tables = skinned ? null : device.GpuDrivenTables;
 			var indexTables = skinned && device.GpuDrivenSkinned ? device.GpuDrivenTables : tables;
 			var vertexBuffers = new (BufferHandle Buffer, long Offset, VertexLayout Layout, bool Compressed, int PageSlot)[mesh.VertexBuffers.Count];
+			var originalVertices = new MeshVertexBuffer[vertexBuffers.Length];
 			for ( int v = 0; v < vertexBuffers.Length; v++ )
 			{
-				vertexBuffers[v] = Upload( gpu, mesh.VertexBuffers[v], $"{file.Name} {mesh.Name} vertices {v}", skinned, tables );
+				var source = mesh.VertexBuffers[v];
+				vertexBuffers[v] = Upload( gpu, source, $"{file.Name} {mesh.Name} vertices {v}", skinned, tables, out var repacked );
+				var data = source.Data;
+				var uploaded = vertexBuffers[v];
+				// Legacy tangent frames aren't uploaded byte-for-byte.
+				originalVertices[v] = repacked ? source
+					: source.WithReadback( data, ReadbackOf( uploaded.Buffer, uploaded.Offset, data.Length ) );
 				if ( skinned && indexTables is not null ) vertexBuffers[v].PageSlot = gpu.TryBindlessIndex( vertexBuffers[v].Buffer, out var slot, BackendDevice.RawBufferReserve ) ? Slotted( slot ) : device.NoteSkinnedWithoutSlot( file.Name );
 			}
 
@@ -316,23 +341,28 @@ public sealed class BackendModel : GpuMesh, IBackendGeometry, ISkinnedGeometry
 
 			// Indices likewise: in a page of their size when the device keeps them, which the classic path binds too
 			var indexBuffers = new (BufferHandle Buffer, long Offset, IndexFormat Format, BufferHandle Page, int PageSlot, uint PageFirst)[mesh.IndexBuffers.Count];
+			var originalIndices = new MeshIndexBuffer[indexBuffers.Length];
 			for ( int i = 0; i < indexBuffers.Length; i++ )
 			{
 				var source = mesh.IndexBuffers[i];
+				var data = source.Data;
 				var format = source.Size == 4 ? IndexFormat.UInt32 : IndexFormat.UInt16;
 				if ( indexTables is not null )
 				{
-					var (page, slot, first) = indexTables.AddIndices( source.Data, format, skinned || !GeneratesLevels ? 0 : LevelCandidateBytes( file, mesh, i ) );
-					pageRanges.Add( (slot, source.Data.Length) );
+					var (page, slot, first) = indexTables.AddIndices( data, format, skinned || !GeneratesLevels ? 0 : LevelCandidateBytes( file, mesh, i ) );
+					pageRanges.Add( (slot, data.Length) );
 					indexBuffers[i] = (page, first * (long)source.Size, format, page, slot, first);
+					originalIndices[i] = source.WithReadback( data, ReadbackOf( page, indexBuffers[i].Offset, data.Length ) );
 					continue;
 				}
 
-				var buffer = gpu.CreateBuffer( new BufferInfo { Size = Math.Max( source.Data.Length, 4 ), Usage = BufferUsage.Index, Name = $"{file.Name} {mesh.Name} indices {i}" } );
-				if ( source.Data.Length > 0 ) gpu.WriteBuffer( buffer, source.Data );
+				var buffer = gpu.CreateBuffer( new BufferInfo { Size = Math.Max( data.Length, 4 ), Usage = BufferUsage.Index, Name = $"{file.Name} {mesh.Name} indices {i}" } );
+				if ( data.Length > 0 ) gpu.WriteBuffer( buffer, data );
 				buffers.Add( buffer );
 				indexBuffers[i] = (buffer, 0, format, default, -1, 0);
+				originalIndices[i] = source.WithReadback( data, ReadbackOf( buffer, 0, data.Length ) );
 			}
+			uploadedMeshes[m] = mesh.WithBuffers( originalVertices, originalIndices );
 
 			draws[m] = new DrawGeometry[mesh.DrawCalls.Count];
 			meshletRequested[m] = new int[mesh.DrawCalls.Count];
@@ -399,6 +429,83 @@ public sealed class BackendModel : GpuMesh, IBackendGeometry, ISkinnedGeometry
 				firstVertexId += call.VertexCount;
 			}
 		}
+
+		return file.WithMeshes( uploadedMeshes );
+	}
+
+	Func<byte[]> ReadbackOf( BufferHandle buffer, long offset, int size ) => geometryReadback.ReadOf( buffer, offset, size );
+
+	/// <summary>
+	/// A buffer's reload source may outlive its render mesh in a store's pending range. Don't let it root the model,
+	/// and wait for a read already using a handle before releasing the model's page ranges.
+	/// </summary>
+	sealed class GeometryReadback( Device gpu )
+	{
+		volatile bool freed;
+		public bool Freed => freed;
+
+		public bool Free()
+		{
+			lock ( this )
+			{
+				if ( freed ) return false;
+				freed = true;
+				return true;
+			}
+		}
+
+		public Func<byte[]> ReadOf( BufferHandle buffer, long offset, int size )
+			=> size > 0 ? () => Read( buffer, offset, size ) : null;
+
+		byte[] Read( BufferHandle buffer, long offset, int size )
+		{
+			lock ( this )
+			{
+				ObjectDisposedException.ThrowIf( freed, this );
+				var readback = gpu.CreateBuffer( new BufferInfo { Size = size, Memory = MemoryLocation.Readback, Name = "Borealis model readback" } );
+				try
+				{
+					var list = gpu.BeginCommandList( QueueType.Graphics, "Read original model geometry" );
+					list.Barrier( PipelineStage.AllCommands, MemoryAccess.MemoryWrite, PipelineStage.Transfer, MemoryAccess.TransferRead );
+					list.CopyBuffer( buffer, offset, readback, 0, size );
+					list.Barrier( new BufferBarrier { Buffer = readback, SourceStage = PipelineStage.Transfer, SourceAccess = MemoryAccess.TransferWrite, DestinationStage = PipelineStage.Host, DestinationAccess = MemoryAccess.HostRead } );
+					gpu.Wait( gpu.Submit( list ) );
+					return gpu.Map( readback ).ToArray();
+				}
+				finally
+				{
+					gpu.Destroy( readback );
+				}
+			}
+		}
+	}
+
+	internal void EvictGeometry()
+	{
+		foreach ( var mesh in File.Meshes )
+		{
+			foreach ( var buffer in mesh.VertexBuffers ) buffer.EvictData();
+			foreach ( var buffer in mesh.IndexBuffers ) buffer.EvictData();
+		}
+	}
+
+	/// <summary>Keep the original streams a direct expanding draw needs, loading them before the next frame if cold.</summary>
+	internal bool TryKeepGeometry( MeshVertexBuffer vertices, MeshIndexBuffer indices )
+	{
+		if ( vertices.CachedData is { } vertexBytes && indices.CachedData is { } indexBytes )
+		{
+			vertices.KeepData( vertexBytes );
+			indices.KeepData( indexBytes );
+			return true;
+		}
+
+		device.QueueModelGeometryRead( () =>
+		{
+			if ( Freed ) return;
+			vertices.KeepData( vertices.Data );
+			indices.KeepData( indices.Data );
+		} );
+		return false;
 	}
 
 	// Slots of the raw buffer array its skinned vertex buffers hold, freed with them
@@ -417,16 +524,18 @@ public sealed class BackendModel : GpuMesh, IBackendGeometry, ISkinnedGeometry
 	/// 8:8:8:8 encoding are repacked as 10:10:10:2, as native does for shaders that decode it (every s&amp;box shader that
 	/// reads <c>UncompressedTangentFrame</c>). Skinned meshes' buffers are storage buffers too, which compute skinning reads.
 	/// </summary>
-	(BufferHandle Buffer, long Offset, VertexLayout Layout, bool Compressed, int PageSlot) Upload( Device gpu, MeshVertexBuffer source, string name, bool storage, GpuDrivenTables tables )
+	(BufferHandle Buffer, long Offset, VertexLayout Layout, bool Compressed, int PageSlot) Upload( Device gpu, MeshVertexBuffer source, string name, bool storage, GpuDrivenTables tables, out bool repacked )
 	{
 		var data = source.Data;
+		repacked = false;
 		var fields = new List<VertexLayout.Field>();
 		foreach ( var field in source.Fields )
 		{
 			var format = field.Format;
 			if ( string.Equals( field.Semantic, "NORMAL", StringComparison.OrdinalIgnoreCase ) && format == ColorFormat.R8G8B8A8_UNORM )
 			{
-				data = (byte[])data.Clone();
+				if ( !repacked ) data = (byte[])data.Clone();
+				repacked = true;
 				format = TangentFrame.RepackLegacy( data, source.Count, source.Stride, field.Offset );
 			}
 
@@ -467,10 +576,10 @@ public sealed class BackendModel : GpuMesh, IBackendGeometry, ISkinnedGeometry
 		try
 		{
 			var data = scratch.AsSpan( 0, length );
+			var from = source.Data.AsSpan();
 			if ( field.Format == ColorFormat.R32G32B32_FLOAT && source.Stride >= field.Offset + PositionStride )
 			{
 				// Float3 positions (nearly every model): copied as they are, without decoding each vertex
-				var from = source.Data.AsSpan();
 				for ( int v = 0; v < source.Count; v++ ) from.Slice( v * source.Stride + field.Offset, PositionStride ).CopyTo( data[(v * PositionStride)..] );
 			}
 			else
@@ -478,7 +587,7 @@ public sealed class BackendModel : GpuMesh, IBackendGeometry, ISkinnedGeometry
 				var floats = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, float>( data );
 				for ( int v = 0; v < source.Count; v++ )
 				{
-					var p = source.Read( field, v );
+					var p = source.Read( from, field, v );
 					floats[v * 3] = p.X;
 					floats[v * 3 + 1] = p.Y;
 					floats[v * 3 + 2] = p.Z;
@@ -656,9 +765,7 @@ public sealed class BackendModel : GpuMesh, IBackendGeometry, ISkinnedGeometry
 	}
 
 	/// <summary>Whether <see cref="Free"/> has run: a model made at run time that was freed this way is made again if asked for.</summary>
-	public bool Freed => freed;
-
-	volatile bool freed;
+	public bool Freed => geometryReadback.Freed;
 
 	/// <summary>
 	/// Free its buffers, once the GPU is done with them; otherwise they go with the device. Again does nothing. From then on
@@ -667,7 +774,7 @@ public sealed class BackendModel : GpuMesh, IBackendGeometry, ISkinnedGeometry
 	/// </summary>
 	public void Free()
 	{
-		freed = true;
+		if ( !geometryReadback.Free() ) return;
 		for ( int m = 0; m < draws.Length; m++ )
 		{
 			if ( draws[m] is { } meshDraws ) Array.Clear( meshDraws );

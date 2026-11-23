@@ -368,6 +368,27 @@ public sealed class ModelMesh
 /// </summary>
 public sealed record MeshVertexBuffer( int Count, int Stride, VertexField[] Fields, byte[] Data )
 {
+	GeometryBytes bytes = new( Data );
+
+	// Cloned into the GPU model's geometry view, where cooked ranges still name this vertex stream.
+	internal object Identity { get; private init; } = new();
+
+	/// <summary>The original decoded bytes. A GPU model can read these back once it lets go of them.</summary>
+	public byte[] Data
+	{
+		get => bytes.Read();
+		init
+		{
+			bytes = new( value );
+			Identity = new();
+		}
+	}
+
+	internal byte[] CachedData => bytes.Cached;
+	internal MeshVertexBuffer WithReadback( byte[] data, Func<byte[]> readback ) => this with { bytes = new( data, readback ) };
+	internal void EvictData() => bytes.Evict();
+	internal void KeepData( byte[] data ) => bytes.Keep( data );
+
 	/// <summary>The field with a semantic (case doesn't matter, as native matches them) and index, or null.</summary>
 	public VertexField? Find( string semantic, int index = 0 )
 	{
@@ -392,7 +413,10 @@ public sealed record MeshVertexBuffer( int Count, int Stride, VertexField[] Fiel
 	public bool LegacyTangentFrame => Find( "NORMAL" )?.Format is ColorFormat.R8G8B8A8_UNORM;
 
 	/// <summary>A float field's values for a vertex (position, normal, uv...), widened to four.</summary>
-	public Vector4 Read( VertexField field, int vertex ) => field.Read( Data.AsSpan( vertex * Stride + field.Offset ) );
+	public Vector4 Read( VertexField field, int vertex ) => Read( Data, field, vertex );
+
+	/// <summary>Read a field when the caller already holds the buffer's bytes.</summary>
+	internal Vector4 Read( ReadOnlySpan<byte> data, VertexField field, int vertex ) => field.Read( data[(vertex * Stride + field.Offset)..] );
 
 	/// <inheritdoc/>
 	public override string ToString() => $"{Count} x {Stride} ({string.Join( ", ", Fields )})";
@@ -401,6 +425,16 @@ public sealed record MeshVertexBuffer( int Count, int Stride, VertexField[] Fiel
 /// <summary>A decoded index buffer: <paramref name="Count"/> indices of <paramref name="Size"/> bytes (2 or 4).</summary>
 public sealed record MeshIndexBuffer( int Count, int Size, byte[] Data )
 {
+	GeometryBytes bytes = new( Data );
+
+	/// <summary>The original decoded bytes. A GPU model can read these back once it lets go of them.</summary>
+	public byte[] Data { get => bytes.Read(); init => bytes = new( value ); }
+
+	internal byte[] CachedData => bytes.Cached;
+	internal MeshIndexBuffer WithReadback( byte[] data, Func<byte[]> readback ) => this with { bytes = new( data, readback ) };
+	internal void EvictData() => bytes.Evict();
+	internal void KeepData( byte[] data ) => bytes.Keep( data );
+
 	/// <summary>Made by the reader, not in the file: the counting indices of a mesh's unindexed draws.</summary>
 	public bool Generated { get; init; }
 
@@ -408,7 +442,12 @@ public sealed record MeshIndexBuffer( int Count, int Size, byte[] Data )
 	public CookedMeshlets Meshlets { get; init; }
 
 	/// <summary>An index.</summary>
-	public uint this[int i] => Size == 2 ? BinaryPrimitives.ReadUInt16LittleEndian( Data.AsSpan( i * 2 ) ) : BinaryPrimitives.ReadUInt32LittleEndian( Data.AsSpan( i * 4 ) );
+	public uint this[int i] => Read( Data, i );
+
+	/// <summary>Read an index when the caller already holds the buffer's bytes.</summary>
+	internal uint Read( ReadOnlySpan<byte> data, int index ) => Size == 2
+		? BinaryPrimitives.ReadUInt16LittleEndian( data[(index * 2)..] )
+		: BinaryPrimitives.ReadUInt32LittleEndian( data[(index * 4)..] );
 
 	/// <inheritdoc/>
 	public override string ToString() => $"{Count} x {Size}";

@@ -158,8 +158,8 @@ internal sealed partial class BorealisGpuRenderBackend
 		{
 			var key = (draw.Mesh, draw.DrawCall, draw.StartIndex, vertexCache);
 			if ( Draws.TryGetValue( key, out var made ) ) return made;
-			made = backend.Unroll( model, draw, vertexCache );
-			Draws[key] = made;
+			made = backend.Unroll( model, draw, vertexCache, out var waiting );
+			if ( !waiting ) Draws[key] = made;
 			return made;
 		}
 
@@ -185,8 +185,9 @@ internal sealed partial class BorealisGpuRenderBackend
 		return unrolled;
 	}
 
-	UnrolledDraw? Unroll( BackendModel model, in RenderMesh.Draw draw, bool vertexCache )
+	UnrolledDraw? Unroll( BackendModel model, in RenderMesh.Draw draw, bool vertexCache, out bool waiting )
 	{
+		waiting = false;
 		var file = model.File;
 		if ( draw.Mesh >= file.Meshes.Count ) return null;
 		var mesh = file.Meshes[draw.Mesh];
@@ -206,6 +207,13 @@ internal sealed partial class BorealisGpuRenderBackend
 		var count = draw.IndexCount / 3 * 3;
 		var firstIndex = indexOffset / indices.Size + draw.StartIndex;
 		if ( count == 0 || firstIndex + count > indices.Count ) return null;
+		if ( !model.TryKeepGeometry( source, indices ) )
+		{
+			waiting = true;
+			return null;
+		}
+
+		var sourceBytes = source.Data.AsSpan();
 
 		var stride = source.Stride;
 		var outStride = stride + (vertexCache ? 8 : 0);
@@ -216,8 +224,8 @@ internal sealed partial class BorealisGpuRenderBackend
 		{
 			var vertex = call.BaseVertex + (int)indices[firstIndex + k];
 			var at = vertexOffset + (long)vertex * stride;
-			if ( vertex < 0 || at + stride > source.Data.Length ) return null;
-			source.Data.AsSpan( (int)at, stride ).CopyTo( data.AsSpan( k * outStride ) );
+			if ( vertex < 0 || at + stride > sourceBytes.Length ) return null;
+			sourceBytes.Slice( (int)at, stride ).CopyTo( data.AsSpan( k * outStride ) );
 
 			if ( cache is { } c )
 			{

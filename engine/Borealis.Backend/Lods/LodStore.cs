@@ -107,8 +107,8 @@ internal sealed class LodStore : IDisposable
 
 		var staging = gpu.CreateBuffer( new BufferInfo { Size = Math.Max( size, 4 ), Usage = BufferUsage.CopySource, Memory = MemoryLocation.Upload, Name = "Borealis LOD staging" } );
 		var mapped = gpu.Map( staging );
-		// Cooked levels' meshlet requests take their own buffers
-		var bytes = entry.LevelBuffers is null ? new byte[levels.Length][] : null;
+		// Cooked levels' meshlet requests take their own buffers; without meshlets the GPU copy suffices
+		var bytes = entry.LevelBuffers is null && Meshlets is not null ? new byte[levels.Length][] : null;
 		for ( int k = 0; k < levels.Length; k++ )
 		{
 			var level = levels[k];
@@ -358,6 +358,7 @@ internal sealed class LodStore : IDisposable
 			entries[range] = entry;
 			waitingDraws.Remove( range, out entry.Draws );
 			Requested++;
+			source.BuildStarted();
 			Task.Run( () => BuildOn( entry ) );
 		}
 	}
@@ -376,7 +377,7 @@ internal sealed class LodStore : IDisposable
 		public readonly List<System.Numerics.Vector4[]> Colors;
 		public readonly int VertexCount, Offset;
 
-		public Attributes( MeshVertexBuffer vertices, Borealis.Source2.Models.VertexField position, int vertexBase, uint min, int vertexCount )
+		public Attributes( MeshVertexBuffer vertices, Borealis.Source2.Models.VertexField position, int vertexBase, uint min, int vertexCount, ReadOnlySpan<byte> data )
 		{
 			VertexCount = vertexCount;
 			Offset = vertexBase + (int)min;
@@ -386,7 +387,7 @@ internal sealed class LodStore : IDisposable
 			Positions = System.Buffers.ArrayPool<V3>.Shared.Rent( vertexCount );
 			for ( int v = 0; v < vertexCount; v++ )
 			{
-				var p = vertices.Read( position, Offset + v );
+				var p = vertices.Read( data, position, Offset + v );
 				Positions[v] = new V3( p.X, p.Y, p.Z );
 			}
 
@@ -396,7 +397,7 @@ internal sealed class LodStore : IDisposable
 				if ( field.Format is not (ColorFormat.R32G32_FLOAT or ColorFormat.R16G16_FLOAT or ColorFormat.R32G32B32_FLOAT or ColorFormat.R32G32B32A32_FLOAT or ColorFormat.R16G16B16A16_FLOAT or ColorFormat.R16G16_UNORM) ) continue;
 				var set = System.Buffers.ArrayPool<System.Numerics.Vector2>.Shared.Rent( vertexCount );
 				Sets.Add( set );
-				for ( int v = 0; v < vertexCount; v++ ) set[v] = Coordinate( vertices, field, Offset + v );
+				for ( int v = 0; v < vertexCount; v++ ) set[v] = Coordinate( vertices, data, field, Offset + v );
 			}
 
 			foreach ( var field in vertices.Fields )
@@ -407,7 +408,7 @@ internal sealed class LodStore : IDisposable
 				Colors.Add( set );
 				for ( int v = 0; v < vertexCount; v++ )
 				{
-					var c = vertices.Read( field, Offset + v );
+					var c = vertices.Read( data, field, Offset + v );
 					set[v] = new System.Numerics.Vector4( c.X, c.Y, c.Z, c.W );
 				}
 			}
@@ -415,7 +416,7 @@ internal sealed class LodStore : IDisposable
 			if ( vertices.Find( "NORMAL" ) is { } normalField && normalField.Format is ColorFormat.R10G10B10A2_UNORM or ColorFormat.R32G32B32_FLOAT or ColorFormat.R32G32B32A32_FLOAT )
 			{
 				Normals = System.Buffers.ArrayPool<V3>.Shared.Rent( vertexCount );
-				for ( int v = 0; v < vertexCount; v++ ) Normals[v] = Normal( vertices, normalField, Offset + v );
+				for ( int v = 0; v < vertexCount; v++ ) Normals[v] = Normal( vertices, data, normalField, Offset + v );
 			}
 		}
 
@@ -450,7 +451,7 @@ internal sealed class LodStore : IDisposable
 			max = Math.Max( max, index );
 		}
 
-		using var attributes = new Attributes( vertices, position, vertexBase, min, indices.Length == 0 ? 0 : (int)(max - min + 1) );
+		using var attributes = new Attributes( vertices, position, vertexBase, min, indices.Length == 0 ? 0 : (int)(max - min + 1), vertices.Data );
 		return attributes.Make( indices, vertexBase, config ) is { } chain ? (chain.Levels, chain.Errors) : ([], []);
 	};
 
@@ -494,6 +495,7 @@ internal sealed class LodStore : IDisposable
 			else
 			{
 				// The range's indices and its vertices' attributes (Attributes), in pooled scratch: with the config, the cache's key
+				var (sourceIndices, vertices) = s.ReadInput( needVertices: true );
 				var indexArray = System.Buffers.ArrayPool<uint>.Shared.Rent( count );
 				try
 				{
@@ -501,13 +503,13 @@ internal sealed class LodStore : IDisposable
 					uint min = uint.MaxValue, max = 0;
 					for ( int k = 0; k < count; k++ )
 					{
-						var index = s.Indices[s.IndexBase + k];
+						var index = s.Indices.Read( sourceIndices, s.IndexBase + k );
 						indices[k] = index;
 						min = Math.Min( min, index );
 						max = Math.Max( max, index );
 					}
 
-					using var attributes = new Attributes( s.Vertices, s.Position, s.VertexBase, min, count == 0 ? 0 : (int)(max - min + 1) );
+					using var attributes = new Attributes( s.Vertices, s.Position, s.VertexBase, min, count == 0 ? 0 : (int)(max - min + 1), vertices );
 					FieldsSeen.AddOrUpdate( string.Join( " ", s.Vertices.Fields.Select( f => f.ToString() ) ), 1, ( _, n ) => n + 1 );
 					var key = CacheFolder is null ? null : Key( indices, attributes.Positions.AsSpan( 0, attributes.VertexCount ), attributes.Sets, attributes.Normals, attributes.Colors, attributes.VertexCount );
 					var empty = false;
@@ -543,6 +545,7 @@ internal sealed class LodStore : IDisposable
 		finally
 		{
 			workers.Release();
+			entry.Source.BuildFinished();
 			built.Enqueue( entry );
 		}
 	}
@@ -712,9 +715,12 @@ internal sealed class LodStore : IDisposable
 				}
 
 				placed.Add( (first, (uint)level.Length) );
-				var levelRange = new Range( entry.Range.PageSlot, first, (uint)level.Length, entry.Range.BaseVertex );
-				var levelIndices = entry.LevelBuffers?[k] ?? new MeshIndexBuffer( level.Length, 4, entry.LevelBytes?[k] ?? MemoryMarshal.AsBytes( level.AsSpan() ).ToArray() );
-				(meshletRequests ??= new()).Add( (levelRange, s with { Indices = levelIndices, IndexBase = 0 }) );
+				if ( Meshlets is not null )
+				{
+					var levelRange = new Range( entry.Range.PageSlot, first, (uint)level.Length, entry.Range.BaseVertex );
+					var levelIndices = entry.LevelBuffers?[k] ?? new MeshIndexBuffer( level.Length, 4, entry.LevelBytes?[k] ?? MemoryMarshal.AsBytes( level.AsSpan() ).ToArray() );
+					(meshletRequests ??= new()).Add( (levelRange, s with { Indices = levelIndices, IndexBase = 0 }) );
+				}
 				LevelTriangles += level.Length / 3;
 			}
 
@@ -886,28 +892,28 @@ internal sealed class LodStore : IDisposable
 	//
 
 	/// <summary>A vertex's texture coordinate pair.</summary>
-	static System.Numerics.Vector2 Coordinate( MeshVertexBuffer vertices, Borealis.Source2.Models.VertexField field, int vertex )
+	static System.Numerics.Vector2 Coordinate( MeshVertexBuffer vertices, ReadOnlySpan<byte> data, Borealis.Source2.Models.VertexField field, int vertex )
 	{
 		if ( field.Format == ColorFormat.R16G16_UNORM )
 		{
-			var at = vertices.Data.AsSpan( vertex * vertices.Stride + field.Offset );
+			var at = data[(vertex * vertices.Stride + field.Offset)..];
 			return new System.Numerics.Vector2( System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian( at ), System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian( at[2..] ) ) / 65535f;
 		}
 
-		var uv = vertices.Read( field, vertex );
+		var uv = vertices.Read( data, field, vertex );
 		return new System.Numerics.Vector2( uv.X, uv.Y );
 	}
 
 	/// <summary>A vertex's normal: floats, or a compressed tangent frame's octahedral normal (<c>_DecompressNormal</c>).</summary>
-	static V3 Normal( MeshVertexBuffer vertices, Borealis.Source2.Models.VertexField field, int vertex )
+	static V3 Normal( MeshVertexBuffer vertices, ReadOnlySpan<byte> data, Borealis.Source2.Models.VertexField field, int vertex )
 	{
 		if ( field.Format != ColorFormat.R10G10B10A2_UNORM )
 		{
-			var n = vertices.Read( field, vertex );
+			var n = vertices.Read( data, field, vertex );
 			return new V3( n.X, n.Y, n.Z );
 		}
 
-		var packed = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian( vertices.Data.AsSpan( vertex * vertices.Stride + field.Offset ) );
+		var packed = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian( data[(vertex * vertices.Stride + field.Offset)..] );
 		var x = (packed & 1023) / 1023f * 2 - 1;
 		var y = ((packed >> 10) & 1023) / 1023f * 2 - 1;
 		var normal = new V3( x, y, 1 - MathF.Abs( x ) - MathF.Abs( y ) );

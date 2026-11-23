@@ -24,7 +24,29 @@ internal sealed class MeshletStore : IDisposable
 	public readonly record struct Range( int PageSlot, uint FirstIndex, uint IndexCount, int BaseVertex );
 
 	/// <summary>Where a range's indices and vertices are on the CPU, to build from.</summary>
-	public sealed record Source( BufferHandle IndexPage, IndexFormat Format, MeshIndexBuffer Indices, int IndexBase, MeshVertexBuffer Vertices, Borealis.Source2.Models.VertexField Position, int VertexBase );
+	public sealed record Source( BufferHandle IndexPage, IndexFormat Format, MeshIndexBuffer Indices, int IndexBase, MeshVertexBuffer Vertices, Borealis.Source2.Models.VertexField Position, int VertexBase )
+	{
+		internal BackendDevice GeometryDevice { get; init; }
+		internal WeakReference<BackendModel> BuildOwner { get; init; }
+
+		internal void BuildStarted()
+		{
+			if ( BuildOwner is { } owner && owner.TryGetTarget( out var model ) ) model.ModelBuildStarted();
+		}
+
+		internal void BuildFinished()
+		{
+			if ( BuildOwner is { } owner && owner.TryGetTarget( out var model ) ) model.ModelBuildFinished();
+		}
+
+		internal (byte[] Indices, byte[] Vertices) ReadInput( bool needVertices )
+		{
+			var indices = Indices.CachedData;
+			var vertices = needVertices ? Vertices.CachedData : null;
+			if ( indices is not null && (!needVertices || vertices is not null) ) return (indices, vertices);
+			return GeometryDevice.QueueModelGeometryRead( () => (indices ?? Indices.Data, needVertices ? vertices ?? Vertices.Data : null) ).GetAwaiter().GetResult();
+		}
+	}
 
 	/// <summary>Records each meshlet page holds.</summary>
 	public const int PageRecords = 1 << 17;
@@ -100,7 +122,8 @@ internal sealed class MeshletStore : IDisposable
 	sealed class Entry
 	{
 		public Range Range;
-		public Source Source;
+		public BufferHandle IndexPage;
+		public IndexFormat Format;
 		public State State;
 		public MeshletSet Set;
 		public MeshletLocal Local;
@@ -254,7 +277,7 @@ internal sealed class MeshletStore : IDisposable
 		lock ( gate )
 		{
 			if ( entries.ContainsKey( range ) ) return;
-			var entry = new Entry { Range = range, Source = source, State = State.Building };
+			var entry = new Entry { Range = range, IndexPage = source.IndexPage, Format = source.Format, State = State.Building };
 			entries[range] = entry;
 			waitingDraws.Remove( range, out entry.Draws );
 			if ( !Claim( range ) )
@@ -266,7 +289,8 @@ internal sealed class MeshletStore : IDisposable
 			}
 
 			Requested++;
-			Task.Run( () => BuildOn( entry ) );
+			source.BuildStarted();
+			Task.Run( () => BuildOn( entry, source ) );
 		}
 	}
 
@@ -277,7 +301,7 @@ internal sealed class MeshletStore : IDisposable
 	void Stage( Entry entry )
 	{
 		var set = entry.Set;
-		var wide = entry.Source.Format == IndexFormat.UInt32;
+		var wide = entry.Format == IndexFormat.UInt32;
 
 		// A cooked range's indices are in the page in this order already
 		var indexBytes = set.InPlace ? 0 : (set.Indices.Length * (wide ? 4L : 2L) + 3) & ~3L;
@@ -340,14 +364,13 @@ internal sealed class MeshletStore : IDisposable
 		return true;
 	}
 
-	void BuildOn( Entry entry )
+	void BuildOn( Entry entry, Source s )
 	{
 		workers.Wait();
 		try
 		{
 			using var zone = Zones.MeshletBuild.Start();
 			var started = Stopwatch.GetTimestamp();
-			var s = entry.Source;
 			var count = (int)entry.Range.IndexCount;
 
 			// Cooked into the model with this config: taken as it is, its indices already in that order
@@ -356,6 +379,7 @@ internal sealed class MeshletStore : IDisposable
 			if ( cooked ) Interlocked.Increment( ref CookedHits );
 			else
 			{
+				var (sourceIndices, vertices) = s.ReadInput( needVertices: true );
 				// The range's indices and its vertices' positions, from the lowest index it uses, in pooled scratch: with the
 				// config, the cache's key
 				var indexArray = System.Buffers.ArrayPool<uint>.Shared.Rent( count );
@@ -366,7 +390,7 @@ internal sealed class MeshletStore : IDisposable
 					uint min = uint.MaxValue, max = 0;
 					for ( int k = 0; k < count; k++ )
 					{
-						var index = s.Indices[s.IndexBase + k];
+						var index = s.Indices.Read( sourceIndices, s.IndexBase + k );
 						indices[k] = index;
 						min = Math.Min( min, index );
 						max = Math.Max( max, index );
@@ -374,7 +398,11 @@ internal sealed class MeshletStore : IDisposable
 
 					var vertexCount = count == 0 ? 0 : (int)(max - min + 1);
 					positionArray = System.Buffers.ArrayPool<V3>.Shared.Rent( vertexCount );
-					for ( int v = 0; v < vertexCount; v++ ) positionArray[v] = Position( s, s.VertexBase + (int)min + v );
+					for ( int v = 0; v < vertexCount; v++ )
+					{
+						var p = s.Vertices.Read( vertices, s.Position, s.VertexBase + (int)min + v );
+						positionArray[v] = new V3( p.X, p.Y, p.Z );
+					}
 					var key = CacheFolder is null ? null : Key( indices, positionArray.AsSpan( 0, vertexCount ) );
 					set = key is null ? null : ReadCached( key );
 					if ( set is not null ) Interlocked.Increment( ref CacheHits );
@@ -384,6 +412,9 @@ internal sealed class MeshletStore : IDisposable
 						set = MeshletBuilder.Build( indices, v => positions[v - s.VertexBase - (int)min], s.VertexBase, Config );
 						if ( key is not null && set is not null ) WriteCached( key, set );
 					}
+
+					// A rewrite destroys the original order other ranges and generated LODs use.
+					if ( set is { Meshlets.Length: <= MaxRunMeshlets, InPlace: false } ) s.Indices.KeepData( sourceIndices );
 				}
 				finally
 				{
@@ -408,6 +439,7 @@ internal sealed class MeshletStore : IDisposable
 		finally
 		{
 			workers.Release();
+			s.BuildFinished();
 		}
 	}
 
@@ -424,7 +456,8 @@ internal sealed class MeshletStore : IDisposable
 		{
 			// The set keeps its indices (for local data and its triangle count): read once, nothing else
 			var indices = new uint[count];
-			for ( int k = 0; k < count; k++ ) indices[k] = s.Indices[s.IndexBase + k];
+			var (sourceIndices, _) = s.ReadInput( needVertices: false );
+			for ( int k = 0; k < count; k++ ) indices[k] = s.Indices.Read( sourceIndices, s.IndexBase + k );
 			set = MeshletSet.FromCooked( indices, records.Span, Config );
 		}
 
@@ -447,7 +480,7 @@ internal sealed class MeshletStore : IDisposable
 		if ( vb.Find( "POSITION" ) is not { } position || vb.Stride == 0 ) return null;
 		var (ibIndex, ibOffset) = c.IndexBuffer;
 		var ib = m.IndexBuffers[ibIndex];
-		return new Source( indexPage, format, ib, ibOffset / ib.Size, vb, position, vbOffset / vb.Stride );
+		return new Source( indexPage, format, ib, ibOffset / ib.Size, vb, position, vbOffset / vb.Stride ) { GeometryDevice = model.GeometryDevice, BuildOwner = model.BuildOwner };
 	}
 
 	/// <summary>
@@ -527,12 +560,6 @@ internal sealed class MeshletStore : IDisposable
 		{
 			// A cache that can't be written builds again next time
 		}
-	}
-
-	static V3 Position( Source s, int vertex )
-	{
-		var p = s.Vertices.Read( s.Position, vertex );
-		return new V3( p.X, p.Y, p.Z );
 	}
 
 	/// <summary>
@@ -651,11 +678,10 @@ internal sealed class MeshletStore : IDisposable
 				Published++;
 				Meshlets += entry.Set.Meshlets.Length;
 				Triangles += entry.Set.Triangles;
-				if ( entry.Source.Format == IndexFormat.UInt16 ) Triangles16 += entry.Set.Triangles;
+				if ( entry.Format == IndexFormat.UInt16 ) Triangles16 += entry.Set.Triangles;
 				entry.Set = null;
 				entry.Local = null;
 				entry.Corners = null;
-				entry.Source = null;
 				uploaded.RemoveAt( i );
 			}
 		}
@@ -687,7 +713,6 @@ internal sealed class MeshletStore : IDisposable
 			}
 
 			// The range's triangles in meshlet order, in the page's index size
-			var s = entry.Source;
 			var range = entry.Range;
 			var staging = entry.Staging;
 			if ( set.InPlace )
@@ -696,19 +721,19 @@ internal sealed class MeshletStore : IDisposable
 			}
 			else if ( staging.IsValid )
 			{
-				list.CopyBuffer( staging, 0, s.IndexPage, range.FirstIndex * (s.Format == IndexFormat.UInt32 ? 4L : 2L), entry.IndexBytes );
+				list.CopyBuffer( staging, 0, entry.IndexPage, range.FirstIndex * (entry.Format == IndexFormat.UInt32 ? 4L : 2L), entry.IndexBytes );
 				bytes += entry.IndexBytes;
 			}
-			else if ( s.Format == IndexFormat.UInt32 )
+			else if ( entry.Format == IndexFormat.UInt32 )
 			{
-				list.UpdateBuffer<uint>( s.IndexPage, set.Indices, range.FirstIndex * 4L );
+				list.UpdateBuffer<uint>( entry.IndexPage, set.Indices, range.FirstIndex * 4L );
 				bytes += set.Indices.Length * 4L;
 			}
 			else
 			{
 				var narrow = new ushort[set.Indices.Length];
 				for ( int k = 0; k < narrow.Length; k++ ) narrow[k] = (ushort)set.Indices[k];
-				list.UpdateBuffer<ushort>( s.IndexPage, narrow, range.FirstIndex * 2L );
+				list.UpdateBuffer<ushort>( entry.IndexPage, narrow, range.FirstIndex * 2L );
 				bytes += narrow.Length * 2L;
 			}
 
@@ -732,7 +757,7 @@ internal sealed class MeshletStore : IDisposable
 			if ( staging.IsValid ) list.CopyBuffer( staging, (entry.IndexBytes + 3) & ~3L, into, first * (long)MeshletSet.RecordBytes, recordBytes );
 			else list.UpdateBuffer<MeshletRecord>( into, set.Meshlets, first * (long)MeshletSet.RecordBytes );
 			bytes += recordBytes;
-			if ( entry.Local is { } local ) bytes += UploadLocal( list, set, local, s.Format == IndexFormat.UInt32, entry );
+			if ( entry.Local is { } local ) bytes += UploadLocal( list, set, local, entry.Format == IndexFormat.UInt32, entry );
 			if ( entry.Corners is { } table ) bytes += UploadCorners( list, table, entry );
 
 			// Freed once the GPU has run the copies

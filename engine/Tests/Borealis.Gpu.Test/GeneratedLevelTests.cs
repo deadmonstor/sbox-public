@@ -1,10 +1,17 @@
 using Borealis;
 using Borealis.Backend;
+using Borealis.Backend.Lods;
+using Borealis.Backend.Meshlets;
+using Borealis.Gpu;
 using Borealis.Source2;
+using Borealis.Source2.Models;
 using Sandbox;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Threading;
+using V3 = System.Numerics.Vector3;
 
 namespace BorealisGpuTests;
 
@@ -117,6 +124,167 @@ public class GeneratedLevelTests : GpuTest
 			Device.WaitIdle();
 			RenderHost.Current = previousHost;
 		}
+	}
+
+	[TestMethod]
+	[DataRow( false )]
+	[DataRow( true )]
+	public void LateMeshletsAndLevelsUseTheUploadedModelsOriginalGeometry( bool cooked )
+	{
+		var core = ContentFiles.FindGame().Roots.FirstOrDefault();
+		if ( core is not null ) MeshOptimizer.Directory = EngineFolders.NativeIn( Path.GetDirectoryName( core ) );
+		if ( !MeshOptimizer.Available ) Assert.Inconclusive( "meshopt isn't built" );
+
+		using var backend = new BackendDevice( Device ) { GpuDrivenGeometry = true, GeneratedLods = true };
+
+		var config = MeshletConfig.Default;
+		var lodConfig = LodConfig.Default;
+		var mesh = MakeGeometryModel( backend, cooked, config, lodConfig );
+		var model = (BackendModel)mesh.Geometry;
+		var draw = mesh.DrawsForLod( 0 ).ToArray().MaxBy( d => d.IndexCount );
+		var geometry = ((IBackendGeometry)model).For( draw.Mesh, draw.DrawCall );
+		Assert.IsTrue( geometry.Pooled.HasValue, "the draw is in an index page" );
+		var pooled = geometry.Pooled.Value;
+		var range = new MeshletStore.Range( pooled.IndexPageSlot, pooled.FirstIndex + (uint)draw.StartIndex, (uint)draw.IndexCount, geometry.BaseVertex );
+		var source = MeshletStore.SourceOf( model, draw.Mesh, draw.DrawCall, pooled.IndexPage, pooled.IndexFormat );
+		source = source with { IndexBase = source.IndexBase + draw.StartIndex, VertexBase = source.VertexBase + geometry.BaseVertex };
+
+		var (ordered, meshletCount, levels, errors) = ExpectedGeometry( source, draw.IndexCount, config, lodConfig, cooked );
+		var originals = Payloads( model.File );
+		for ( int i = 0; i < 3; i++ ) backend.BeginFrame();
+		AssertCollected( originals );
+
+		var useCooked = MeshletStore.UseCooked;
+		MeshletStore.UseCooked = true;
+		using var meshlets = new MeshletStore( Device, config, threads: 1 );
+		using var lods = new LodStore( Device, backend.GpuDrivenTables, lodConfig, threads: 1 );
+		try
+		{
+			void Finish( Func<int> pending, Action beginFrame )
+			{
+				var waited = Stopwatch.StartNew();
+				while ( pending() > 0 && waited.Elapsed.TotalSeconds < 30 )
+				{
+					backend.BeginFrame();
+					beginFrame();
+					Thread.Sleep( 2 );
+				}
+
+				Assert.AreEqual( 0, pending(), "the build settled" );
+			}
+
+			meshlets.Request( range, source );
+			Finish( () => meshlets.Pending, meshlets.BeginFrame );
+			Assert.AreEqual( 1L, meshlets.Published );
+			Assert.AreEqual( (long)meshletCount, meshlets.Meshlets );
+			Assert.AreEqual( cooked ? 1L : 0L, meshlets.CookedHits );
+			CollectionAssert.AreEqual( ordered, ReadIndices( pooled, range.FirstIndex, range.IndexCount ) );
+
+			// Collect the reloaded bytes too. A later LOD request needs the original order, not the meshlet index page's.
+			AssertCollected( Payloads( model.File, cooked ? null : source.Indices ) );
+			lods.Request( range, source, color: true );
+			Finish( () => lods.Pending, lods.BeginFrame );
+			Assert.AreEqual( cooked ? 1L : 0L, lods.CookedHits );
+			Assert.IsTrue( lods.TryGetLevels( range, out var placed, out var placedErrors ) );
+			Assert.IsTrue( placed.Length > 0 && placed.Length <= levels.Length, "the model has levels in its index page" );
+			CollectionAssert.AreEqual( errors, placedErrors );
+			for ( int k = 0; k < placed.Length; k++ )
+				CollectionAssert.AreEqual( levels[k], ReadIndices( pooled, placed[k].First, placed[k].Count ) );
+			AssertCollected( Payloads( model.File, cooked ? null : source.Indices ) );
+		}
+		finally
+		{
+			MeshletStore.UseCooked = useCooked;
+			Device.WaitIdle();
+		}
+	}
+
+	[MethodImpl( MethodImplOptions.NoInlining )]
+	static RenderMesh MakeGeometryModel( BackendDevice backend, bool cooked, MeshletConfig config, LodConfig lodConfig )
+	{
+		if ( !cooked )
+		{
+			if ( backend.ReadModel( Model ).GetAwaiter().GetResult() is null ) Assert.Inconclusive( $"{Model} isn't built" );
+			backend.BeginFrame();
+			var uploaded = backend.LoadModelAsync( Model, ulong.MaxValue, out _ );
+			Assert.IsNotNull( uploaded, "the streamed model has been read and uploads" );
+			if ( uploaded.LodCount != 1 ) Assert.Inconclusive( $"{Model} has LODs of its own" );
+			return uploaded;
+		}
+
+		if ( backend.Content.TryRead( Model ) is not { } data ) { Assert.Inconclusive( $"{Model} isn't built" ); return null; }
+		var file = ModelFile.Read( data, backend.Content.TryRead );
+		if ( file.LodCount != 1 ) Assert.Inconclusive( $"{Model} has LODs of its own" );
+		var cut = MeshletBuilder.Cut( config );
+		var levelCut = LodStore.Cut( lodConfig );
+		file = file.WithMeshes( file.Meshes.Select( m => MeshletCooker.Cook( m, config.MaxVertices, config.MaxTriangles, cut, LodStore.Cooked( lodConfig ), levelCut ) ?? m ).ToArray() );
+		return BackendModel.Create( backend, file );
+	}
+
+	[MethodImpl( MethodImplOptions.NoInlining )]
+	static (uint[] Ordered, int Meshlets, uint[][] Levels, float[] Errors) ExpectedGeometry( MeshletStore.Source source, int count, MeshletConfig config, LodConfig lodConfig, bool cooked )
+	{
+		var indices = Enumerable.Range( source.IndexBase, count ).Select( i => source.Indices[i] ).ToArray();
+		if ( cooked )
+		{
+			var meshlets = source.Indices.Meshlets.Find( source.IndexBase, count, source.Vertices, source.VertexBase );
+			var levels = source.Indices.Meshlets.FindLevels( source.IndexBase, count, source.Vertices, source.VertexBase );
+			Assert.IsNotNull( levels, "the test draw has cooked levels" );
+			return (indices, meshlets.Length / MeshletSet.RecordBytes, levels.Buffers.Select( b => MemoryMarshal.Cast<byte, uint>( b.Data ).ToArray() ).ToArray(), [.. levels.Errors]);
+		}
+
+		V3 Position( int vertex )
+		{
+			var p = source.Vertices.Read( source.Position, vertex );
+			return new V3( p.X, p.Y, p.Z );
+		}
+
+		var set = MeshletBuilder.Build( indices, Position, source.VertexBase, config );
+		Assert.IsNotNull( set, "the test draw has meshlets" );
+		var made = LodStore.Cut( lodConfig )( indices, source.Vertices, source.Position, source.VertexBase );
+		Assert.IsTrue( made.HasValue && made.Value.Levels.Length > 0, "the test draw simplifies" );
+		return (set.Indices, set.Meshlets.Length, made.Value.Levels, made.Value.Errors);
+	}
+
+	[MethodImpl( MethodImplOptions.NoInlining )]
+	static WeakReference<byte[]>[] Payloads( ModelFile file, MeshIndexBuffer rewritten = null )
+	{
+		var arrays = new List<WeakReference<byte[]>>();
+		foreach ( var mesh in file.Meshes )
+		{
+			foreach ( var buffer in mesh.VertexBuffers ) if ( buffer.Count > 0 && !buffer.LegacyTangentFrame ) arrays.Add( new( buffer.Data ) );
+			foreach ( var buffer in mesh.IndexBuffers ) if ( buffer.Count > 0 && !ReferenceEquals( buffer, rewritten ) ) arrays.Add( new( buffer.Data ) );
+		}
+		return arrays.ToArray();
+	}
+
+	static void AssertCollected( WeakReference<byte[]>[] arrays )
+	{
+		GC.Collect( GC.MaxGeneration, GCCollectionMode.Forced, blocking: true );
+		foreach ( var bytes in arrays ) Assert.IsFalse( bytes.TryGetTarget( out _ ), "a live model and its stores don't hold the decoded arrays" );
+	}
+
+	uint[] ReadIndices( in PooledGeometry pooled, uint first, uint count )
+	{
+		var size = pooled.IndexFormat == IndexFormat.UInt32 ? 4 : 2;
+		var bytes = count * (long)size;
+		var buffer = Device.CreateBuffer( new BufferInfo { Size = bytes, Memory = MemoryLocation.Readback, Name = "Generated geometry readback" } );
+		var list = Device.BeginCommandList( QueueType.Graphics, "Read generated geometry" );
+		list.Barrier( PipelineStage.AllCommands, MemoryAccess.MemoryWrite, PipelineStage.Transfer, MemoryAccess.TransferRead );
+		list.CopyBuffer( pooled.IndexPage, first * (long)size, buffer, 0, bytes );
+		list.Barrier( new BufferBarrier { Buffer = buffer, SourceStage = PipelineStage.Transfer, SourceAccess = MemoryAccess.TransferWrite, DestinationStage = PipelineStage.Host, DestinationAccess = MemoryAccess.HostRead } );
+		Device.Wait( Device.Submit( list ) );
+		var data = Device.Map( buffer );
+		var indices = new uint[count];
+		if ( size == 4 ) MemoryMarshal.Cast<byte, uint>( data ).CopyTo( indices );
+		else
+		{
+			var narrow = MemoryMarshal.Cast<byte, ushort>( data );
+			for ( int i = 0; i < indices.Length; i++ ) indices[i] = narrow[i];
+		}
+
+		Device.Destroy( buffer );
+		return indices;
 	}
 
 	/// <summary>

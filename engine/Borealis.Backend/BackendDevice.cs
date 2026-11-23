@@ -3682,6 +3682,7 @@ public sealed partial class BackendDevice : GpuDevice, IDisposable
 
 		// Builds read on workers make their images there: finished before the device can go
 		streamer?.Finish();
+		ServiceModelGeometry( stop: true );
 		Gpu.WaitIdle();
 		Poll();
 		materialCache?.Dispose();

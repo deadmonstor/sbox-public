@@ -16,7 +16,123 @@ namespace Borealis.Backend;
 /// </summary>
 public sealed partial class BackendDevice
 {
-	readonly ConcurrentDictionary<string, Task<ModelFile>> modelReads = new( StringComparer.OrdinalIgnoreCase );
+	readonly ConcurrentDictionary<string, ModelReadEntry> modelReads = new( StringComparer.OrdinalIgnoreCase );
+
+	sealed class ModelReadEntry
+	{
+		Task<ModelFile> pending;
+		WeakReference<ModelFile> uploaded;
+
+		public Task<ModelFile> Read( BackendDevice device, string path )
+		{
+			lock ( this )
+			{
+				if ( pending is not null ) return pending;
+				if ( uploaded is { } weak && weak.TryGetTarget( out var file ) ) return Task.FromResult( file );
+				return pending = device.StartRead( path );
+			}
+		}
+
+		public bool IsCompleted
+		{
+			get { lock ( this ) return pending?.IsCompleted ?? uploaded is not null; }
+		}
+
+		public void Uploaded( Task<ModelFile> read )
+		{
+			lock ( this )
+			{
+				if ( !ReferenceEquals( read, pending ) ) return;
+				uploaded = new( read.Result );
+				pending = null;
+			}
+		}
+	}
+
+	readonly object modelGeometryGate = new();
+	readonly List<BackendModel> uploadedGeometry = new();
+	readonly Queue<Action<bool>> modelGeometryReads = new();
+	bool geometryReadsStopped;
+
+	internal void NoteGeometryUpload( BackendModel model )
+	{
+		lock ( modelGeometryGate )
+		{
+			if ( !geometryReadsStopped ) uploadedGeometry.Add( model );
+		}
+	}
+
+	internal Task<T> QueueModelGeometryRead<T>( Func<T> read )
+	{
+		var result = new TaskCompletionSource<T>( TaskCreationOptions.RunContinuationsAsynchronously );
+		lock ( modelGeometryGate )
+		{
+			if ( geometryReadsStopped ) return Task.FromCanceled<T>( new CancellationToken( true ) );
+			modelGeometryReads.Enqueue( stopped =>
+			{
+				if ( stopped ) result.SetCanceled();
+				else
+				{
+					try { result.SetResult( read() ); }
+					catch ( Exception e ) { result.SetException( e ); }
+				}
+			} );
+		}
+
+		return result.Task;
+	}
+
+	internal void QueueModelGeometryRead( Action read )
+	{
+		lock ( modelGeometryGate )
+		{
+			if ( geometryReadsStopped ) return;
+			modelGeometryReads.Enqueue( stopped =>
+			{
+				if ( stopped ) return;
+				try { read(); }
+				catch ( Exception e ) { Warn?.Invoke( $"Model geometry readback failed: {e.Message}" ); }
+			} );
+		}
+	}
+
+	/// <summary>
+	/// At a frame's start, before any render blocks are open or any unheld model can lose its geometry pages. Workers
+	/// get arrays, not GPU handles; a worker queued after this point waits for the next frame.
+	/// </summary>
+	void ServiceModelGeometry( bool stop = false )
+	{
+		int reads;
+		lock ( modelGeometryGate )
+		{
+			geometryReadsStopped |= stop;
+			reads = modelGeometryReads.Count;
+		}
+
+		while ( reads-- > 0 )
+		{
+			Action<bool> read;
+			lock ( modelGeometryGate )
+			{
+				if ( !modelGeometryReads.TryDequeue( out read ) ) break;
+			}
+
+			read( stop );
+		}
+
+		lock ( modelGeometryGate )
+		{
+			if ( stop ) uploadedGeometry.Clear();
+			else for ( int i = uploadedGeometry.Count - 1; i >= 0; i-- )
+			{
+				var model = uploadedGeometry[i];
+				if ( !model.Freed && !model.CanEvictGeometry ) continue;
+				if ( !model.Freed ) model.EvictGeometry();
+				uploadedGeometry.RemoveAt( i );
+			}
+		}
+	}
+
 	readonly ConcurrentDictionary<string, MaterialFile> readMaterials = new( StringComparer.OrdinalIgnoreCase );
 	readonly ConcurrentDictionary<string, TextureFile> readTextures = new( StringComparer.OrdinalIgnoreCase );
 
@@ -208,7 +324,8 @@ public sealed partial class BackendDevice
 			return made;
 		}
 
-		var read = modelReads.GetOrAdd( path, StartRead );
+		var source = modelReads.GetOrAdd( path, static _ => new ModelReadEntry() );
+		var read = source.Read( this, path );
 		if ( !read.IsCompleted )
 		{
 			pending = true;
@@ -230,6 +347,7 @@ public sealed partial class BackendDevice
 		streamedModels[(path, meshGroups)] = made;
 		if ( made is not null )
 		{
+			source.Uploaded( read );
 			lock ( modelLives ) modelLives[made] = new ModelLife { Key = (path, meshGroups), Model = made.Geometry as BackendModel, Pinned = pin };
 		}
 
@@ -335,6 +453,7 @@ public sealed partial class BackendDevice
 	/// </summary>
 	void FreeUnheldModels()
 	{
+		ServiceModelGeometry();
 		if ( unheldModels.Count > 0 )
 		{
 			var due = Stopwatch.GetTimestamp() - (long)(ModelGraceSeconds * Stopwatch.Frequency);
@@ -377,7 +496,7 @@ public sealed partial class BackendDevice
 				}
 			}
 
-			// A freed model's file (its vertices and indices as read) goes too, unless another of its mesh group sets is still made
+			// A freed model's read-cache entry goes too, unless another of its mesh group sets is still made
 			if ( freedPaths is { Count: > 0 } )
 			{
 				foreach ( var key in streamedModels.Keys ) freedPaths.Remove( key.Path );
@@ -535,7 +654,7 @@ public sealed partial class BackendDevice
 	public bool ModelRead( string path ) => modelReads.TryGetValue( path, out var read ) && read.IsCompleted;
 
 	/// <summary>A model's file as <see cref="LoadModelAsync"/> reads it, on a worker, shared with it: null where there's none.</summary>
-	public Task<ModelFile> ReadModel( string path ) => modelReads.GetOrAdd( path, StartRead );
+	public Task<ModelFile> ReadModel( string path ) => modelReads.GetOrAdd( path, static _ => new ModelReadEntry() ).Read( this, path );
 
 	Task<ModelFile> StartRead( string path )
 	{
