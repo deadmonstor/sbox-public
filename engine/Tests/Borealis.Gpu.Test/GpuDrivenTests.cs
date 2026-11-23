@@ -1270,6 +1270,55 @@ public class GpuDrivenTests : GpuTest
 	}
 
 	/// <summary>
+	/// A stage that makes a material record every frame (an attribute a game sets each frame) churns after
+	/// <see cref="GpuDrivenTables.ChurnRecords"/> of them, not <see cref="GpuDrivenTables.MaxRecordsPerStage"/>, and the
+	/// draw records naming its records are forgotten at the next frame's start: each frame's record made draw records for
+	/// every range drawn with it, 5.1 million of them on a forest map. A stage making as many in one frame (objects' own
+	/// values as they come into view) doesn't churn, and keeps its draw records.
+	/// </summary>
+	[TestMethod]
+	public void AStageMakingARecordEveryFrameChurnsAndItsDrawRecordsGo()
+	{
+		using var backend = new BackendDevice( Device ) { GpuDrivenGeometry = true };
+		var tables = backend.GpuDrivenTables;
+		var windy = backend.CreateMaterial( "Windy", Color.White );
+		var objects = backend.CreateMaterial( "Objects", Color.White );
+		var shader = backend.Shaders.Load( "shaders/line.shader" );
+		var variant = shader is null ? null : backend.Shaders.Variant( shader, "Forward", default );
+		if ( variant?.Vertex is null || variant.Pixel is null ) Assert.Inconclusive( "line.shader isn't compiled" );
+
+		const int Ranges = 4;
+		uint Record( GpuMaterial m, int attributes ) =>
+			tables.Material( new GpuDrivenTables.MaterialRecordKey( m, 0, variant.Pixel, false, attributes ), 64, 0, static ( _, bytes ) => bytes.Clear() );
+		void DrawRanges( uint pixel )
+		{
+			for ( int r = 0; r < Ranges; r++ ) tables.Draw( 1, 0, pixel, 0, (uint)r * 3, 3, 0, 0 );
+		}
+
+		tables.BeginFrame();
+		for ( int i = 0; i < GpuDrivenTables.ChurnRecords * 2; i++ ) DrawRanges( Record( objects, i ) );
+		var objectDraws = tables.Records.Draws;
+
+		for ( int frame = 0; frame < GpuDrivenTables.ChurnRecords - 1; frame++ )
+		{
+			tables.BeginFrame();
+			DrawRanges( Record( windy, frame ) );
+		}
+
+		Assert.IsFalse( tables.Churns( windy, variant.Pixel ), "one record short" );
+		tables.BeginFrame();
+		DrawRanges( Record( windy, GpuDrivenTables.ChurnRecords ) );
+		Assert.IsTrue( tables.Churns( windy, variant.Pixel ), "a record a frame for as many frames" );
+		Assert.IsFalse( tables.Churns( objects, variant.Pixel ), "as many records in one frame" );
+		Assert.AreEqual( objectDraws + GpuDrivenTables.ChurnRecords * Ranges, tables.Records.Draws, "a draw record per range per record until the next frame" );
+
+		tables.BeginFrame();
+		Assert.AreEqual( GpuDrivenTables.ChurnRecords * Ranges, tables.DrawRecordsForgotten, "the churning stage's draw records go" );
+		Assert.AreEqual( objectDraws, tables.Records.Draws, "the other material's stay" );
+		Device.WaitIdle();
+	}
+
+	/// <summary>
 	/// A material a game sets a new value on every frame (wind, a pulse) makes a material record each time it's drawn
 	/// GPU-driven, and records never go: GAMMA's trees took 75 GB of host memory in three minutes. Past its limit its draws
 	/// stay classic, so the table stops growing, and they draw as the classic path does.

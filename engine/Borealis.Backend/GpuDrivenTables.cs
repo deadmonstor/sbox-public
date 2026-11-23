@@ -1038,8 +1038,22 @@ internal sealed class GpuDrivenTables : IDisposable
 		{
 			if ( materialRecords.TryGetValue( key, out var found ) ) return found;
 			var stage = (key.Material, key.Stage);
-			var made = recordsPerStage[stage] = recordsPerStage.GetValueOrDefault( stage ) + 1;
-			if ( made == MaxRecordsPerStage ) Interlocked.Increment( ref churning );
+			var made = recordsPerStage.GetOrAdd( stage, static _ => new StageRecords() );
+			made.Made++;
+			var frame = Interlocked.Read( ref frameNumber );
+			if ( made.Frame != frame )
+			{
+				made.Frames = made.Made > 1 && frame - made.Frame <= ChurnGap ? made.Frames + 1 : 1;
+				made.Frame = frame;
+			}
+
+			if ( !made.Churning && (made.Made >= MaxRecordsPerStage || (made.Made >= ChurnRecords && made.Frames >= ChurnFrames)) )
+			{
+				made.Churning = true;
+				Interlocked.Increment( ref churning );
+				newlyChurning.Add( stage );
+			}
+
 			return materialRecords[key] = materials.Append( record );
 		}
 	}
@@ -1050,18 +1064,78 @@ internal sealed class GpuDrivenTables : IDisposable
 	/// </summary>
 	public const int MaxRecordsPerStage = 256;
 
-	// Material records made per material and stage (null for a surface's one record), added to under materialRecords' lock
-	readonly System.Collections.Concurrent.ConcurrentDictionary<(GpuMaterial Material, ShaderStage Stage), int> recordsPerStage = new();
+	/// <summary>
+	/// A stage that has made <see cref="ChurnRecords"/> material records or more churns once it has made one in each of
+	/// <see cref="ChurnFrames"/> frames in a row, frames at most <see cref="ChurnGap"/> apart (<see cref="Churns"/>): an
+	/// attribute a game sets each frame (wind's time) makes one a frame, or a few (one per pass), and each made draw records
+	/// for every range drawn with it until the stage reached <see cref="MaxRecordsPerStage"/> (a forest's 50 materials made
+	/// 5.1 million draw records over 32 thousand ranges, and a 1 GB LOD table). Objects with values of their own make theirs
+	/// as they come into view and then stop; under <see cref="ChurnRecords"/> of them never churn.
+	/// </summary>
+	public const int ChurnRecords = 32, ChurnFrames = 16;
+
+	/// <summary>Frames between two that made a stage's records that still count as a row (<see cref="ChurnFrames"/>): a value set at a game's tick rate changes every few frames.</summary>
+	public const long ChurnGap = 8;
+
+	/// <summary>A material stage's records: how many it has made, the last frame that made one, and how many frames in a row have.</summary>
+	sealed class StageRecords
+	{
+		public int Made, Frames;
+		public long Frame;
+		public volatile bool Churning;
+	}
+
+	// Records made per material and stage (null for a surface's one record), added to under materialRecords' lock
+	readonly System.Collections.Concurrent.ConcurrentDictionary<(GpuMaterial Material, ShaderStage Stage), StageRecords> recordsPerStage = new();
+
+	// Stages that began churning since the frame began, whose draw records go at the next (ForgetChurnedDraws); under materialRecords' lock
+	readonly List<(GpuMaterial Material, ShaderStage Stage)> newlyChurning = new();
 
 	/// <summary>
-	/// Whether a material's stage has made <see cref="MaxRecordsPerStage"/> records: what it reads changes all the time (an
-	/// attribute a game sets each frame, wind on a map's trees, or the material itself), so drawn GPU-driven it would add a
-	/// record each time until the table ran out of memory. Its draws stay classic.
+	/// Whether a material's stage churns (<see cref="MaxRecordsPerStage"/>, <see cref="ChurnFrames"/>): what it reads changes
+	/// all the time (an attribute a game sets each frame, wind on a map's trees, or the material itself), so drawn GPU-driven
+	/// it would add a record each time until the table ran out of memory. Its draws stay classic.
 	/// </summary>
-	public bool Churns( GpuMaterial material, ShaderStage stage ) => Volatile.Read( ref churning ) > 0 && recordsPerStage.TryGetValue( (material, stage), out var made ) && made >= MaxRecordsPerStage;
+	public bool Churns( GpuMaterial material, ShaderStage stage ) => Volatile.Read( ref churning ) > 0 && recordsPerStage.TryGetValue( (material, stage), out var made ) && made.Churning;
 
-	// Stages that have reached the limit: none, mostly, and then nothing is looked up per draw
+	// Stages that churn: none, mostly, and then nothing is looked up per draw
 	int churning;
+
+	/// <summary>Draw records forgotten for naming a churning stage's material records (<see cref="ForgetChurnedDraws"/>), for tests and reports.</summary>
+	public long DrawRecordsForgotten { get; private set; }
+
+	/// <summary>
+	/// Forget the material records of the stages that began churning, and the draw records that name them: their draws are
+	/// classic from now on, so nothing asks for them again, and each would otherwise stay in <see cref="drawRecords"/> for
+	/// good. Their bytes stay in the tables, where frames still in flight read them. At a frame's start.
+	/// </summary>
+	void ForgetChurnedDraws()
+	{
+		HashSet<uint> records;
+		lock ( materialRecords )
+		{
+			if ( newlyChurning.Count == 0 ) return;
+			var stages = newlyChurning.ToHashSet();
+			newlyChurning.Clear();
+			records = new HashSet<uint>();
+			foreach ( var (key, record) in materialRecords )
+			{
+				if ( !stages.Contains( (key.Material, key.Stage) ) ) continue;
+				records.Add( record );
+				materialRecords.TryRemove( key, out _ );
+			}
+		}
+
+		// The concurrent dictionary's enumerator sees removals safely; a draw made meanwhile with one of the records is made again if asked for
+		long forgotten = 0;
+		foreach ( var (key, _) in drawRecords )
+		{
+			if ( !records.Contains( key.Vertex ) && !records.Contains( key.Pixel ) ) continue;
+			if ( drawRecords.TryRemove( key, out _ ) ) forgotten++;
+		}
+
+		DrawRecordsForgotten += forgotten;
+	}
 
 	/// <summary>
 	/// Forget the records of materials that were freed: their keys held the materials, and through them their textures, for
@@ -1082,8 +1156,10 @@ internal sealed class GpuDrivenTables : IDisposable
 			{
 				if ( stage.Material is null || !freed.Contains( stage.Material ) ) continue;
 				recordsPerStage.TryRemove( stage, out _ );
-				if ( made >= MaxRecordsPerStage ) Interlocked.Decrement( ref churning );
+				if ( made.Churning ) Interlocked.Decrement( ref churning );
 			}
+
+			newlyChurning.RemoveAll( stage => stage.Material is not null && freed.Contains( stage.Material ) );
 		}
 	}
 
@@ -1205,6 +1281,8 @@ internal sealed class GpuDrivenTables : IDisposable
 			LastFrameVisibilityBits = frameVisibilityBits;
 			frameVisibilityBits = 0;
 		}
+
+		ForgetChurnedDraws();
 	}
 
 	/// <summary>
