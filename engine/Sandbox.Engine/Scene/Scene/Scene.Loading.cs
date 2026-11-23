@@ -117,6 +117,9 @@ public partial class Scene : GameObject
 				var sceneInformation = Components.Get<SceneInformation>();
 				SceneNetworkSystem.OnLoadedScene( sceneInformation?.Title );
 			}
+
+			if ( IsValid && !IsEditor && ReferenceEquals( this, Game.ActiveScene ) )
+				LoadingScreen.CompactAfterLoad();
 		}
 		finally
 		{

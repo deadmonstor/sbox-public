@@ -1,4 +1,6 @@
-﻿namespace Sandbox;
+﻿using System.Runtime;
+
+namespace Sandbox;
 
 /// <summary>
 /// Holds metadata and raw data relating to a Saved Game.
@@ -57,6 +59,17 @@ public static class LoadingScreen
 	/// Not on a dedicated server, in a terminal, a test or a benchmark (it settles the heap itself between runs).
 	/// </summary>
 	static bool CollectsAfterLoad => !Application.IsDedicatedServer && !Application.IsHeadless && !Application.IsUnitTest && !Application.IsBenchmark;
+
+	/// <summary>
+	/// Compact the heap at the end of a successful load, before the loading screen goes away.
+	/// </summary>
+	internal static void CompactAfterLoad()
+	{
+		if ( !IsVisible || !CollectsAfterLoad ) return;
+
+		GCSettings.LargeObjectHeapCompactionMode = GCLargeObjectHeapCompactionMode.CompactOnce;
+		GC.Collect( GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true );
+	}
 
 	/// <summary>
 	/// Once a load's screen has gone, start collecting what the load left, in the background. A game that allocates
