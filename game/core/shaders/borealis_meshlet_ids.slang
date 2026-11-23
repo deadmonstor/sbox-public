@@ -84,6 +84,7 @@ static const uint None = 0xffffffffu;
 #include "sbox/transform.slangh"
 #include "borealis_gpu_driven.fxc"
 #include "borealis_meshlet.fxc"
+#include "borealis_range_tables.fxc"
 
 groupshared MeshletPayload gs_Payload;
 
@@ -119,9 +120,7 @@ groupshared uint gs_RoundCount;
 	uint nInstance = g_MeshletTask.nFirstInstance + nSlot;
 	uint2 vInstance = BorealisGpuDrivenInstance( nInstance );
 	uint nFragment = frame.Load( g_MeshletTask.nCommands + nSlot * 20 );
-	ByteAddressBuffer runs = g_bindless_VertexBuffers[ g_MeshletTask.nRunTable ];
-	uint nRunAt = vInstance.y * MeshletRun_Size;
-	uint4 vRun = uint4( runs.Load( nRunAt + MeshletRun_Page ), runs.Load( nRunAt + MeshletRun_First ), runs.Load( nRunAt + MeshletRun_Count ), runs.Load( nRunAt + MeshletRun_Global ) );
+	uint4 vRun = LoadMeshletRun( g_bindless_VertexBuffers[ g_MeshletTask.nRunTable ], vInstance.y );
 	uint nMeshlets = min( vRun.z, MaxMeshlets );
 	ByteAddressBuffer meshlets = g_bindless_VertexBuffers[ vRun.x ];
 	float3x4 mTransform = g_TransformData[ vInstance.x ].transform;

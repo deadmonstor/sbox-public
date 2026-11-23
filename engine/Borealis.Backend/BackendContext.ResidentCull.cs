@@ -417,7 +417,7 @@ internal sealed partial class BackendContext
 		}
 
 		var slots = tables.Slots;
-		var lodTable = device.LodStore?.Table ?? (-1, 0u);
+		var lodTable = device.LodStore?.Table ?? (-1, -1);
 		residentConstants ??= new byte[Marshal.SizeOf<ResidentCullConstants>()];
 		MemoryMarshal.Write( residentConstants, new ResidentCullConstants
 		{
@@ -430,8 +430,8 @@ internal sealed partial class BackendContext
 			Frame = frame,
 			FrameSlot = (uint)slot,
 			MeshletRuns = device.MeshletStore is { } store ? (uint)store.RunSlotCovering( tables.DrawRecords ) : uint.MaxValue,
-			LodTable = lodTable.Slot >= 0 ? (uint)lodTable.Slot : uint.MaxValue,
-			LodCount = lodTable.Records,
+			LodTable = (uint)lodTable.Ranges,
+			LodDraws = (uint)lodTable.Draws,
 		} );
 		DispatchResidentShader( shader, buffer, visibility?.Stamps ?? default, (int)entries );
 		device.CountResidentCull( residentItems.Count, group.Count, entries );

@@ -10,7 +10,7 @@ namespace Borealis.Backend;
 /// <summary>The record definitions these structs were generated from: the hash of sbox/records.slangh.</summary>
 internal static class RecordDefinitionsHash
 {
-	public const string Value = "F61FA1DA25CA8BEE";
+	public const string Value = "D1F9E8425E455A47";
 }
 
 /// <summary>A GPU-driven draw: what a fragment draws with, made once (GpuDrivenTables.Draw).</summary>
@@ -547,7 +547,20 @@ internal partial struct ListedFragment
 	public uint Fragment;
 }
 
-/// <summary>A draw record's meshlets, in the meshlet run table at the draw record's index (MeshletStore).</summary>
+/// <summary>The meshlet run buffer's header, then a run per published range and a word per draw record (MeshletStore).</summary>
+[StructLayout( LayoutKind.Sequential, Pack = 4 )]
+internal partial struct MeshletRunTable
+{
+	/// <summary>Bytes of one record.</summary>
+	public const int Size = 4;
+
+	/// <summary>Byte offset of <see cref="Draws"/> in the record.</summary>
+	public const int DrawsOffset = 0;
+	/// <summary>Byte offset of the draw records' run offsets; 0 names the empty run.</summary>
+	public uint Draws;
+}
+
+/// <summary>An index range's meshlets, in the meshlet run table (MeshletStore).</summary>
 [StructLayout( LayoutKind.Sequential, Pack = 4 )]
 internal partial struct MeshletRun
 {
@@ -566,7 +579,7 @@ internal partial struct MeshletRun
 
 	/// <summary>Byte offset of <see cref="Count"/> in the record.</summary>
 	public const int CountOffset = 8;
-	/// <summary>Its meshlets: written last, so a cull reading in between sees none.</summary>
+	/// <summary>Its meshlets, or 0 for none.</summary>
 	public uint Count;
 
 	/// <summary>Byte offset of <see cref="Global"/> in the record.</summary>
@@ -631,12 +644,12 @@ internal partial struct MeshletLocalRecord
 	public uint VertexCount;
 }
 
-/// <summary>One generated level of a draw record (LodStore).</summary>
+/// <summary>One generated level of an index range (LodStore).</summary>
 [StructLayout( LayoutKind.Sequential, Pack = 4 )]
 internal partial struct LodLevel
 {
 	/// <summary>Bytes of one record.</summary>
-	public const int Size = 16;
+	public const int Size = 8;
 
 	/// <summary>Byte offset of <see cref="FirstIndex"/> in the record.</summary>
 	public const int FirstIndexOffset = 0;
@@ -647,37 +660,22 @@ internal partial struct LodLevel
 	public const int IndexCountOffset = 4;
 	/// <summary>Its index count.</summary>
 	public uint IndexCount;
-
-	/// <summary>Byte offset of <see cref="Draw"/> in the record.</summary>
-	public const int DrawOffset = 8;
-	/// <summary>Its draw record.</summary>
-	public uint Draw;
-
-	/// <summary>Byte offset of <see cref="Reserved"/> in the record.</summary>
-	public const int ReservedOffset = 12;
-	/// <summary>Unused.</summary>
-	public uint Reserved;
 }
 
-/// <summary>A draw record's generated levels, in the LOD table at the draw record's index (LodStore).</summary>
+/// <summary>An index range's generated levels, in the LOD range table (LodStore).</summary>
 [StructLayout( LayoutKind.Sequential, Pack = 4 )]
 internal partial struct LodRecord
 {
 	/// <summary>Bytes of one record.</summary>
-	public const int Size = 128;
+	public const int Size = 76;
 
 	/// <summary>Byte offset of <see cref="Levels"/> in the record.</summary>
 	public const int LevelsOffset = 0;
 	/// <summary>How many levels it has (at most 6).</summary>
 	public uint Levels;
 
-	/// <summary>Byte offset of <see cref="Reserved"/> in the record.</summary>
-	public const int ReservedOffset = 4;
-	/// <summary>Unused.</summary>
-	public uint Reserved;
-
 	/// <summary>Byte offset of <see cref="Errors"/> in the record.</summary>
-	public const int ErrorsOffset = 8;
+	public const int ErrorsOffset = 4;
 	/// <summary>Bytes from one element of <see cref="Errors"/> to the next.</summary>
 	public const int ErrorsStride = 4;
 	/// <summary>Elements of <see cref="Errors"/>.</summary>
@@ -698,9 +696,9 @@ internal partial struct LodRecord
 	[UnscopedRef] public Span<float> Errors => MemoryMarshal.CreateSpan( ref Errors0, 6 );
 
 	/// <summary>Byte offset of <see cref="Level"/> in the record.</summary>
-	public const int LevelOffset = 32;
+	public const int LevelOffset = 28;
 	/// <summary>Bytes from one element of <see cref="Level"/> to the next.</summary>
-	public const int LevelStride = 16;
+	public const int LevelStride = 8;
 	/// <summary>Elements of <see cref="Level"/>.</summary>
 	public const int LevelLength = 6;
 	/// <summary>Element 0 of <see cref="Level"/>.</summary>
@@ -717,6 +715,19 @@ internal partial struct LodRecord
 	public LodLevel Level5;
 	/// <summary>Each level.</summary>
 	[UnscopedRef] public Span<LodLevel> Level => MemoryMarshal.CreateSpan( ref Level0, 6 );
+}
+
+/// <summary>The LOD draw buffer's header, then a word per draw record and the packed level draw records (LodStore).</summary>
+[StructLayout( LayoutKind.Sequential, Pack = 4 )]
+internal partial struct LodDrawTable
+{
+	/// <summary>Bytes of one record.</summary>
+	public const int Size = 4;
+
+	/// <summary>Byte offset of <see cref="DrawCount"/> in the record.</summary>
+	public const int DrawCountOffset = 0;
+	/// <summary>How many draw records it covers. Each word is an offset in words into the packed records, or 0 for none. A packed record is its LOD range record index followed by one draw record index per generated level.</summary>
+	public uint DrawCount;
 }
 
 /// <summary>The second phase's candidates in a region's Hi-Z tail: the dispatch arguments over them, their count and the occluded count, then a HiZCandidate each.</summary>

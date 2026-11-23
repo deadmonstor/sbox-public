@@ -17,7 +17,7 @@ Mode( Default );
 //-------------------------------------------------------------------------------------------------------------------------------------------------------------
 #if ( PROGRAM == VFX_PROGRAM_CS )
 #include "sbox/view.slangh"
-#include "borealis_records.fxc"
+#include "borealis_range_tables.fxc"
 
 // The raw buffer array in the bindless set (binding 63): the fragment and draw tables
 #ifndef BINDLESS_VERTEX_BUFFERS_DECLARED
@@ -49,9 +49,9 @@ cbuffer BorealisResidentCull_t
 	uint g_nResidentExpand;		// not 0: expand one plan's entries (g_Frame is its records), writing its entry records here
 	uint g_nResidentExpandMap;	// its entry map
 	uint g_nResidentExpandHeaders;	// its batches' headers
-	uint g_nResidentMeshletRuns;	// bindless slot of the meshlet runs (16 bytes per draw record), or None
-	uint g_nResidentLodTable;		// bindless slot of the generated LOD table (128 bytes per draw record), or None
-	uint g_nResidentLodCount;		// draw records the LOD table covers
+	uint g_nResidentMeshletRuns;	// bindless slot of the draw links and meshlet range runs, or None
+	uint g_nResidentLodTable;		// bindless slot of the generated LOD range table, or None
+	uint g_nResidentLodDraws;		// bindless slot of the generated LOD draw links and level draw records, or None
 	uint g_nResidentPad0;
 	uint g_nResidentPad1;
 };
@@ -279,7 +279,7 @@ bool HiZDeferred( uint4 vViewFlags, uint4 vVisibility, float3 vCenter, float3 vE
 
 	bool bMeshlets = false;
 	if ( bMeshletView && ( vVisibility.z & 12 ) == 0 && g_nResidentMeshletRuns != None && ( vVisibility.y & 0x80000000u ) == 0 )
-		bMeshlets = g_bindless_VertexBuffers[ g_nResidentMeshletRuns ].Load( nDrawRecord * MeshletRun_Size + MeshletRun_Count ) - 1 < 4096u;
+		bMeshlets = MeshletRunCount( g_bindless_VertexBuffers[ g_nResidentMeshletRuns ], nDrawRecord ) - 1 < 4096u;
 
 	uint nAt;
 	g_Frame.InterlockedAdd( vViewFlags.w + HiZCandidates_Count, 1, nAt );
@@ -468,13 +468,20 @@ void Expand( uint n )
 	uint nLevels = 0;
 	float4 vLodErrors = 0;
 	float2 vLodMore = 0;
-	uint nLodAt = nDrawRecord * LodRecord_Size;
-	if ( bActive && ( !bMeshes || ( vHeader0.x & 0xff ) <= 1 ) && g_nResidentLodTable != None && nDrawRecord < g_nResidentLodCount )
+	uint nLodAt = 0;
+	uint nLevelsAt = 0;
+	if ( bActive && ( !bMeshes || ( vHeader0.x & 0xff ) <= 1 ) && g_nResidentLodDraws != None )
 	{
-		ByteAddressBuffer lods = g_bindless_VertexBuffers[ g_nResidentLodTable ];
-		nLevels = min( lods.Load( nLodAt + LodRecord_Levels ), 6u );
-		vLodErrors = asfloat( lods.Load4( nLodAt + LodRecord_Errors ) );
-		vLodMore = asfloat( lods.Load2( nLodAt + LodRecord_Errors + 4 * LodRecord_ErrorsStride ) );
+		ByteAddressBuffer levelDraws = g_bindless_VertexBuffers[ g_nResidentLodDraws ];
+		nLevelsAt = LodDrawAt( levelDraws, nDrawRecord );
+		if ( nLevelsAt != 0 )
+		{
+			ByteAddressBuffer lods = g_bindless_VertexBuffers[ g_nResidentLodTable ];
+			nLodAt = levelDraws.Load( nLevelsAt ) * LodRecord_Size;
+			nLevels = min( lods.Load( nLodAt + LodRecord_Levels ), 6u );
+			vLodErrors = asfloat( lods.Load4( nLodAt + LodRecord_Errors ) );
+			vLodMore = asfloat( lods.Load2( nLodAt + LodRecord_Errors + 4 * LodRecord_ErrorsStride ) );
+		}
 	}
 
 	// Each view in turn, the same for the whole group: its 32-byte record (view record, instance records, commands,
@@ -527,7 +534,7 @@ void Expand( uint n )
 			{
 				ByteAddressBuffer lods = g_bindless_VertexBuffers[ g_nResidentLodTable ];
 				uint nLevelAt = nLodAt + LodRecord_Level + ( nLevel - 1 ) * LodRecord_LevelStride;
-				nViewDraw = lods.Load( nLevelAt + LodLevel_Draw );
+				nViewDraw = g_bindless_VertexBuffers[ g_nResidentLodDraws ].Load( nLevelsAt + nLevel * 4 );
 				vViewRange = uint2( lods.Load( nLevelAt + LodLevel_FirstIndex ), lods.Load( nLevelAt + LodLevel_IndexCount ) );
 			}
 		}
@@ -552,7 +559,7 @@ void Expand( uint n )
 		// meshlet pass, which draws those that can reach a sample (borealis_meshlet_cull_cs); its stamp is written here
 		// (A depth prepass lists only aggregates' fragments: static meshes' draws have meshlets for shadow views.)
 		bool bMeshlets = bKept && !bListed && ( vViewOut.w & 4 ) != 0 && ( vVisibility.z & 1 ) != 0 && ( ( vViewFlags.x & 1 ) != 0 || ( vVisibility.z & 12 ) == 0 ) && g_nResidentMeshletRuns != None
-			&& g_bindless_VertexBuffers[ g_nResidentMeshletRuns ].Load( nViewDraw * MeshletRun_Size + MeshletRun_Count ) - 1 < 4096u;
+			&& MeshletRunCount( g_bindless_VertexBuffers[ g_nResidentMeshletRuns ], nViewDraw ) - 1 < 4096u;
 
 		// In a bucket drawn with task and mesh shaders (the sixth word's top bit), it takes a slot of the bucket's task run
 		// instead, a task group of borealis_meshlet_ids each

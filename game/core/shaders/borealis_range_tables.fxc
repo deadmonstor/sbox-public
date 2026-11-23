@@ -1,0 +1,36 @@
+// Copyright (c) Facepunch. All Rights Reserved.
+
+#ifndef BOREALIS_RANGE_TABLES_FXC
+#define BOREALIS_RANGE_TABLES_FXC
+
+#include "borealis_records.fxc"
+
+uint MeshletRunAt( ByteAddressBuffer runs, uint nDraw )
+{
+	uint nDrawsAt = runs.Load( MeshletRunTable_Draws );
+	return MeshletRunTable_Size + runs.Load( nDrawsAt + nDraw * 4 );
+}
+
+uint MeshletRunCount( ByteAddressBuffer runs, uint nDraw )
+{
+	return runs.Load( MeshletRunAt( runs, nDraw ) + MeshletRun_Count );
+}
+
+uint4 LoadMeshletRun( ByteAddressBuffer runs, uint nDraw )
+{
+	uint nAt = MeshletRunAt( runs, nDraw );
+	return uint4( runs.Load( nAt + MeshletRun_Page ), runs.Load( nAt + MeshletRun_First ), runs.Load( nAt + MeshletRun_Count ), runs.Load( nAt + MeshletRun_Global ) );
+}
+
+// The packed record after the draw links: its range slot followed by its level draw records, or 0 for no record.
+uint LodDrawAt( ByteAddressBuffer draws, uint nDraw )
+{
+	uint nCount = draws.Load( LodDrawTable_DrawCount );
+	if ( nDraw >= nCount )
+		return 0;
+
+	uint nLink = draws.Load( LodDrawTable_Size + nDraw * 4 );
+	return nLink != 0 ? LodDrawTable_Size + ( nCount + nLink ) * 4 : 0;
+}
+
+#endif // BOREALIS_RANGE_TABLES_FXC

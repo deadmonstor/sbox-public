@@ -14,10 +14,9 @@ namespace Borealis.Backend.Meshlets;
 /// The meshlets of GPU-driven index ranges (docs/reference/borealis-gpu-driven.md, "Meshlets"). A range is asked for as its
 /// draw records are written; it's built off the frame on workers (<see cref="MeshletBuilder"/>), its indices rewritten in
 /// its index page in meshlet order and its records put in a meshlet page at a frame's start, and only once the frames that
-/// could still be reading its old order are done does every draw record over it get its run: until then it draws whole.
-/// A run (<see cref="RunBytes"/> per draw record, in a host-visible table the culls read) is its meshlet page's bindless
-/// slot, its first meshlet in the page, how many (0 for none) and the first's index among every meshlet (for per-view
-/// meshlet bits).
+/// could still be reading its old order are done does each draw record over it get a link to the range's run. Until then
+/// it draws whole. A run (<see cref="RunBytes"/>) is its meshlet page's bindless slot, its first meshlet in the page, how
+/// many (0 for none) and the first's index among every meshlet (for per-view meshlet bits).
 /// </summary>
 internal sealed class MeshletStore : IDisposable
 {
@@ -117,7 +116,8 @@ internal sealed class MeshletStore : IDisposable
 		public long IndexBytes, LocalTrianglesAt, LocalVerticesAt, LocalVertexBytes;
 		public long UploadedFrame;
 		public uint PageSlot, First, Count, Global;
-		public readonly List<uint> Draws = new();
+		public int RunAt;
+		public List<uint> Draws;
 	}
 
 	readonly object gate = new();
@@ -148,12 +148,12 @@ internal sealed class MeshletStore : IDisposable
 	long dataUsed = DataPageBytes;
 	long frame;
 
-	// The run table: 8 bytes per draw record
+	// The run table: a header, the range runs (the first empty), then their byte offsets by draw record.
 	BufferHandle runs;
 	int runSlot = -1;
-	long runBytes;
+	int runBytes, drawIndexBytes, runsUsed = RunBytes;
 
-	// The corner table (CornerData): a corner run per draw record, grown as the run table is
+	// The optional corner table (CornerData) still holds a corner run per draw record.
 	BufferHandle corners;
 	int cornerSlot = -1;
 	long cornerBytes;
@@ -178,7 +178,7 @@ internal sealed class MeshletStore : IDisposable
 		this.gpu = gpu;
 		Config = config;
 		workers = new SemaphoreSlim( Math.Max( threads, 1 ) );
-		GrowRuns( 1 << 16 );
+		GrowRuns( RunBytes, sizeof( uint ) );
 	}
 
 	/// <summary>The run table's bindless slot, for the culls.</summary>
@@ -199,23 +199,31 @@ internal sealed class MeshletStore : IDisposable
 		}
 	}
 
+	/// <summary>Bytes of the draw links in the run table, for tests.</summary>
+	internal long DrawIndexBytesHeld
+	{
+		get
+		{
+			lock ( gate ) return drawIndexBytes;
+		}
+	}
+
 	/// <summary>
-	/// The run table's bindless slot, grown first to hold a run for every one of <paramref name="drawRecords"/> draw records:
-	/// the culls read a draw's run whether or not it has one, so a draw record past the table's end read past its buffer.
-	/// What's grown is zeros, which read as no meshlets.
+	/// The run table's bindless slot, grown first to hold a link for every one of <paramref name="drawRecords"/> draw
+	/// records: the culls look up a run whether or not the draw has one. Zero links name the empty run.
 	/// </summary>
 	public int RunSlotCovering( long drawRecords )
 	{
 		lock ( gate )
 		{
-			if ( drawRecords * RunBytes > runBytes ) GrowRuns( drawRecords * RunBytes );
+			if ( drawRecords * sizeof( uint ) > drawIndexBytes ) GrowRuns( runBytes, checked( (int)(drawRecords * sizeof( uint )) ) );
 			return runSlot;
 		}
 	}
 
 	/// <summary>
 	/// The corner table's bindless slot (<see cref="CornerData"/>), grown first to hold a corner run for every one of
-	/// <paramref name="drawRecords"/> draw records, as <see cref="RunSlotCovering"/> grows the run table; -1 without corner data.
+	/// <paramref name="drawRecords"/> draw records; -1 without corner data.
 	/// </summary>
 	public int CornerSlotCovering( long drawRecords )
 	{
@@ -248,10 +256,11 @@ internal sealed class MeshletStore : IDisposable
 			if ( entries.ContainsKey( range ) ) return;
 			var entry = new Entry { Range = range, Source = source, State = State.Building };
 			entries[range] = entry;
-			if ( waitingDraws.Remove( range, out var draws ) ) entry.Draws.AddRange( draws );
+			waitingDraws.Remove( range, out entry.Draws );
 			if ( !Claim( range ) )
 			{
 				entry.State = State.None;
+				entry.Draws = null;
 				Refused++;
 				return;
 			}
@@ -532,6 +541,7 @@ internal sealed class MeshletStore : IDisposable
 	/// </summary>
 	public void RegisterDraw( uint draw, in Range range )
 	{
+		if ( range.IndexCount < 3 ) return;
 		lock ( gate )
 		{
 			if ( !entries.TryGetValue( range, out var entry ) )
@@ -542,8 +552,8 @@ internal sealed class MeshletStore : IDisposable
 			}
 
 			if ( entry.State == State.None ) return;
-			entry.Draws.Add( draw );
-			if ( entry.State == State.Published ) WriteRun( draw, entry );
+			if ( entry.State == State.Published ) WriteDraw( draw, entry );
+			else (entry.Draws ??= new()).Add( draw );
 		}
 	}
 
@@ -632,7 +642,12 @@ internal sealed class MeshletStore : IDisposable
 				var entry = uploaded[i];
 				if ( frame - entry.UploadedFrame < PublishDelay ) continue;
 				entry.State = State.Published;
-				foreach ( var draw in entry.Draws ) WriteRun( draw, entry );
+				WriteRun( entry );
+				if ( entry.Draws is { } draws )
+				{
+					foreach ( var draw in draws ) WriteDraw( draw, entry );
+					entry.Draws = null;
+				}
 				Published++;
 				Meshlets += entry.Set.Meshlets.Length;
 				Triangles += entry.Set.Triangles;
@@ -655,7 +670,11 @@ internal sealed class MeshletStore : IDisposable
 			lock ( gate ) Built++;
 			if ( entry.Set is not { } set )
 			{
-				lock ( gate ) entry.State = State.None;
+				lock ( gate )
+				{
+					entry.State = State.None;
+					entry.Draws = null;
+				}
 				continue;
 			}
 
@@ -822,7 +841,7 @@ internal sealed class MeshletStore : IDisposable
 		return bytes;
 	}
 
-	void WriteRun( uint draw, Entry entry )
+	void WriteDraw( uint draw, Entry entry )
 	{
 		// The corner run first, its slot last: a resolve finds no table until it's whole
 		if ( CornerData && entry.CornerSlot != 0 )
@@ -837,16 +856,22 @@ internal sealed class MeshletStore : IDisposable
 			Volatile.Write( ref corner[0], entry.CornerSlot );
 		}
 
-		var at = draw * (long)RunBytes;
-		if ( at + RunBytes > runBytes ) GrowRuns( at + RunBytes );
-		ref var run = ref MemoryMarshal.AsRef<MeshletRun>( gpu.Map( runs ).Slice( (int)at, RunBytes ) );
+		var needed = checked( (int)(draw + 1) * sizeof( uint ) );
+		if ( needed > drawIndexBytes ) GrowRuns( runBytes, needed );
+		var at = MeshletRunTable.Size + runBytes + needed - sizeof( uint );
 
-		// The count last: a cull reading in between sees no meshlets rather than a wrong page
-		run.Page = entry.PageSlot;
-		run.First = entry.First;
-		run.Global = entry.Global;
+		// The range's run is complete before making it visible to any draw.
 		Thread.MemoryBarrier();
-		Volatile.Write( ref run.Count, entry.Count );
+		Volatile.Write( ref MemoryMarshal.AsRef<uint>( gpu.Map( runs )[at..] ), (uint)entry.RunAt );
+	}
+
+	void WriteRun( Entry entry )
+	{
+		if ( runsUsed + RunBytes > runBytes ) GrowRuns( runsUsed + RunBytes, drawIndexBytes );
+		entry.RunAt = runsUsed;
+		runsUsed += RunBytes;
+		var run = new MeshletRun { Page = entry.PageSlot, First = entry.First, Count = entry.Count, Global = entry.Global };
+		MemoryMarshal.Write( gpu.Map( runs )[(MeshletRunTable.Size + entry.RunAt)..], in run );
 	}
 
 	/// <summary>Every meshlet's index is below this: what a view's meshlet bits must hold.</summary>
@@ -858,21 +883,31 @@ internal sealed class MeshletStore : IDisposable
 		}
 	}
 
-	void GrowRuns( long needed )
+	void GrowRuns( int neededRuns, int neededDraws )
 	{
-		var size = Math.Max( runBytes * 2, 1 << 16 );
-		while ( size < needed ) size *= 2;
-		var buffer = gpu.CreateBuffer( new BufferInfo { Size = size, Usage = BufferUsage.Storage, Memory = MemoryLocation.Upload, Name = "Borealis meshlet runs" } );
+		var rangeBytes = Math.Max( runBytes, 1 << 16 );
+		while ( rangeBytes < neededRuns ) rangeBytes *= 2;
+		var indexBytes = Math.Max( drawIndexBytes, 1 << 12 );
+		while ( indexBytes < neededDraws ) indexBytes *= 2;
+
+		var drawAt = MeshletRunTable.Size + rangeBytes;
+		var buffer = gpu.CreateBuffer( new BufferInfo { Size = (long)drawAt + indexBytes, Usage = BufferUsage.Storage, Memory = MemoryLocation.Upload, Name = "Borealis meshlet runs" } );
 		var mapped = gpu.Map( buffer );
-		mapped.Clear();
+		var header = new MeshletRunTable { Draws = (uint)drawAt };
+		MemoryMarshal.Write( mapped, in header );
 		if ( runs.IsValid )
 		{
-			gpu.Map( runs )[..(int)runBytes].CopyTo( mapped );
+			var old = gpu.Map( runs );
+			old.Slice( MeshletRunTable.Size, runsUsed ).CopyTo( mapped[MeshletRunTable.Size..] );
+			old.Slice( MeshletRunTable.Size + runBytes, drawIndexBytes ).CopyTo( mapped[drawAt..] );
 			retiredRuns.Add( (runs, gpu.FrameNumber) );
 		}
+		else mapped.Slice( MeshletRunTable.Size, RunBytes ).Clear();
 
+		mapped[(drawAt + drawIndexBytes)..].Clear();
 		runs = buffer;
-		runBytes = size;
+		runBytes = rangeBytes;
+		drawIndexBytes = indexBytes;
 		runSlot = gpu.BindlessIndex( buffer );
 	}
 

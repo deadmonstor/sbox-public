@@ -16,7 +16,7 @@ Mode( Default );
 //-------------------------------------------------------------------------------------------------------------------------------------------------------------
 #if ( PROGRAM == VFX_PROGRAM_CS )
 #include "sbox/view.slangh"
-#include "borealis_records.fxc"
+#include "borealis_range_tables.fxc"
 #include "sbox/transform.slangh"
 #include "borealis_meshlet.fxc"
 
@@ -44,7 +44,7 @@ cbuffer BorealisMeshletCull_t
 	uint g_nMeshletFirstInstance;	// the first instance record's index in g_Frame
 	uint g_nMeshletRuns;			// byte offset of the multi-draws: first command slot and count each
 	uint g_nMeshletDraws;			// bindless slot of the draw table
-	uint g_nMeshletRunTable;		// bindless slot of the meshlet runs, 16 bytes per draw record
+	uint g_nMeshletRunTable;		// bindless slot of the draw links and meshlet range runs
 	uint g_nMeshletCapacity;		// indices g_Compacted and g_Compacted16 hold
 	uint g_nMeshletFragmentWords;	// g_Frame byte offset of instance 0's fragment word for the ids (wraps), or None
 	uint g_nMeshletSamples;			// the depth target's samples: 1 or 4 cull meshlets between samples, others don't
@@ -171,9 +171,7 @@ void Copy( uint nJob, uint nThread )
 	// after its first's, borealis_hiz_cs)
 	uint nEntry = g_nMeshletListed + ListedArguments_Size + g_Frame.Load( g_nMeshletListed + ListedArguments_Entries ) + vGroupId.x * ListedFragment_Size;
 	uint nDrawRecord = g_Frame.Load( nEntry + ListedFragment_Draw );
-	ByteAddressBuffer runs = g_bindless_VertexBuffers[ g_nMeshletRunTable ];
-	uint nRunAt = nDrawRecord * MeshletRun_Size;
-	uint4 vRun = uint4( runs.Load( nRunAt + MeshletRun_Page ), runs.Load( nRunAt + MeshletRun_First ), runs.Load( nRunAt + MeshletRun_Count ), runs.Load( nRunAt + MeshletRun_Global ) );
+	uint4 vRun = LoadMeshletRun( g_bindless_VertexBuffers[ g_nMeshletRunTable ], nDrawRecord );
 	uint nMeshlets = min( vRun.z, 4 * ChunkMeshlets );
 	bool bOneChunk = nMeshlets <= ChunkMeshlets;
 	ByteAddressBuffer meshlets = g_bindless_VertexBuffers[ vRun.x ];

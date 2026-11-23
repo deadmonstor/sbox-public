@@ -57,8 +57,8 @@ cbuffer BorealisGpuDrivenCull_t
 	uint g_nCullCapacity;		// indices g_Compacted holds
 	uint g_nCullFragmentWords;
 	uint g_nCullListed;			// byte offset of the listed fragments: dispatch arguments, then 32 bytes each
-	uint g_nCullMeshletRuns;		// bindless slot of the meshlet runs (16 bytes per draw record) where the view's prepass culls meshlets; else None
-	uint g_nCullLodCount;
+	uint g_nCullMeshletRuns;		// bindless slot of the draw links and meshlet range runs where the prepass culls meshlets; else None
+	uint g_nCullLodDraws;
 };
 
 static const uint None = 0xffffffffu;

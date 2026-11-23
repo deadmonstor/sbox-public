@@ -4,6 +4,7 @@ using Borealis.Source2.Models;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -17,19 +18,15 @@ namespace Borealis.Backend.Lods;
 /// Generated levels of GPU-driven aggregate ranges (docs/reference/borealis-gpu-driven.md, "Generated LODs"). A fragment's
 /// range is asked for as its records are written; its chain of coarser levels is built off the frame on workers
 /// (<see cref="LodBuilder"/>), and once a GPU-driven colour pass draws the range too, the levels' indices go in its index
-/// page's level room at a frame's start and every draw record over the range gets a LOD record: for each level its own
-/// draw record (so it has meshlets of its own), first index, index count and error. The culls pick a level per fragment
-/// from those records.
+/// page's level room at a frame's start. The culls pick a level per fragment from the range's LOD record, then use the
+/// base draw's own level draw records (so each level has meshlets of its own and uses the base draw's materials).
 /// </summary>
 internal sealed class LodStore : IDisposable
 {
 	/// <summary>Coarser levels a range can have.</summary>
 	public const int MaxLevels = 6;
 
-	/// <summary>
-	/// Bytes of a LOD record, per draw record in the LOD table: the level count, a word unused, each level's error (a fraction
-	/// of the fragment's bounds' half diagonal), then 16 bytes per level: first index, index count, draw record and a word unused.
-	/// </summary>
+	/// <summary>Bytes of a LOD record: the level count and each level's error, first index and index count.</summary>
 	public const int RecordBytes = LodRecord.Size;
 
 	/// <summary>Bytes before the levels kept per view: counters of level changes (changes, reversals, coarser, finer).</summary>
@@ -74,7 +71,8 @@ internal sealed class LodStore : IDisposable
 		public bool Color;
 		public Label Label;
 		public (uint First, uint Count)[] Placed;
-		public readonly List<uint> Draws = new();
+		public uint Record;
+		public List<uint> Draws;
 
 		/// <summary>
 		/// Its levels in the range's index size one after another (at <see cref="LevelsAt"/>), written on the build worker
@@ -131,8 +129,8 @@ internal sealed class LodStore : IDisposable
 
 	/// <summary>
 	/// Forget the ranges in the index page at <paramref name="slot"/>, whose meshes have all gone (the page is being freed,
-	/// and its slot may name another page later), with their levels; false while one is being built or waits to be placed,
-	/// to be asked again next frame.
+	/// and its slot may name another page later), with their levels; false while one is being built or waits to be placed
+	/// for a colour pass, to be asked again next frame. Built ranges no colour pass draws need not wait for an upload.
 	/// </summary>
 	public bool TryForgetPage( int slot )
 	{
@@ -140,9 +138,10 @@ internal sealed class LodStore : IDisposable
 		{
 			foreach ( var (range, entry) in entries )
 			{
-				if ( range.PageSlot == slot && entry.State is Phase.Building or Phase.Built ) return false;
+				if ( range.PageSlot == slot && (entry.State == Phase.Building || entry.State == Phase.Built && entry.Color) ) return false;
 			}
 
+			ready.RemoveAll( e => e.Range.PageSlot == slot );
 			foreach ( var range in entries.Keys.Where( r => r.PageSlot == slot ).ToList() ) entries.Remove( range );
 			foreach ( var range in waitingDraws.Keys.Where( r => r.PageSlot == slot ).ToList() ) waitingDraws.Remove( range );
 			levelRanges.RemoveWhere( r => r.PageSlot == slot );
@@ -156,15 +155,29 @@ internal sealed class LodStore : IDisposable
 	readonly HashSet<Range> levelRanges = new();
 	readonly ConcurrentQueue<Entry> built = new();
 	readonly List<Entry> ready = new();
-	readonly ConcurrentQueue<(uint Draw, uint[] Record)> records = new();
+	List<PendingDraw> records;
 	readonly SemaphoreSlim workers;
 
-	BufferHandle table;
-	int tableSlot = -1;
-	long tableRecords;
-	// Tables it grew out of, with the frame they were retired in: freed once that frame's lists have been submitted
+	[InlineArray( MaxLevels + 1 )]
+	struct DrawLevels
+	{
+		uint first;
+	}
+
+	struct PendingDraw
+	{
+		public uint Draw;
+		public int Words;
+		public DrawLevels Levels;
+	}
+
+	BufferHandle table, drawTable;
+	long tableRecords, rangeCount, drawCapacity, levelCapacity, levelWords = 1;
+	// Published together after the uploads, with the draw table in the high word.
+	long tableSlots = -1;
+	// Tables they grew out of, with the frame they were retired in: kept for the frames in flight.
 	readonly List<(BufferHandle Buffer, long Frame)> retired = new();
-	volatile bool cleared;
+	bool cleared;
 
 	readonly BufferHandle state;
 	readonly WeakReference<object>[] sliceOwners = new WeakReference<object>[StateSlices];
@@ -189,7 +202,6 @@ internal sealed class LodStore : IDisposable
 		Config = config;
 		CacheFolder = cacheFolder;
 		workers = new SemaphoreSlim( Math.Max( threads, 1 ) );
-		GrowTable( null, 1 << 12 );
 		state = gpu.CreateBuffer( new BufferInfo { Size = StateHeaderBytes + (long)StateSlices * StateSliceBytes, Usage = BufferUsage.Storage | BufferUsage.CopyDestination | BufferUsage.CopySource, Name = "Borealis LOD levels" } );
 	}
 
@@ -199,8 +211,15 @@ internal sealed class LodStore : IDisposable
 	/// </summary>
 	public string CacheFolder { get; }
 
-	/// <summary>The LOD table's bindless slot and how many draw records it covers, for the culls; set at a frame's start.</summary>
-	public (int Slot, uint Records) Table => cleared ? (Volatile.Read( ref tableSlot ), (uint)Volatile.Read( ref tableRecords )) : (-1, 0u);
+	/// <summary>The LOD range and draw tables' bindless slots, or -1 when absent; set at a frame's start.</summary>
+	public (int Ranges, int Draws) Table
+	{
+		get
+		{
+			var slots = Volatile.Read( ref tableSlots );
+			return ((int)slots, (int)(slots >> 32));
+		}
+	}
 
 	/// <summary>The levels views keep, which the culls bind (<c>BorealisCullLevels</c>).</summary>
 	public BufferHandle State => state;
@@ -337,7 +356,7 @@ internal sealed class LodStore : IDisposable
 
 			var entry = new Entry { Range = range, Source = source, State = Phase.Building, Color = color, Label = Labelled ? label : default };
 			entries[range] = entry;
-			if ( waitingDraws.Remove( range, out var draws ) ) entry.Draws.AddRange( draws );
+			waitingDraws.Remove( range, out entry.Draws );
 			Requested++;
 			Task.Run( () => BuildOn( entry ) );
 		}
@@ -534,6 +553,7 @@ internal sealed class LodStore : IDisposable
 	/// </summary>
 	public void RegisterDraw( uint draw, in Range range )
 	{
+		if ( range.IndexCount / 3 < Config.MinRangeTriangles ) return;
 		Entry entry;
 		lock ( gate )
 		{
@@ -546,35 +566,49 @@ internal sealed class LodStore : IDisposable
 			}
 
 			if ( entry.State == Phase.None ) return;
-			entry.Draws.Add( draw );
-			if ( entry.State != Phase.Published ) return;
+			if ( entry.State != Phase.Published )
+			{
+				(entry.Draws ??= new()).Add( draw );
+				return;
+			}
 		}
 
-		records.Enqueue( (draw, MakeRecord( draw, entry )) );
+		var record = MakeDrawLevels( draw, entry );
+		lock ( gate ) (records ??= new()).Add( record );
 	}
 
-	/// <summary>A draw record's LOD record: a draw record per level, with the base's geometry, materials and flags.</summary>
-	uint[] MakeRecord( uint draw, Entry entry )
+	/// <summary>A base draw's level draw records, with its geometry, materials and flags, and their LOD range record.</summary>
+	PendingDraw MakeDrawLevels( uint draw, Entry entry )
 	{
-		var (geometry, vertex, pixel, flags, baseVertex) = tables.DrawFields( draw );
-		var record = new uint[RecordBytes / 4];
-		ref var lod = ref MemoryMarshal.AsRef<LodRecord>( MemoryMarshal.AsBytes( record.AsSpan() ) );
 		var placed = entry.Placed;
-		lod.Levels = (uint)placed.Length;
-		var errors = lod.Errors;
-		var levels = lod.Level;
+		var (geometry, vertex, pixel, flags, baseVertex) = tables.DrawFields( draw );
+		var record = new PendingDraw { Draw = draw, Words = 1 + placed.Length };
+		record.Levels[0] = entry.Record;
 		for ( int k = 0; k < placed.Length; k++ )
 		{
-			errors[k] = entry.Chain.Errors[k];
-			levels[k] = new LodLevel { FirstIndex = placed[k].First, IndexCount = placed[k].Count, Draw = tables.Draw( geometry, vertex, pixel, flags, placed[k].First, placed[k].Count, baseVertex, entry.Range.PageSlot ) };
+			record.Levels[k + 1] = tables.Draw( geometry, vertex, pixel, flags, placed[k].First, placed[k].Count, baseVertex, entry.Range.PageSlot );
 		}
 
 		return record;
 	}
 
+	void WriteRange( CommandList list, Entry entry )
+	{
+		var placed = entry.Placed;
+		var record = new LodRecord { Levels = (uint)placed.Length };
+		entry.Chain.Errors.AsSpan( 0, placed.Length ).CopyTo( record.Errors );
+		var levels = record.Level;
+		for ( int k = 0; k < placed.Length; k++ )
+		{
+			levels[k] = new LodLevel { FirstIndex = placed[k].First, IndexCount = placed[k].Count };
+		}
+
+		list.UpdateBuffer<LodRecord>( table, new ReadOnlySpan<LodRecord>( in record ), entry.Record * (long)RecordBytes );
+	}
+
 	/// <summary>
 	/// At a frame's start, on the thread that records it: place and upload built chains whose ranges a colour pass draws,
-	/// within the frame's budget, and write the LOD records of their draws and of draws made since, in a list of its own
+	/// within the frame's budget, and write their range records and the draws' level draw indices in a list of its own
 	/// submitted ahead of the frame's.
 	/// </summary>
 	public void BeginFrame()
@@ -589,6 +623,7 @@ internal sealed class LodStore : IDisposable
 		}
 
 		List<Entry> publish = null;
+		List<PendingDraw> pending;
 		long budget = 0;
 		lock ( gate )
 		{
@@ -599,6 +634,7 @@ internal sealed class LodStore : IDisposable
 				{
 					Simplest++;
 					entry.State = Phase.None;
+					entry.Draws = null;
 					entry.Source = null;
 					publishVersion++;
 					continue;
@@ -616,6 +652,9 @@ internal sealed class LodStore : IDisposable
 				foreach ( var level in entry.Chain.Levels ) budget += level.Length * 4L;
 				ready.RemoveAt( i-- );
 			}
+
+			pending = records;
+			records = null;
 		}
 
 		int[] clears;
@@ -625,14 +664,13 @@ internal sealed class LodStore : IDisposable
 			sliceClears.Clear();
 		}
 
-		if ( publish is null && records.IsEmpty && cleared && !CountChanges && clears.Length == 0 ) return;
+		if ( publish is null && pending is null && cleared && !CountChanges && clears.Length == 0 ) return;
 
 		using var zone = Zones.LodUpload.Start();
 		var list = gpu.BeginCommandList( QueueType.Graphics, "LOD uploads" );
-		list.Barrier( PipelineStage.AllCommands, MemoryAccess.IndexRead | MemoryAccess.ShaderRead | MemoryAccess.ShaderWrite, PipelineStage.Transfer, MemoryAccess.TransferWrite | MemoryAccess.TransferRead );
+		list.Barrier( PipelineStage.AllCommands, MemoryAccess.IndexRead | MemoryAccess.ShaderRead | MemoryAccess.ShaderWrite | MemoryAccess.TransferWrite, PipelineStage.Transfer, MemoryAccess.TransferWrite | MemoryAccess.TransferRead );
 		if ( !cleared )
 		{
-			list.FillBuffer( table, 0 );
 			list.FillBuffer( state, 0 );
 			list.Barrier( PipelineStage.Transfer, MemoryAccess.TransferWrite, PipelineStage.Transfer, MemoryAccess.TransferWrite | MemoryAccess.TransferRead );
 			cleared = true;
@@ -649,6 +687,7 @@ internal sealed class LodStore : IDisposable
 
 		// Each chain's levels in its range's page, as many as there's room for, coarsest last
 		List<(Range Range, Source Source)> meshletRequests = null;
+		var oldRanges = rangeCount;
 		foreach ( var entry in publish ?? [] )
 		{
 			var s = entry.Source;
@@ -685,19 +724,21 @@ internal sealed class LodStore : IDisposable
 			entry.LevelBytes = null;
 			entry.LevelBuffers = null;
 
-			uint[] draws;
+			List<uint> draws;
 			lock ( gate )
 			{
 				entry.Placed = placed.ToArray();
 				foreach ( var (first, count) in entry.Placed ) levelRanges.Add( new Range( entry.Range.PageSlot, first, count, entry.Range.BaseVertex ) );
 				entry.State = entry.Placed.Length > 0 ? Phase.Published : Phase.None;
-				draws = entry.State == Phase.Published ? entry.Draws.ToArray() : [];
+				draws = entry.Draws;
+				entry.Draws = null;
 
 				// Its indices are in the page now: records need only the errors
 				entry.Source = null;
 				entry.Chain = new LodChain { Levels = [], Errors = entry.Chain.Errors };
 				if ( entry.State == Phase.Published )
 				{
+					entry.Record = (uint)rangeCount++;
 					Published++;
 					Levels += entry.Placed.Length;
 					BaseTriangles += entry.Range.IndexCount / 3;
@@ -707,26 +748,27 @@ internal sealed class LodStore : IDisposable
 			}
 
 			// Outside the lock: making the levels' draw records registers them here
-			foreach ( var draw in draws ) records.Enqueue( (draw, MakeRecord( draw, entry )) );
-		}
-
-		// The LOD records, in a table grown to the highest draw record they're for
-		if ( !records.IsEmpty )
-		{
-			var pending = new List<(uint Draw, uint[] Record)>();
-			uint highest = 0;
-			while ( records.TryDequeue( out var r ) )
+			if ( entry.State == Phase.Published && draws is not null )
 			{
-				pending.Add( r );
-				highest = Math.Max( highest, r.Draw );
+				foreach ( var draw in draws ) (pending ??= new()).Add( MakeDrawLevels( draw, entry ) );
 			}
-
-			if ( highest >= tableRecords ) GrowTable( list, highest + 1 );
-			foreach ( var (draw, record) in pending ) list.UpdateBuffer<uint>( table, record, draw * (long)RecordBytes );
 		}
+
+		if ( rangeCount > tableRecords ) GrowTable( list, oldRanges );
+		foreach ( var entry in publish ?? [] )
+		{
+			if ( entry.State == Phase.Published ) WriteRange( list, entry );
+		}
+
+		if ( pending is not null ) WriteDraws( list, pending );
 
 		list.Barrier( PipelineStage.Transfer, MemoryAccess.TransferWrite, PipelineStage.AllCommands, MemoryAccess.IndexRead | MemoryAccess.ShaderRead | MemoryAccess.ShaderWrite );
 		gpu.Submit( list );
+		if ( pending is not null || rangeCount != oldRanges )
+		{
+			var drawSlot = drawTable.IsValid ? gpu.BindlessIndex( drawTable ) : -1;
+			Volatile.Write( ref tableSlots, (long)drawSlot << 32 | (uint)gpu.BindlessIndex( table ) );
+		}
 
 		// The levels' meshlets, built from their own indices once they're in their pages
 		var store = Meshlets;
@@ -736,23 +778,76 @@ internal sealed class LodStore : IDisposable
 		}
 	}
 
-	/// <summary>A table covering at least <paramref name="needed"/> draw records: the old one copied in, the rest zero.</summary>
-	void GrowTable( CommandList list, long needed )
+	/// <summary>A table covering all published ranges, with the old records copied in.</summary>
+	void GrowTable( CommandList list, long oldRanges )
 	{
-		var size = Math.Max( tableRecords * 2, 1 << 12 );
-		while ( size < needed ) size *= 2;
+		var size = Math.Max( tableRecords, 1 << 12 );
+		while ( size < rangeCount ) size *= 2;
 		var buffer = gpu.CreateBuffer( new BufferInfo { Size = size * RecordBytes, Usage = BufferUsage.Storage | BufferUsage.CopyDestination | BufferUsage.CopySource, Memory = MemoryLocation.Device, Name = "Borealis LOD table" } );
-		if ( table.IsValid && list is not null )
+		if ( table.IsValid )
 		{
-			list.CopyBuffer( table, 0, buffer, 0, tableRecords * RecordBytes );
-			list.FillBuffer( buffer, 0, tableRecords * RecordBytes, (size - tableRecords) * RecordBytes );
-			list.Barrier( PipelineStage.Transfer, MemoryAccess.TransferWrite, PipelineStage.Transfer, MemoryAccess.TransferWrite | MemoryAccess.TransferRead );
+			list.CopyBuffer( table, 0, buffer, 0, oldRanges * RecordBytes );
 			retired.Add( (table, frame) );
 		}
 
 		table = buffer;
-		Volatile.Write( ref tableSlot, gpu.BindlessIndex( buffer ) );
-		Volatile.Write( ref tableRecords, size );
+		tableRecords = size;
+	}
+
+	void WriteDraws( CommandList list, List<PendingDraw> pending )
+	{
+		long neededDraws = 0, neededWords = levelWords;
+		foreach ( ref var record in CollectionsMarshal.AsSpan( pending ) )
+		{
+			neededDraws = Math.Max( neededDraws, (long)record.Draw + 1 );
+			neededWords += record.Words;
+		}
+
+		if ( neededDraws > drawCapacity || neededWords > levelCapacity ) GrowDrawTable( list, neededDraws, neededWords );
+		var levelsAt = LodDrawTable.Size + drawCapacity * sizeof( uint );
+		var packed = list.AllocateUpload( checked( (int)((neededWords - levelWords) * sizeof( uint )) ), 4 );
+		var links = list.AllocateUpload( checked( pending.Count * sizeof( uint ) ), 4 );
+		var words = MemoryMarshal.Cast<byte, uint>( packed.Data );
+		var offsets = MemoryMarshal.Cast<byte, uint>( links.Data );
+		var records = CollectionsMarshal.AsSpan( pending );
+		int at = 0;
+		for ( int k = 0; k < records.Length; k++ )
+		{
+			ref var record = ref records[k];
+			ReadOnlySpan<uint> levels = record.Levels;
+			levels[..record.Words].CopyTo( words[at..] );
+			offsets[k] = (uint)(levelWords + at);
+			at += record.Words;
+			list.CopyBuffer( links.Buffer, links.Offset + k * sizeof( uint ), drawTable, LodDrawTable.Size + (long)record.Draw * sizeof( uint ), sizeof( uint ) );
+		}
+
+		list.CopyBuffer( packed.Buffer, packed.Offset, drawTable, levelsAt + levelWords * sizeof( uint ), packed.Data.Length );
+		levelWords = neededWords;
+	}
+
+	void GrowDrawTable( CommandList list, long neededDraws, long neededWords )
+	{
+		var draws = Math.Max( drawCapacity, 1 << 12 );
+		while ( draws < neededDraws ) draws *= 2;
+		var levels = Math.Max( levelCapacity, 1 << 12 );
+		while ( levels < neededWords ) levels *= 2;
+		var levelsAt = LodDrawTable.Size + draws * sizeof( uint );
+		var buffer = gpu.CreateBuffer( new BufferInfo { Size = levelsAt + levels * sizeof( uint ), Usage = BufferUsage.Storage | BufferUsage.CopyDestination | BufferUsage.CopySource, Memory = MemoryLocation.Device, Name = "Borealis LOD draws" } );
+		var header = new LodDrawTable { DrawCount = (uint)draws };
+		list.UpdateBuffer<LodDrawTable>( buffer, new ReadOnlySpan<LodDrawTable>( in header ) );
+		var oldLevelsAt = LodDrawTable.Size + drawCapacity * sizeof( uint );
+		if ( drawTable.IsValid )
+		{
+			list.CopyBuffer( drawTable, LodDrawTable.Size, buffer, LodDrawTable.Size, drawCapacity * sizeof( uint ) );
+			list.CopyBuffer( drawTable, oldLevelsAt + sizeof( uint ), buffer, levelsAt + sizeof( uint ), (levelWords - 1) * sizeof( uint ) );
+			retired.Add( (drawTable, frame) );
+		}
+
+		if ( draws > drawCapacity ) list.FillBuffer( buffer, 0, oldLevelsAt, levelsAt - oldLevelsAt );
+		list.Barrier( PipelineStage.Transfer, MemoryAccess.TransferWrite, PipelineStage.Transfer, MemoryAccess.TransferWrite );
+		drawTable = buffer;
+		drawCapacity = draws;
+		levelCapacity = levels;
 	}
 
 	//
@@ -915,8 +1010,12 @@ internal sealed class LodStore : IDisposable
 		}
 	}
 
-	/// <summary>Device memory it holds: the LOD table and the levels views keep.</summary>
-	public long Bytes => tableRecords * RecordBytes + StateHeaderBytes + (long)StateSlices * StateSliceBytes;
+	/// <summary>Bytes of the LOD range table, for tests.</summary>
+	internal long RangeBytesHeld => tableRecords * RecordBytes;
+
+	/// <summary>Device memory it holds: the LOD tables and the levels views keep.</summary>
+	public long Bytes => RangeBytesHeld + (drawTable.IsValid ? LodDrawTable.Size + (drawCapacity + levelCapacity) * sizeof( uint ) : 0)
+		+ StateHeaderBytes + (long)StateSlices * StateSliceBytes;
 
 	public void Dispose()
 	{
@@ -930,6 +1029,7 @@ internal sealed class LodStore : IDisposable
 		}
 
 		if ( table.IsValid ) gpu.Destroy( table );
+		if ( drawTable.IsValid ) gpu.Destroy( drawTable );
 		foreach ( var (old, _) in retired ) gpu.Destroy( old );
 		retired.Clear();
 		if ( state.IsValid ) gpu.Destroy( state );

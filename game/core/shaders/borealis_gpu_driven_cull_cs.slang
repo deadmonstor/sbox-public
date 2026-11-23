@@ -17,7 +17,7 @@ Mode( Default );
 //-------------------------------------------------------------------------------------------------------------------------------------------------------------
 #if ( PROGRAM == VFX_PROGRAM_CS )
 #include "sbox/view.slangh"
-#include "borealis_records.fxc"
+#include "borealis_range_tables.fxc"
 
 // The raw buffer array in the bindless set (binding 63): the fragment and draw tables
 #ifndef BINDLESS_VERTEX_BUFFERS_DECLARED
@@ -49,12 +49,12 @@ cbuffer BorealisGpuDrivenCull_t
 	uint g_nCullRuns;			// byte offset of the multi-draws: first command slot and visible count each, or 0 to keep every slot
 	uint g_nCullFrame;			// this frame's stamp
 	uint g_nCullVisibility;		// bindless slot of each visibility fragment's first triangle bit
-	uint g_nCullLodTable;		// bindless slot of the generated LOD table (128 bytes per draw record), or None
+	uint g_nCullLodTable;		// bindless slot of the generated LOD range table, or None
 	uint g_nCullCapacity;		// indices g_Compacted holds
 	uint g_nCullFragmentWords;	// g_Frame byte offset of instance 0's fragment word, for the id prepass (wraps)
 	uint g_nCullListed;			// byte offset of the fragments forward compacts: dispatch arguments, then 32 bytes each
-	uint g_nCullMeshletRuns;		// a prepass that culls meshlets: bindless slot of the meshlet runs (16 bytes per draw record); else None
-	uint g_nCullLodCount;		// draw records the LOD table covers
+	uint g_nCullMeshletRuns;		// bindless slot of the draw links and meshlet range runs, or None
+	uint g_nCullLodDraws;		// bindless slot of the generated LOD draw links and level draw records, or None
 };
 
 static const uint None = 0xffffffffu;
@@ -120,9 +120,8 @@ bool TakesMoved( uint nFilter, uint nMoved, uint nSettled, uint nRestless )
 	return !bStatic && !bSettled;
 }
 
-// Generated LODs (Borealis.Backend/Lods/LodStore.cs, docs/reference/borealis-gpu-driven.md "Generated LODs"). A draw record's LOD
-// record, 128 bytes in the LOD table: its level count, a word unused and each level's error (a fraction of the fragment's
-// bounds' half diagonal); then 16 bytes per level: first index, index count, draw record and a word unused
+// Generated LODs (LodStore, docs/reference/borealis-gpu-driven.md "Generated LODs"): each range shares the levels,
+// index spans and errors. A draw over it keeps its own level draw records.
 static const float LodHysteresis = 0.75;
 static const uint LodStateHeader = 64;
 static const uint LodSliceFragments = 524288;
@@ -214,16 +213,21 @@ uint PickLod( uint nMode, float flScale, float3 vEye, float3 vCenter, float3 vEx
 // resident mesh's of a model without LODs, by its bounds and visibility fragment (whose byte keeps its level)
 uint LevelDraw( uint nDrawRecord, uint4 vLod, float3 vEye, float3 vCenter, float3 vExtents, uint nFragment )
 {
-	if ( g_nCullLodTable == None || nDrawRecord >= g_nCullLodCount )
+	if ( ( vLod.z & 0xff ) == 0 || g_nCullLodDraws == None )
 		return nDrawRecord;
 
 	ByteAddressBuffer lods = g_bindless_VertexBuffers[ g_nCullLodTable ];
-	uint nLodAt = nDrawRecord * LodRecord_Size;
+	ByteAddressBuffer levelDraws = g_bindless_VertexBuffers[ g_nCullLodDraws ];
+	uint nLevelsAt = LodDrawAt( levelDraws, nDrawRecord );
+	if ( nLevelsAt == 0 )
+		return nDrawRecord;
+
+	uint nLodAt = levelDraws.Load( nLevelsAt ) * LodRecord_Size;
 	uint nLevels = min( lods.Load( nLodAt + LodRecord_Levels ), 6u );
 	float4 vErrors = asfloat( lods.Load4( nLodAt + LodRecord_Errors ) );
 	float2 vMore = asfloat( lods.Load2( nLodAt + LodRecord_Errors + 4 * LodRecord_ErrorsStride ) );
 	uint nLevel = PickLod( vLod.z, asfloat( vLod.w ), vEye, vCenter, vExtents, nLevels, vErrors, vMore, nFragment );
-	return nLevel > 0 ? lods.Load( nLodAt + LodRecord_Level + ( nLevel - 1 ) * LodRecord_LevelStride + LodLevel_Draw ) : nDrawRecord;
+	return nLevel > 0 ? levelDraws.Load( nLevelsAt + nLevel * 4 ) : nDrawRecord;
 }
 
 // One index of a draw, from its index page (16 or 32 bits)
@@ -266,7 +270,7 @@ bool HiZDeferred( uint4 vViewFlags, uint4 vVisibility, float3 vCenter, float3 vE
 
 	bool bMeshlets = false;
 	if ( ( vVisibility.z & 12 ) == 0 && g_nCullMeshletRuns != None && ( vVisibility.y & TaskRun ) == 0 )
-		bMeshlets = g_bindless_VertexBuffers[ g_nCullMeshletRuns ].Load( nDrawRecord * MeshletRun_Size + MeshletRun_Count ) - 1 < 4096u;
+		bMeshlets = MeshletRunCount( g_bindless_VertexBuffers[ g_nCullMeshletRuns ], nDrawRecord ) - 1 < 4096u;
 	uint nCompactRun = vVisibility.y;
 
 	uint nAt;
@@ -471,7 +475,7 @@ uint TakeSlot( uint nRun )
 				// mesh shaders (its sixth word's top bit), takes a slot of the bucket's task run, a task group of
 				// borealis_meshlet_ids each
 				// (A depth prepass lists only aggregates' fragments: static meshes' draws have meshlets for shadow views.)
-				bool bMeshlets = !bListed && ( vVisibility.z & 1 ) != 0 && ( bShadow || ( vVisibility.z & 12 ) == 0 ) && g_nCullMeshletRuns != None && g_bindless_VertexBuffers[ g_nCullMeshletRuns ].Load( nDrawRecord * MeshletRun_Size + MeshletRun_Count ) - 1 < 4096u;
+				bool bMeshlets = !bListed && ( vVisibility.z & 1 ) != 0 && ( bShadow || ( vVisibility.z & 12 ) == 0 ) && g_nCullMeshletRuns != None && MeshletRunCount( g_bindless_VertexBuffers[ g_nCullMeshletRuns ], nDrawRecord ) - 1 < 4096u;
 				if ( bMeshlets && ( vVisibility.y & TaskRun ) != 0 )
 				{
 					uint nSlot = TakeSlot( vVisibility.y & ~TaskRun );

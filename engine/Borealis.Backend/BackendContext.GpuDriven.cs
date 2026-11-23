@@ -41,11 +41,11 @@ internal sealed partial class BackendContext
 		public uint FirstInstance, Fragments, Draws, Runs;
 
 		/// <summary>
-		/// The frame's stamp; not 0 where forward's compaction sets fragments' Hi-Z visible bits; the generated LOD table's bindless slot (none without one); the compacted buffer's
-		/// indices; the fragment words' and the listed fragments' byte offsets; a prepass that culls meshlets: the meshlet run
-		/// table's bindless slot, else none; the draw records the LOD table covers.
+		/// The frame's stamp; not 0 where forward's compaction sets fragments' Hi-Z visible bits; the LOD range table's slot;
+		/// the compacted buffer's indices; the fragment words' and the listed fragments' offsets; a prepass that culls
+		/// meshlets: the meshlet run table's slot, else none; the LOD draw table's slot.
 		/// </summary>
-		public uint Frame, Visibility, LodTable, Capacity, FragmentWords, Listed, MeshletRuns, LodCount;
+		public uint Frame, Visibility, LodTable, Capacity, FragmentWords, Listed, MeshletRuns, LodDraws;
 	}
 
 	/// <summary><c>borealis_meshlet_cull_cs</c>'s <c>BorealisMeshletCull_t</c> (<see cref="HandFilledConstants"/>).</summary>
@@ -1109,7 +1109,7 @@ internal sealed partial class BackendContext
 		cullAttributes ??= new ShaderAttributes();
 		cullConstants ??= new byte[Marshal.SizeOf<GpuDrivenCullConstants>()];
 		var lods = device.LodStore;
-		var lodTable = lods?.Table ?? (-1, 0u);
+		var lodTable = lods?.Table ?? (-1, -1);
 
 		// Forward's compaction sets the visible bits of the view's next prepass (two-phase Hi-Z occlusion)
 		var hizBits = lists && device.HiZOcclusion && visibility is not null && visibility.HiZVisible[visibility.HiZCurrent].IsValid;
@@ -1130,8 +1130,8 @@ internal sealed partial class BackendContext
 			FragmentWords = (uint)(frameOffset + fragmentOffset) - firstInstance * 4,
 			Listed = lists || meshlets ? (uint)(frameOffset + listedOffset) : 0,
 			MeshletRuns = meshlets || lists && MeshletStampsReady( visibility ) ? (uint)device.MeshletStore.RunSlotCovering( tables.DrawRecords ) : uint.MaxValue,
-			LodTable = lodTable.Slot >= 0 ? (uint)lodTable.Slot : uint.MaxValue,
-			LodCount = lodTable.Records,
+			LodTable = (uint)lodTable.Ranges,
+			LodDraws = (uint)lodTable.Draws,
 		} );
 		cullAttributes.Clear();
 		cullAttributes.Set( "BorealisCullFrame", frameBuffer );
