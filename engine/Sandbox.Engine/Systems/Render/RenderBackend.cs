@@ -113,6 +113,9 @@ internal abstract class RenderBackend
 	/// <summary>Whether any device other than <see cref="Default"/> exists, which might make copies of engine resources.</summary>
 	internal static bool OthersExist => others.Length > 0;
 
+	/// <summary>Whether <paramref name="backend"/> is the only device registered to hold backings.</summary>
+	protected static bool IsOnlyRegisteredDevice( RenderBackend backend ) => others is [var only] && only == backend;
+
 	/// <summary>
 	/// A shader was compiled while running (<see cref="Shader.CompileAsync(string, string, System.Threading.CancellationToken)"/>,
 	/// a hotloaded <c>.shader</c>): take its compiled file under the path its materials name, replacing what this device had

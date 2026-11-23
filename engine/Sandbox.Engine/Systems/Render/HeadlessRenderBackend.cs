@@ -71,7 +71,7 @@ internal sealed class HeadlessRenderBackend : RenderBackend
 			return Convert( file.Mip( mip ).Slice( sliceBytes * slice, sliceBytes ), stored, file.Format.IsCompressed(), width, height, source, destination, data, format, pixel, stride );
 		}
 
-		if ( texture.InitialPixels is { } pixels && mip == 0 && slice == 0 && texture.Depth <= 1 )
+		if ( mip == 0 && slice == 0 && texture.Depth <= 1 && texture.ReadInitialPixels() is { } pixels )
 		{
 			var made = ImageLoader.GetMemRequired( texture.Width, texture.Height, 1, 1, texture.ImageFormat );
 			if ( made <= 0 || pixels.Length < made ) return false;

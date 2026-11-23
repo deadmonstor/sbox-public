@@ -24,6 +24,51 @@ public class BorealisGpuTexturesTest
 		return MemoryMarshal.AsBytes( pixels.AsSpan() ).ToArray();
 	}
 
+	[TestMethod, DoNotParallelize]
+	public void SoleDeviceReleasesInitialPixelsAndRecoversThemWhenNeeded()
+	{
+		RequireVulkan();
+		var primary = (BorealisGpuRenderBackend)RenderBackend.Default;
+		const int size = 4;
+		var expected = new Color32( 17, 29, 43, 255 );
+		using var texture = Texture.Create( size, size ).WithData( Pixels( size, size, ( _, _ ) => expected ) ).Finish();
+		Assert.IsNotNull( texture.InitialPixels );
+		primary.TextureOf( texture );
+		Assert.IsNull( texture.InitialPixels, "The upload no longer needs a managed copy on a sole drawing device." );
+		Assert.AreEqual( expected, primary.ReadPixels( texture )[0] );
+
+		texture.RefreshNativeDescription();
+		Assert.IsNotNull( texture.InitialPixels, "Dropping a live backing first recovers the pixels needed to remake it." );
+		Assert.AreEqual( expected, primary.ReadPixels( texture )[0] );
+		Assert.IsNull( texture.InitialPixels );
+
+		using var copy = Texture.Create( 1, 1 ).Finish();
+		copy.CopyFrom( texture );
+		Assert.AreEqual( expected, primary.ReadPixels( copy )[0], "A replacement can recover its source's uploaded pixels." );
+		Assert.IsNull( texture.InitialPixels, "Copying did not put the pixels back on the source." );
+
+		using var secondary = BorealisGpuRenderBackend.Create( validation: true );
+		Assert.IsNotNull( texture.InitialPixels, "Another device needs a CPU source for its own copy." );
+		Assert.AreEqual( expected, secondary.ReadPixels( texture )[0] );
+
+		using var shared = Texture.Create( size, size ).WithData( Pixels( size, size, ( _, _ ) => expected ) ).Finish();
+		primary.TextureOf( shared );
+		Assert.IsNotNull( shared.InitialPixels, "Keep the bytes if another device can need them later." );
+		Assert.AreEqual( expected, secondary.ReadPixels( shared )[0] );
+		Assert.AreEqual( 0, secondary.ValidationErrors );
+	}
+
+	[TestMethod, DoNotParallelize]
+	public void WritableTextureKeepsInitialPixels()
+	{
+		RequireVulkan();
+		var primary = (BorealisGpuRenderBackend)RenderBackend.Default;
+		using var texture = Texture.Create( 4, 4 ).WithUAVBinding()
+			.WithData( Pixels( 4, 4, ( _, _ ) => new Color32( 11, 27, 19, 255 ) ) ).Finish();
+		primary.TextureOf( texture );
+		Assert.IsNotNull( texture.InitialPixels, "A storage image can overwrite the source data." );
+	}
+
 	/// <summary>
 	/// A copy is made from the texture's own pixels with a recorded write, and an update of part of the texture lands in
 	/// the copy without dropping it or reading Source 2's pixels back.

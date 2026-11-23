@@ -59,18 +59,33 @@ public partial class Texture : Resource, IDisposable
 	public int Index => Graphics.Backend.TextureIndex( this );
 
 	/// <summary>
-	/// Replace our strong handle with a copy of the strong handle of the passed texture
-	/// Which means that this texture will invisibly become that texture.
-	/// I suspect that there might be a decent way to do this in native using the resource system.
-	/// In which case we should change all this code to use that way instead of doing this.
-	/// </summary>
-	/// <summary>
-	/// What the texture was made with, kept when the process draws on a device other than Source 2's
-	/// (<see cref="RenderBackend.Default"/>) or has another device beside it, which makes its copy from them: the pixel
-	/// data, or the colour it was cleared to.
+	/// What the texture was made with: its bytes in memory, or the sole drawing device that holds them after upload.
 	/// Null once the texture has been changed since.
 	/// </summary>
-	internal byte[] InitialPixels { get; set; }
+	object initialPixels;
+
+	internal byte[] InitialPixels
+	{
+		get => System.Threading.Volatile.Read( ref initialPixels ) as byte[];
+		set => System.Threading.Volatile.Write( ref initialPixels, value );
+	}
+
+	internal bool InitialPixelsAreOn( BorealisGpuRenderBackend backend ) => ReferenceEquals( System.Threading.Volatile.Read( ref initialPixels ), backend.InitialPixelsOwner );
+
+	internal void ReleaseInitialPixels( byte[] pixels, BorealisGpuRenderBackend backend ) =>
+		System.Threading.Interlocked.CompareExchange( ref initialPixels, backend.InitialPixelsOwner, pixels );
+
+	internal void RestoreInitialPixels( BorealisGpuRenderBackend backend, byte[] pixels ) =>
+		System.Threading.Interlocked.CompareExchange( ref initialPixels, pixels, backend.InitialPixelsOwner );
+
+	internal byte[] ReadInitialPixels() => System.Threading.Volatile.Read( ref initialPixels ) switch
+	{
+		byte[] pixels => pixels,
+		WeakReference<BorealisGpuRenderBackend> owner when owner.TryGetTarget( out var backend ) => backend.ReadInitialPixels( this ),
+		_ => null,
+	};
+
+	/// <summary>The colour a new texture was made with or last cleared to.</summary>
 	internal Color? InitialColor { get; set; }
 
 	/// <summary>
@@ -86,15 +101,24 @@ public partial class Texture : Resource, IDisposable
 	/// </summary>
 	internal bool DrawnByView { get; set; }
 
+	/// <summary>
+	/// Replace our strong handle with a copy of the strong handle of the passed texture
+	/// Which means that this texture will invisibly become that texture.
+	/// I suspect that there might be a decent way to do this in native using the resource system.
+	/// In which case we should change all this code to use that way instead of doing this.
+	/// </summary>
 	internal void CopyFrom( Texture texture )
 	{
 		if ( !texture.IsValid() )
 			return;
 
+		var pixels = texture.ReadInitialPixels();
+
 		// What other devices made of the old contents is stale
+		InitialPixels = null;
 		RenderBackend.ReleaseEverywhere( this );
 		MadeAtRunTime = texture.MadeAtRunTime;
-		InitialPixels = texture.InitialPixels;
+		InitialPixels = pixels;
 		InitialColor = texture.InitialColor;
 
 		if ( !native.IsNull )
@@ -134,6 +158,9 @@ public partial class Texture : Resource, IDisposable
 	/// </summary>
 	internal void RefreshNativeDescription()
 	{
+		if ( System.Threading.Volatile.Read( ref initialPixels ) is WeakReference<BorealisGpuRenderBackend> owner && owner.TryGetTarget( out var backend ) )
+			backend.ReadInitialPixels( this, restore: true );
+
 		// One made at run time keeps what it was made with: its handle hasn't changed
 		if ( !describedAtCreation )
 		{
@@ -271,6 +298,7 @@ public partial class Texture : Resource, IDisposable
 	/// </summary>
 	public void Dispose()
 	{
+		InitialPixels = null;
 		RenderBackend.ReleaseEverywhere( this );
 		Destroy();
 	}

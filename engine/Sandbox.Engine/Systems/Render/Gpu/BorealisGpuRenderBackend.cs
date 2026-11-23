@@ -138,7 +138,23 @@ internal sealed partial class BorealisGpuRenderBackend : RenderBackend, IDisposa
 		} );
 
 		gpu.Profiler = new TraceZones();
-		return new BorealisGpuRenderBackend( gpu, ownsDevice: true ) { followsFrames = frames };
+		var backend = new BorealisGpuRenderBackend( gpu, ownsDevice: true )
+		{
+			followsFrames = frames,
+			canReleaseInitialPixels = frames && !Utility.CommandLine.HasSwitch( "-borealisgpu-keeprunning" ),
+		};
+		try
+		{
+			// Registration prevents further reclamation. Before the new device can draw, give back the bytes that
+			// now have another reader, including any reclaimed by a worker just as the device registered.
+			if ( Default is BorealisGpuRenderBackend primary ) primary.RestoreInitialPixels();
+			return backend;
+		}
+		catch
+		{
+			backend.Dispose();
+			throw;
+		}
 	}
 
 	/// <summary>
@@ -486,6 +502,7 @@ internal sealed partial class BorealisGpuRenderBackend : RenderBackend, IDisposa
 	{
 		this.gpu = gpu;
 		this.ownsDevice = ownsDevice;
+		InitialPixelsOwner = new( this );
 		files = ContentFiles.FindGame();
 		files.Resolve = MountedFile;
 		services = new BackendDevice( gpu, files );
@@ -1161,6 +1178,8 @@ internal sealed partial class BorealisGpuRenderBackend : RenderBackend, IDisposa
 	TextureHandle Make( Texture texture )
 	{
 		TextureHandle handle;
+		var initial = texture.InitialPixels;
+		bool uploadedInitialPixels = false;
 		if ( texture.IsRenderTarget )
 		{
 			// Its samples (a multisampled one is still sampled, as Texture2DMS) and an array's layers, as it was made
@@ -1200,6 +1219,7 @@ internal sealed partial class BorealisGpuRenderBackend : RenderBackend, IDisposa
 		else if ( FromData( texture ) is { } data )
 		{
 			handle = data;
+			uploadedInitialPixels = true;
 		}
 		else if ( texture.Desc.m_nFlags.Contains( NativeEngine.RuntimeTextureSpecificationFlags.TSPEC_VOLUME_TEXTURE ) )
 		{
@@ -1216,6 +1236,7 @@ internal sealed partial class BorealisGpuRenderBackend : RenderBackend, IDisposa
 			if ( texture.Desc.m_nFlags.Contains( NativeEngine.RuntimeTextureSpecificationFlags.TSPEC_UAV ) ) info.Usage |= TextureUsage.Storage;
 			handle = gpu.CreateTexture( info );
 			Upload( handle, info, pixels, ImageLayout.Undefined );
+			uploadedInitialPixels = true;
 		}
 		else if ( RawPixels( texture ) is { } raw )
 		{
@@ -1225,6 +1246,7 @@ internal sealed partial class BorealisGpuRenderBackend : RenderBackend, IDisposa
 			if ( texture.Desc.m_nFlags.Contains( NativeEngine.RuntimeTextureSpecificationFlags.TSPEC_UAV ) ) info.Usage |= TextureUsage.Storage;
 			handle = gpu.CreateTexture( info );
 			Upload( handle, info, raw.Data, ImageLayout.Undefined );
+			uploadedInitialPixels = true;
 		}
 		else if ( (texture.Desc.m_nFlags.Contains( NativeEngine.RuntimeTextureSpecificationFlags.TSPEC_UAV ) || (texture.InitialPixels is null && texture.InitialColor is not null)) && texture.Depth <= 1 && DataFormatOf( texture.ImageFormat ) is var storage && storage != GpuFormat.Unknown )
 		{
@@ -1243,6 +1265,16 @@ internal sealed partial class BorealisGpuRenderBackend : RenderBackend, IDisposa
 
 		textures.Add( texture, new Backing<TextureHandle>( handle ) { Collected = collectedTextures } );
 		textureOwners.Add( handle );
+		if ( uploadedInitialPixels && initial is not null && canReleaseInitialPixels && ReferenceEquals( Default, this )
+			&& IsOnlyRegisteredDevice( this ) && !texture.IsRenderTarget && !texture.UAVAccess )
+		{
+			var info = gpu.InfoOf( handle );
+			// Only bytes the image can give back exactly, as one mip of a 2D image or volume. A changed format,
+			// a render target replaced by a mirror, or a texture with a complete authored mip chain keeps its source.
+			if ( info.Format == UploadFormatOf( texture.ImageFormat ) && !info.Format.IsDepth()
+				&& ArrayLayersOf( info ) == 1 && MipBytes( info, 0 ) == initial.Length )
+				texture.ReleaseInitialPixels( initial, this );
+		}
 		return handle;
 	}
 
@@ -2610,16 +2642,22 @@ internal sealed partial class BorealisGpuRenderBackend : RenderBackend, IDisposa
 	public byte[] ReadBytes( Texture texture, int mip = 0 )
 	{
 		FromMain();
-		var handle = TextureOf( texture );
+		return ReadBytes( TextureOf( texture ), mip );
+	}
+
+	byte[] ReadBytes( TextureHandle handle, int mip, bool keepLayout = false )
+	{
 		SubmitUploads();
 		var info = gpu.InfoOf( handle );
-		var size = Math.Max( info.Width >> mip, 1 ) * Math.Max( info.Height >> mip, 1 ) * info.Format.BytesPerBlock();
+		var size = checked((int)(MipBytes( info, mip ) / ArrayLayersOf( info )));
 		var readback = gpu.CreateBuffer( new BufferInfo { Size = size, Memory = MemoryLocation.Readback, Name = "Readback" } );
 		try
 		{
+			var layout = context.LayoutOf( handle );
 			var copy = gpu.BeginCommandList( QueueType.Graphics, "Readback" );
 			context.Begin( copy );
 			context.CopyToBuffer( handle, readback, mip );
+			if ( keepLayout ) context.PrepareNative( handle, layout, false );
 			context.Finish();
 			using ( RenderSync.Readback( "Texture.GetPixels" ) ) gpu.Wait( gpu.Submit( copy ) );
 			return gpu.Map( readback )[..size].ToArray();

@@ -50,8 +50,8 @@ public partial class Texture
 			result.describedAtCreation = true;
 		}
 
-		// The drawing device makes its copy from these (Source 2's empty device holds no pixels), and a headless process reads
-		// them back; what's drawn makes a copy cleared (InitialColor)
+		// Source 2's empty device holds no pixels: the drawing device uploads these, or a headless process reads them
+		// back. A texture made with no pixels is initialized with InitialColor instead.
 		if ( result is not null )
 		{
 			result.InitialPixels = data != IntPtr.Zero && dataSize > 0 ? new ReadOnlySpan<byte>( (void*)data, dataSize ).ToArray() : null;

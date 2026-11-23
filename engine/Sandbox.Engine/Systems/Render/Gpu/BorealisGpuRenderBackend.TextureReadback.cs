@@ -15,6 +15,48 @@ internal sealed partial class BorealisGpuRenderBackend
 	long pixelReadbackSize;
 	const long KeptPixelReadback = 4 << 20;
 
+	// Only the process's frame-following device ends with the process rather than being rebuilt after a loss.
+	bool canReleaseInitialPixels;
+
+	/// <summary>The device marker shared by textures that no longer need a CPU copy.</summary>
+	internal WeakReference<BorealisGpuRenderBackend> InitialPixelsOwner { get; }
+
+	/// <summary>Recover an uploaded CPU seed when another texture or a headless reader needs it.</summary>
+	internal byte[] ReadInitialPixels( Texture texture, bool restore = false )
+	{
+		FromMain();
+		lock ( textureOwners )
+		{
+			if ( !texture.InitialPixelsAreOn( this ) ) return texture.InitialPixels;
+			if ( !textures.TryGetValue( texture, out var backing ) ) throw new InvalidOperationException( "The texture no longer has its initial backing." );
+			var pixels = ReadInitialPixels( backing.Handle );
+			if ( restore ) texture.RestoreInitialPixels( this, pixels );
+			return pixels;
+		}
+	}
+
+	/// <summary>Restore the CPU seeds when a second device is created and needs to make its own textures.</summary>
+	void RestoreInitialPixels()
+	{
+		if ( !canReleaseInitialPixels ) return;
+		FromMain();
+		lock ( textureOwners )
+		{
+			foreach ( var (texture, backing) in textures )
+			{
+				if ( texture.InitialPixelsAreOn( this ) )
+					texture.RestoreInitialPixels( this, ReadInitialPixels( backing.Handle ) );
+			}
+		}
+	}
+
+	byte[] ReadInitialPixels( TextureHandle handle )
+	{
+		if ( list is not null ) throw new InvalidOperationException( "Texture initial pixels cannot be read back inside a render block." );
+		TrackWorkerTextures();
+		return ReadBytes( handle, 0, keepLayout: true );
+	}
+
 	/// <summary>
 	/// A rectangle of one mip and slice (an array layer, a cube face, a volume's slice) of a texture's backing, after
 	/// everything submitted so far, converted on the CPU into the engine format asked for: what Source 2 reads back, in
