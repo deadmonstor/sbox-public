@@ -104,7 +104,7 @@ internal sealed class ScreenSpaceReflectionsPass : IDisposable
 		// The trace writes straight into the mip matching its resolution (half res = mip 1), the upscale fills mip 0 from it
 		int traceMip = System.Numerics.BitOperations.Log2( (uint)Ratio );
 		var reflection = trace.GetRenderTarget( "SSR_Reflection", 1, ImageFormat.RGBA16161616F, ImageFormat.None, numMips: ReflectionMips );
-		var guide = trace.GetRenderTarget( "SSR_Guide", Ratio, ImageFormat.RGBA16161616F, ImageFormat.None );
+		var guide = trace.GetRenderTarget( "SSR_Guide", ImageFormat.RGBA16161616F, sizeFactor: Ratio );
 		// Classified tile list, sized from this view like guide: floor(V/4R) slots per axis cover its ceil(V/8R) tiles
 		var tiles = trace.GetRenderTarget( "SSR_Tiles", Ratio * 4, ImageFormat.R32_UINT, ImageFormat.None );
 
@@ -144,12 +144,14 @@ internal sealed class ScreenSpaceReflectionsPass : IDisposable
 			trace.DispatchComputeIndirect( ShaderCs, dispatchArgs, (int)DispatchArgsEntry.Intersect );
 			trace.ResourceBarrierTransition( reflection, ResourceState.NonPixelShaderResource, traceMip );
 		}
+		trace.ReleaseRenderTarget( tiles );
+
+		trace.ResourceBarrierTransition( guide, ResourceState.NonPixelShaderResource );
 
 		if ( needsUpscale )
 		{
 			using var passScope = trace.ProfileScope( PassProfiles[(int)Passes.BilateralUpscale] );
 
-			trace.ResourceBarrierTransition( guide, ResourceState.NonPixelShaderResource );
 			trace.Attributes.Set( "Radiance", reflection.ColorTexture, traceMip );
 			trace.Attributes.Set( "Guide", guide.ColorTexture );
 			trace.Attributes.Set( "OutRadiance", reflection.ColorTexture, 0 );
@@ -157,6 +159,7 @@ internal sealed class ScreenSpaceReflectionsPass : IDisposable
 			trace.DispatchComputeIndirect( ShaderCs, dispatchArgs, (int)DispatchArgsEntry.BilateralUpscale );
 			trace.UavBarrier( reflection );
 		}
+		trace.ReleaseRenderTarget( guide );
 
 		// Rebuild from the bilateral-upscaled mip 0 so the raw trace doesn't bleed across edges
 		trace.GenerateMipMaps( reflection, Graphics.DownsampleMethod.GGX );

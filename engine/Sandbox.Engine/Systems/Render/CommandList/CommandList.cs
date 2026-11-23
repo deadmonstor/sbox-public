@@ -1051,9 +1051,7 @@ public sealed unsafe partial class CommandList
 	{
 		static void Execute( ref Entry entry, CommandList commandList )
 		{
-			// Pass the name as the pool's targetName so this handle maps to a stable physical texture
-			// across frames. Without it, any RT of matching dimensions/format shares one pool bucket and
-			// the name->texture mapping can shuffle frame-to-frame (breaking temporal/history buffers).
+			// The handle's name is local to this list; loan an unnamed scratch target by its texture descriptor.
 			var temp = Sandbox.RenderTarget.GetTemporary( (int)entry.Data1.y, (ImageFormat)(int)entry.Data1.x, depthFormat: ImageFormat.None, numMips: (int)entry.Data1.z );
 			commandList.state.renderTargets[(string)entry.Object5] = temp;
 		}

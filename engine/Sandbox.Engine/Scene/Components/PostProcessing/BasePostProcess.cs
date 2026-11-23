@@ -122,12 +122,11 @@ public abstract class BasePostProcess : Component, Component.ExecuteInEditor, Co
 		cl.Reset();
 		cl.DebugName = debugName;
 
-		if ( blit.WantsBackbuffer )
-		{
-			cl.Attributes.GrabFrameTexture( "ColorBuffer", blit.WantsBackbufferMips );
-		}
+		var backbuffer = blit.WantsBackbuffer ? cl.Attributes.GrabScratchFrameTexture( "ColorBuffer", blit.WantsBackbufferMips ) : default;
 
 		cl.Blit( blit.Material, blit.Attributes ?? Attributes );
+		if ( blit.WantsBackbuffer )
+			cl.ReleaseRenderTarget( backbuffer );
 
 		layer.CommandList = cl;
 	}

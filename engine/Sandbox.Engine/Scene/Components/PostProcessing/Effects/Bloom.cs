@@ -62,11 +62,11 @@ public class Bloom : BasePostProcess<Bloom>
 		command.Reset();
 
 		// Grab the current frame color once and reuse for compute + composite, no mips needed
-		var colorHandle = command.Attributes.GrabFrameTexture( "ColorBuffer" );
+		var colorHandle = command.Attributes.GrabScratchFrameTexture( "ColorBuffer" );
 
 		// Progressive downsample chain, half res down to 1/64th res
 		for ( int i = 0; i < MipCount; i++ )
-			command.GetRenderTarget( MipNames[i], 2 << i, ImageFormat.RGBA16161616F, ImageFormat.None );
+			command.GetRenderTarget( MipNames[i], ImageFormat.RGBA16161616F, sizeFactor: 2 << i );
 
 		static RenderTargetHandle Mip( int i ) => new() { Name = MipNames[i] };
 
@@ -97,6 +97,7 @@ public class Bloom : BasePostProcess<Bloom>
 			command.Attributes.Set( "BloomOut", Mip( i ).ColorTexture );
 			command.DispatchCompute( ShaderCs, Mip( i ).Size );
 			command.ResourceBarrierTransition( Mip( i ), i == 0 ? ResourceState.PixelShaderResource : ResourceState.NonPixelShaderResource );
+			command.ReleaseRenderTarget( Mip( i + 1 ) );
 		}
 
 		// Composite: sample the bloom texture in PS and apply selected mode
@@ -106,6 +107,8 @@ public class Bloom : BasePostProcess<Bloom>
 		command.Attributes.Set( "Tint", GetWeighted( x => x.Tint, Color.White ) );
 
 		command.Blit( Shader );
+		command.ReleaseRenderTarget( Mip( 0 ) );
+		command.ReleaseRenderTarget( colorHandle );
 
 		InsertCommandList( command, Stage.BeforePostProcess, 100, "Bloom" );
 	}

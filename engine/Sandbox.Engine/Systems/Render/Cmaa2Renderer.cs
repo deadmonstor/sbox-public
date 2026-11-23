@@ -124,9 +124,9 @@ internal sealed class Cmaa2Renderer : IDisposable
 		{
 			try
 			{
-				colorTarget = RenderTarget.GetTemporary( width, height, colorFormat, ImageFormat.None, MultisampleAmount.MultisampleNone, 1, "Cmaa2Color" );
-				edgesTarget = RenderTarget.GetTemporary( (width + 1) / 2, height, ImageFormat.R32_UINT, ImageFormat.None, MultisampleAmount.MultisampleNone, 1, "Cmaa2Edges" );
-				blendHeadsTarget = RenderTarget.GetTemporary( (width + 1) / 2, (height + 1) / 2, ImageFormat.R32_UINT, ImageFormat.None, MultisampleAmount.MultisampleNone, 1, "Cmaa2BlendHeads" );
+				colorTarget = RenderTarget.GetTemporary( width, height, colorFormat, ImageFormat.None );
+				edgesTarget = RenderTarget.GetTemporary( (width + 1) / 2, height, ImageFormat.R32_UINT, ImageFormat.None );
+				blendHeadsTarget = RenderTarget.GetTemporary( (width + 1) / 2, (height + 1) / 2, ImageFormat.R32_UINT, ImageFormat.None );
 			}
 			catch ( Exception exception )
 			{

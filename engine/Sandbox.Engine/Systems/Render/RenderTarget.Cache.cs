@@ -17,7 +17,7 @@ public sealed partial class RenderTarget
 	/// <param name="depthFormat">The format for the depth buffer.</param>
 	/// <param name="msaa">The number of msaa samples you'd like. Msaa render textures are a pain in the ass so you're probably gonna regret trying to use this.</param>
 	/// <param name="numMips">Number of mips you want in this texture. You probably don't want this unless you want to generate mips in a second pass.</param>
-	/// <param name="targetName">The optional name of the render target</param>
+	/// <param name="targetName">Optional pool identity for a target whose contents must stay separate. Leave empty for scratch targets.</param>
 	/// <returns>A RenderTarget that is ready to render to.</returns>
 	public static RenderTarget GetTemporary( int width, int height, ImageFormat colorFormat = ImageFormat.Default, ImageFormat depthFormat = ImageFormat.Default, MultisampleAmount msaa = MultisampleAmount.MultisampleNone, int numMips = 1, string targetName = "" )
 		=> GetTemporary( width, height, colorFormat, depthFormat, msaa, numMips, targetName, 0 );
@@ -107,7 +107,7 @@ public sealed partial class RenderTarget
 	/// <param name="depthFormat">The format for the depth buffer.</param>
 	/// <param name="msaa">The number of msaa samples you'd like. Msaa render textures are a pain in the ass so you're probably gonna regret trying to use this.</param>
 	/// <param name="numMips">Number of mips you want in this texture. You probably don't want this unless you want to generate mips in a second pass.</param>
-	/// <param name="targetName">The optional name of the render target</param>
+	/// <param name="targetName">Optional pool identity for a target whose contents must stay separate. Leave empty for scratch targets.</param>
 	/// <returns>A RenderTarget that is ready to render to.</returns>
 	public static RenderTarget GetTemporary( int sizeFactor, ImageFormat colorFormat = ImageFormat.Default, ImageFormat depthFormat = ImageFormat.Default, MultisampleAmount msaa = MultisampleAmount.MultisampleNone, int numMips = 1, string targetName = "" )
 	{

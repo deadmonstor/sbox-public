@@ -477,6 +477,12 @@ public static partial class Graphics
 	/// Grabs the current viewport's color texture and stores it in targetName on renderAttributes.
 	/// </summary>
 	public static RenderTarget GrabFrameTexture( string targetName = "FrameTexture", RenderAttributes renderAttributes = null, DownsampleMethod downsampleMethod = DownsampleMethod.None, int maxMips = 0 )
+		=> GrabFrameTexture( targetName, renderAttributes, downsampleMethod, maxMips, scratch: false );
+
+	/// <summary>
+	/// A scratch copy uses the unnamed pool and is returned by the command list after its last use, not at block end.
+	/// </summary>
+	internal static RenderTarget GrabFrameTexture( string targetName, RenderAttributes renderAttributes, DownsampleMethod downsampleMethod, int maxMips, bool scratch )
 	{
 		renderAttributes ??= Attributes;
 
@@ -490,16 +496,18 @@ public static partial class Graphics
 			numMips = maxMips > 0 ? Math.Min( maxMips, fullMips ) : fullMips;
 		}
 
-		// Grab a new one - which may very well be the one we just returned
-		var frameTexture = RenderTarget.GetTemporary( 1, ImageFormat.Default, ImageFormat.None, msaa: MultisampleAmount.MultisampleNone, numMips: numMips, targetName );
+		var frameTexture = RenderTarget.GetTemporary( 1, ImageFormat.Default, ImageFormat.None, msaa: MultisampleAmount.MultisampleNone, numMips: numMips, targetName: scratch ? "" : targetName );
 
 		Backend.ResolveColor( frameTexture.ColorTarget, Viewport );
 
 		// Generate a mip chain if we want one
 		if ( withMips ) GenerateMipMaps( frameTexture.ColorTarget, downsampleMethod );
 
-		grabbedTextures ??= new();
-		grabbedTextures.Add( frameTexture );
+		if ( !scratch )
+		{
+			grabbedTextures ??= new();
+			grabbedTextures.Add( frameTexture );
+		}
 
 		renderAttributes.Set( targetName, frameTexture.ColorTarget );
 
