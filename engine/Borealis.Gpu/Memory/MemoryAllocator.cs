@@ -315,6 +315,8 @@ internal sealed unsafe class MemoryAllocator : IDisposable
 	/// Memory for a buffer or an image. A <paramref name="target"/> (an image the GPU draws or writes into: a view's colour,
 	/// depth and storage targets) over a quarter of a small block gets its own allocation rather than room in a large block:
 	/// targets come and go with views and their sizes, and the holes they left kept large blocks reserved but mostly empty.
+	/// Upload buffers over that size also get their own, unless explicitly pooled: tables grow out of theirs, and a
+	/// long-lived constants buffer or frame chunk kept in the same block can hold all of its 128 MiB.
 	/// <paramref name="content"/> allocations (what a map loads and frees as a whole: its textures and geometry) share blocks
 	/// only with each other: mixed with long-lived resources made meanwhile (a game's targets, tables that grew), those kept
 	/// most blocks of an unloaded map's memory from going back.
@@ -325,7 +327,7 @@ internal sealed unsafe class MemoryAllocator : IDisposable
 		{
 			if ( RefuseDeviceLocal && location == MemoryLocation.Device ) throw new GpuException( "vkAllocateMemory (refused for a test)", VkResult.ErrorOutOfDeviceMemory );
 			var refusable = location == MemoryLocation.Device && SystemFallback && FallbackType( requirements.memoryTypeBits ) is not null;
-			return Allocate( requirements, image, target, FindType( requirements.memoryTypeBits, location ), content, refusable, fallback: false );
+			return Allocate( requirements, image, target, FindType( requirements.memoryTypeBits, location ), content, refusable, fallback: false, upload: !image && location == MemoryLocation.Upload );
 		}
 		catch ( GpuException e ) when ( e.Result == (int)VkResult.ErrorOutOfDeviceMemory && location == MemoryLocation.Device && SystemFallback && FallbackType( requirements.memoryTypeBits ) is { } fallback )
 		{
@@ -419,18 +421,18 @@ internal sealed unsafe class MemoryAllocator : IDisposable
 
 	static GpuException NoRoom() => new( "vkAllocateMemory (no room in the blocks there are)", VkResult.ErrorFragmentedPool );
 
-	Allocation Allocate( in VkMemoryRequirements requirements, bool image, bool target, int type, bool content, bool refusable, bool fallback )
+	Allocation Allocate( in VkMemoryRequirements requirements, bool image, bool target, int type, bool content, bool refusable, bool fallback, bool upload = false )
 	{
 		var size = requirements.size;
 		var alignment = Math.Max( requirements.alignment, 1 );
-		var ownAbove = (ShareLargeBlocks && !target ? LargeBlockSize : blockSize) / 4;
+		var ownAbove = (ShareLargeBlocks && !target && (!upload || InLargeBlocks) ? LargeBlockSize : blockSize) / 4;
 		if ( ExistingBlocksOnly && (fallback || (!image && size > OwnBufferSize && (content || OwnBigBuffers)) || size > ownAbove) ) throw NoRoom();
 
-		// A buffer over a quarter of a small block is its own (a map's vertex and index pages, views' visibility buffers,
-		// tables that grow): one still used after what was made beside it has gone doesn't hold a large block
+		// Pooled buffers (upload and geometry pages, views' visibility buffers) keep spares of their own size, since
+		// another of that size is likely to be needed. Larger upload buffers that aren't pooled take the path below.
 		if ( !image && (OwnAllocation || (size > OwnBufferSize && (content || OwnBigBuffers))) ) return OwnBuffer( type, size, alignment, content, refusable, fallback );
 
-		// Anything over a quarter of a large block gets its own allocation, and so does a target too big for a small block
+		// Anything over a quarter of the largest block it could share gets its own allocation, without a spare.
 		if ( size > ownAbove )
 		{
 			var dedicated = NewBlock( type, size, image, content, refusable, AllocationTrace.Dedicated );
@@ -595,16 +597,14 @@ internal sealed unsafe class MemoryAllocator : IDisposable
 	}
 
 	/// <summary>
-	/// Buffers bigger than this (a quarter of a small block) are allocations of their own (<see cref="OwnBuffer"/>). After a
-	/// map was unloaded, large blocks were kept by one long-lived buffer each (a growing table, a view's buffer) that had
-	/// been placed among the map's.
+	/// Above a quarter of a small block, content buffers take size-matched allocations (<see cref="OwnBuffer"/>)
+	/// rather than sharing a large block. This keeps long-lived buffers from holding blocks after a map unloads.
 	/// </summary>
 	public ulong OwnBufferSize => blockSize / 4;
 
 	/// <summary>
-	/// Whether every buffer over <see cref="OwnBufferSize"/> is its own, or only content's (geometry pages) while the rest
-	/// share large blocks (the default: each its own made about 35 of a Construct reload's 250 driver allocations). For
-	/// comparisons: <c>BOREALIS_SHARED_BIG_BUFFERS=0</c> makes each its own.
+	/// Whether to pool every buffer over <see cref="OwnBufferSize"/> in allocations of its own size
+	/// (<c>BOREALIS_SHARED_BIG_BUFFERS=0</c>, for comparisons), not just content's buffers and explicit upload pages.
 	/// </summary>
 	public static bool OwnBigBuffers { get; set; } = Environment.GetEnvironmentVariable( "BOREALIS_SHARED_BIG_BUFFERS" ) == "0";
 

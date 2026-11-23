@@ -37,4 +37,39 @@ public class GrowingTablesTests : GpuTest
 		Assert.AreEqual( slot, meshlets.RunSlotCovering( tables.DrawRecords ), "and doesn't grow again while it covers them" );
 		Device.WaitIdle();
 	}
+
+	/// <summary>
+	/// Table growth keeps the old buffers for recording frames, but once they retire their large allocations go back
+	/// without leaving a mostly empty mapped block beside the live table or keeping spares of obsolete sizes.
+	/// </summary>
+	[TestMethod]
+	public void GrowingTableDoesNotStrandLargeMappedBlocks()
+	{
+		using var tables = new GpuDrivenTables( Device );
+		for ( int i = 0; i < 5; i++ )
+		{
+			var key = new GpuDrivenTables.MaterialRecordKey( null, i, null, false, 0 );
+			tables.Material( key, 1 << (20 + i), 0, static ( _, bytes ) => bytes.Clear() );
+		}
+
+		var buffers = Device.ListResources().Buffers.Where( b => b.Name == "Borealis GPU-driven materials" ).OrderBy( b => b.Size ).ToArray();
+		Assert.AreEqual( 6, buffers.Length, "1, 2, 4, 8, 16 and 32 MiB generations" );
+		var large = buffers.Skip( 3 ).Select( b => Device.Get( b.Handle ).Memory ).ToArray();
+		Device.WaitIdle();
+		for ( ulong i = 1; i < GpuDrivenTables.RetiredFrames; i++ ) Device.BeginFrame();
+		tables.FreeEmptyPages();
+		Assert.IsTrue( buffers.All( b => Device.IsAlive( b.Handle ) ), "the old buffers still have their slots" );
+
+		Device.BeginFrame();
+		tables.FreeEmptyPages();
+		Device.BeginFrame();
+		Assert.IsTrue( buffers.Take( buffers.Length - 1 ).All( b => !Device.IsAlive( b.Handle ) ), "the old generations retired" );
+		Assert.IsTrue( Device.IsAlive( buffers[^1].Handle ) );
+		Assert.AreEqual( large[^1].Size, large[^1].Block.Size, "the live table doesn't pin unused room in a large block" );
+		for ( int i = 0; i < large.Length - 1; i++ )
+		{
+			Assert.AreEqual( 0ul, large[i].Block.Used, "the retired table's block emptied" );
+			Assert.IsFalse( large[i].Block.Spare, "its size won't be needed on the next growth" );
+		}
+	}
 }
